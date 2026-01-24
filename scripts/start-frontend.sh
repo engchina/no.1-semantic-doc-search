@@ -14,7 +14,7 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-PORT="${FRONTEND_PORT:-5173}"
+PORT="${FRONTEND_PORT:-5175}"
 
 if ! command -v node >/dev/null 2>&1; then
   echo "[フロントエンド] ERROR: 'node' が見つかりません (Node.js 18+ をインストールしてください)" 1>&2

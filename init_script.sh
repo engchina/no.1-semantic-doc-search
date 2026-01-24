@@ -54,6 +54,7 @@ retry_command apt-get install -y \
     build-essential \
     ca-certificates \
     gnupg \
+    nginx \
     fonts-ipafont-gothic \
     fonts-ipafont-mincho \
     fonts-noto-cjk
@@ -260,6 +261,72 @@ if [ -d "$PROJECT_DIR" ]; then
     
     echo "本番用フロントエンドをビルド中..."
     npm run build
+    
+    # Configure nginx
+    echo "nginxを設定中..."
+    cat > /etc/nginx/sites-available/semantic-doc-search << 'NGINX_EOF'
+server {
+    listen 80;
+    server_name _;
+
+    # ログ設定
+    access_log /var/log/nginx/semantic-doc-search-access.log;
+    error_log /var/log/nginx/semantic-doc-search-error.log warn;
+
+    # クライアント最大ボディサイズ（アップロード用）
+    client_max_body_size 100M;
+
+    # フロントエンド（静的ファイル）
+    location / {
+        proxy_pass http://127.0.0.1:5175;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # APIエンドポイント
+    location /api/ {
+        proxy_pass http://127.0.0.1:8081/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # ヘルスチェック
+    location /health {
+        proxy_pass http://127.0.0.1:8081/health;
+        proxy_set_header Host $host;
+        access_log off;
+    }
+}
+NGINX_EOF
+
+    # サイトを有効化
+    ln -sf /etc/nginx/sites-available/semantic-doc-search /etc/nginx/sites-enabled/
+    
+    # デフォルトサイトを無効化
+    rm -f /etc/nginx/sites-enabled/default
+    
+    # nginx設定をテスト
+    echo "nginx設定をテスト中..."
+    nginx -t
+    
+    # nginxをリロード
+    echo "nginxをリロード中..."
+    systemctl reload nginx || systemctl restart nginx
+    
+    # nginx自動起動を有効化
+    echo "nginx自動起動を有効化中..."
+    systemctl enable nginx
 fi
 
 # Create startup script
@@ -288,7 +355,7 @@ sleep 5
 
 echo "セマンティック文書検索フロントエンドサービスを起動中..."
 cd /u01/aipoc/no.1-semantic-doc-search/frontend
-nohup npm run preview -- --host 0.0.0.0 --port 5173 > /var/log/semantic-doc-search-frontend.log 2>&1 &
+nohup npm run preview -- --host 0.0.0.0 --port 5175 > /var/log/semantic-doc-search-frontend.log 2>&1 &
 
 echo "セマンティック文書検索サービスが起動しました。"
 EOF

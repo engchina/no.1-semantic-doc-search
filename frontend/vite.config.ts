@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   server: {
-    port: 5173,  // no.1-semantic-doc-searchは5173ポートを使用
+    port: 5175,  // no.1-semantic-doc-searchは5175ポートを使用
     proxy: {
       '/api': {
         target: 'http://localhost:8081',

@@ -28,5 +28,5 @@ output "ssh_to_instance" {
 
 output "application_url" {
   description = "convenient url to access the application"
-  value       = "http://${oci_core_instance.generated_oci_core_instance.public_ip}:5173"
+  value       = "http://${oci_core_instance.generated_oci_core_instance.public_ip}:5175"
 }
