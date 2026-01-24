@@ -1243,30 +1243,42 @@ async def search_documents(query: SearchQuery):
         # 4. ファイルを最小距離でソート
         sorted_files = sorted(files_dict.values(), key=lambda x: x['min_distance'])
         
-        # 5. 上位top_k件を取得
-        top_files = sorted_files[:query.top_k]
-        
-        # 6. レスポンスを構築
+        # 5. top_k件の画像を収集（ファイル単位で）
+        # 各ファイル内の画像も距離でソート
         results = []
         total_images = 0
         
-        for file_data in top_files:
+        for file_data in sorted_files:
             # 画像を距離でソート（距離が小さいものが前）
             sorted_images = sorted(file_data['images'], key=lambda x: x.vector_distance)
-            total_images += len(sorted_images)
             
-            file_result = FileSearchResult(
-                file_id=file_data['file_id'],
-                bucket=file_data['bucket'],
-                object_name=file_data['object_name'],
-                original_filename=file_data['original_filename'],
-                file_size=file_data['file_size'],
-                content_type=file_data['content_type'],
-                uploaded_at=file_data['uploaded_at'],
-                min_distance=file_data['min_distance'],
-                matched_images=sorted_images
-            )
-            results.append(file_result)
+            # top_k制限チェック：残りの画像数を計算
+            remaining_slots = query.top_k - total_images
+            
+            if remaining_slots <= 0:
+                # 既にtop_k件に達している場合は終了
+                break
+            
+            # このファイルから取得する画像数を決定
+            images_to_include = sorted_images[:remaining_slots] if remaining_slots < len(sorted_images) else sorted_images
+            
+            if len(images_to_include) > 0:
+                total_images += len(images_to_include)
+                
+                file_result = FileSearchResult(
+                    file_id=file_data['file_id'],
+                    bucket=file_data['bucket'],
+                    object_name=file_data['object_name'],
+                    original_filename=file_data['original_filename'],
+                    file_size=file_data['file_size'],
+                    content_type=file_data['content_type'],
+                    uploaded_at=file_data['uploaded_at'],
+                    min_distance=file_data['min_distance'],
+                    matched_images=images_to_include
+                )
+                results.append(file_result)
+        
+        # 6. ログ出力（total_imagesは既に計算済み）
         
         processing_time = time.time() - start_time
         
@@ -1292,13 +1304,13 @@ async def get_oci_image(bucket: str, object_name: str):
     
     Args:
         bucket: バケット名
-        object_name: オブジェクト名（URLエンコード済み）
+        object_name: オブジェクト名(URLエンコード済み)
         
     Returns:
         画像データまたはエラーレスポンス
     """
     try:
-        from urllib.parse import unquote
+        from urllib.parse import unquote, quote
         
         # URLデコード（日本語ファイル名対応）
         decoded_object_name = unquote(object_name)
@@ -1326,6 +1338,20 @@ async def get_oci_image(bucket: str, object_name: str):
         # Content-Typeを取得
         content_type = get_obj_response.headers.get('Content-Type', 'image/png')
         
+        # ファイル名を取得
+        original_filename = decoded_object_name.split("/")[-1]
+        
+        # Content-Dispositionヘッダーを生成（RFC 5987準拠、日本語対応）
+        # ASCIIファイル名とnon-ASCIIファイル名の両方に対応
+        try:
+            # ASCIIエンコード可能かチェック
+            original_filename.encode('ascii')
+            content_disposition = f'inline; filename="{original_filename}"'
+        except UnicodeEncodeError:
+            # ASCIIエンコード不可の場合はRFC 5987形式を使用
+            filename_encoded = quote(original_filename)
+            content_disposition = f"inline; filename*=UTF-8''{filename_encoded}"
+        
         logger.info(f"画像取得成功: object={decoded_object_name}, content_type={content_type}")
         
         # 画像データを返す
@@ -1334,7 +1360,7 @@ async def get_oci_image(bucket: str, object_name: str):
             media_type=content_type,
             headers={
                 'Cache-Control': 'max-age=3600',  # 1時間キャッシュ
-                'Content-Disposition': f'inline; filename="{decoded_object_name.split("/")[-1]}"'
+                'Content-Disposition': content_disposition
             }
         )
         
