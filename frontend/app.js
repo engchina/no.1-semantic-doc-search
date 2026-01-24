@@ -1524,7 +1524,7 @@ window.downloadSelectedOciObjects = async function() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${sessionStorage.getItem('token')}`,
+        'Authorization': `Bearer ${localStorage.getItem('loginToken')}`,
       },
       body: JSON.stringify({
         object_names: selectedOciObjects
@@ -1591,7 +1591,7 @@ window.convertSelectedOciObjectsToImages = async function() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${sessionStorage.getItem('token')}`,
+        'Authorization': `Bearer ${localStorage.getItem('loginToken')}`,
       },
       body: JSON.stringify({
         object_names: selectedOciObjects
@@ -1599,6 +1599,14 @@ window.convertSelectedOciObjectsToImages = async function() {
     });
     
     if (!response.ok) {
+      // 401エラーの場合は認証エラー
+      if (response.status === 401) {
+        utilsHideLoading();
+        ociObjectsBatchDeleteLoading = false;
+        showLoginModal();
+        throw new Error('無効または期限切れのトークンです。再度ログインしてください。');
+      }
+      
       const errorData = await response.json();
       throw new Error(errorData.detail || 'ページ画像化に失敗しました');
     }
@@ -1772,7 +1780,7 @@ window.vectorizeSelectedOciObjects = async function() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${sessionStorage.getItem('token')}`,
+        'Authorization': `Bearer ${localStorage.getItem('loginToken')}`,
       },
       body: JSON.stringify({
         object_names: selectedOciObjects
@@ -1780,6 +1788,14 @@ window.vectorizeSelectedOciObjects = async function() {
     });
     
     if (!response.ok) {
+      // 401エラーの場合は認証エラー
+      if (response.status === 401) {
+        utilsHideLoading();
+        ociObjectsBatchDeleteLoading = false;
+        showLoginModal();
+        throw new Error('無効または期限切れのトークンです。再度ログインしてください。');
+      }
+      
       const errorData = await response.json();
       throw new Error(errorData.detail || 'ベクトル化に失敗しました');
     }
@@ -4882,6 +4898,75 @@ function updateObjectStorageStatusBadge(bucketName, namespace) {
 }
 
 /**
+ * Object Storage設定を更新（更新ボタン用）
+ * .envからBucket NameとNamespaceを取得し、入力欄に反映
+ */
+async function refreshObjectStorageSettings() {
+  try {
+    utilsShowLoading('.envからObject Storage設定を取得中...');
+    
+    // OCI設定を取得
+    const settingsData = await authApiCall('/api/oci/settings');
+    
+    // Bucket Nameを設定
+    const bucketNameInput = document.getElementById('bucketName');
+    const namespaceInput = document.getElementById('namespace');
+    const namespaceStatus = document.getElementById('namespaceStatus');
+    
+    if (bucketNameInput && settingsData.settings.bucket_name) {
+      bucketNameInput.value = settingsData.settings.bucket_name;
+      utilsShowToast('Bucket Nameを更新しました', 'success');
+    } else {
+      utilsShowToast('Bucket Nameが.envに設定されていません', 'warning');
+    }
+    
+    // Namespaceを取得（.env優先、空ならAPI）
+    if (settingsData.settings.namespace) {
+      // .envから取得できた場合
+      namespaceInput.value = settingsData.settings.namespace;
+      namespaceStatus.textContent = '環境変数から読み込み済み';
+      namespaceStatus.className = 'text-xs text-green-600';
+      utilsShowToast('Namespaceを更新しました', 'success');
+    } else {
+      // 空の場合、APIで取得を試みる
+      namespaceStatus.textContent = 'Namespaceを取得中...';
+      namespaceStatus.className = 'text-xs text-blue-600';
+      
+      try {
+        const namespaceData = await authApiCall('/api/oci/namespace');
+        if (namespaceData.success) {
+          namespaceInput.value = namespaceData.namespace;
+          namespaceStatus.textContent = `OCI APIから自動取得済み`;
+          namespaceStatus.className = 'text-xs text-green-600';
+          utilsShowToast('NamespaceをAPIから取得しました', 'success');
+        } else {
+          namespaceStatus.textContent = '⚠️ Namespaceの取得に失敗しました';
+          namespaceStatus.className = 'text-xs text-red-600';
+          utilsShowToast(namespaceData.message || 'Namespaceの取得に失敗しました', 'error');
+        }
+      } catch (namespaceError) {
+        // console.error('Namespace取得エラー:', namespaceError);
+        namespaceStatus.textContent = `⚠️ 取得エラー: ${namespaceError.message}`;
+        namespaceStatus.className = 'text-xs text-red-600';
+        utilsShowToast(`Namespace取得エラー: ${namespaceError.message}`, 'error');
+      }
+    }
+    
+    // ステータスバッジを更新
+    updateObjectStorageStatusBadge(
+      bucketNameInput?.value,
+      namespaceInput?.value
+    );
+    
+  } catch (error) {
+    // console.error('Object Storage設定更新エラー:', error);
+    utilsShowToast(`設定更新エラー: ${error.message}`, 'error');
+  } finally {
+    utilsHideLoading();
+  }
+}
+
+/**
  * Object Storage設定を読み込む
  */
 async function loadObjectStorageSettings() {
@@ -5052,6 +5137,7 @@ window.loadOciSettings = loadOciSettings;
 window.saveOciSettings = saveOciSettings;
 window.testOciConnection = testOciConnection;
 window.loadObjectStorageSettings = loadObjectStorageSettings;
+window.refreshObjectStorageSettings = refreshObjectStorageSettings;
 window.saveObjectStorageSettings = saveObjectStorageSettings;
 window.testObjectStorageConnection = testObjectStorageConnection;
 

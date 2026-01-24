@@ -548,6 +548,15 @@ export async function downloadSelectedOciObjects() {
     });
     
     if (!response.ok) {
+      // 401エラーの場合は認証エラー
+      if (response.status === 401) {
+        hideLoading();
+        appState.set('ociObjectsBatchDeleteLoading', false);
+        const { showLoginModal } = await import('./auth.js');
+        showLoginModal();
+        throw new Error('無効または期限切れのトークンです');
+      }
+      
       const errorData = await response.json();
       throw new Error(errorData.detail || 'ダウンロードに失敗しました');
     }
@@ -619,6 +628,15 @@ export async function convertSelectedOciObjectsToImages() {
     });
     
     if (!response.ok) {
+      // 401エラーの場合は認証エラー
+      if (response.status === 401) {
+        hideLoading();
+        appState.set('ociObjectsBatchDeleteLoading', false);
+        const { showLoginModal } = await import('./auth.js');
+        showLoginModal();
+        throw new Error('無効または期限切れのトークンです');
+      }
+      
       const errorData = await response.json();
       throw new Error(errorData.detail || 'ページ画像化に失敗しました');
     }
@@ -683,6 +701,15 @@ export async function vectorizeSelectedOciObjects() {
     });
     
     if (!response.ok) {
+      // 401エラーの場合は認証エラー
+      if (response.status === 401) {
+        hideLoading();
+        appState.set('ociObjectsBatchDeleteLoading', false);
+        const { showLoginModal } = await import('./auth.js');
+        showLoginModal();
+        throw new Error('無効または期限切れのトークンです');
+      }
+      
       const errorData = await response.json();
       throw new Error(errorData.detail || 'ベクトル化に失敗しました');
     }
