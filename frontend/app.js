@@ -413,22 +413,8 @@ async function uploadMultipleDocuments() {
     // ボタンを無効化
     document.getElementById('uploadMultipleBtn').disabled = true;
     
-    // 進捗表示を表示
-    const progressDiv = document.getElementById('uploadProgress');
-    progressDiv.style.display = 'block';
-    progressDiv.innerHTML = `
-      <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div class="flex items-center gap-3 mb-3">
-          <div class="loading-spinner" style="width: 24px; height: 24px;">
-            <svg class="loading-spinner-svg" viewBox="0 0 50 50">
-              <circle class="loading-spinner-circle" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
-            </svg>
-          </div>
-          <span class="text-sm font-semibold text-blue-800">アップロード中...</span>
-        </div>
-        <div class="text-xs text-blue-700">${selectedMultipleFiles.length}個のファイルを処理しています。しばらくお待ちください...</div>
-      </div>
-    `;
+    // オーバーレイを表示
+    showLoading(`${selectedMultipleFiles.length}個のファイルをアップロード中...`);
     
     // FormDataを作成
     const formData = new FormData();
@@ -442,6 +428,9 @@ async function uploadMultipleDocuments() {
       body: formData
     });
     
+    // オーバーレイを非表示
+    hideLoading();
+    
     // 結果を表示
     displayUploadResults(data);
     
@@ -452,13 +441,14 @@ async function uploadMultipleDocuments() {
       showToast(`⚠️ ${data.message}`, 'warning');
     }
     
-    // フォームをリセット（3秒後）
+    // フォームをリセット（5秒後：showToastと同じタイミング）
     setTimeout(() => {
       clearMultipleFileSelection();
       // 注: 文書リストの自動刷新は行わない（🔄 更新ボタンで手動刷新）
-    }, 3000);
+    }, 5000);
     
   } catch (error) {
+    hideLoading();
     document.getElementById('uploadProgress').style.display = 'none';
     document.getElementById('uploadMultipleBtn').disabled = false;
     showToast(`アップロードエラー: ${error.message}`, 'error');
@@ -470,6 +460,7 @@ async function uploadMultipleDocuments() {
  */
 function displayUploadResults(data) {
   const progressDiv = document.getElementById('uploadProgress');
+  progressDiv.style.display = 'block';
   
   const results = data.results || [];
   
@@ -2992,9 +2983,11 @@ function clearCopilotHistory() {
 
 /**
  * AI Assistant入力欄のEnterキー処理
+ * Enter: 送信
+ * Shift+Enter: 改行
  */
 function handleCopilotKeydown(event) {
-  if (event.key === 'Enter' && event.ctrlKey) {
+  if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
     sendCopilotMessage();
   }
