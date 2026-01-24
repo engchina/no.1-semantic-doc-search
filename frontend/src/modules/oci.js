@@ -5,7 +5,7 @@
  */
 
 import { appState, getSelectedOciObjects, toggleOciObjectSelection, setAllOciObjectsSelection } from '../state.js';
-import { apiCall, forceLogout } from './auth.js';
+import { apiCall, forceLogout, showLoginModal } from './auth.js';
 import { showLoading, hideLoading, showToast, showConfirmModal, updateStatusBadge } from './utils.js';
 
 // ========================================
@@ -531,13 +531,12 @@ export async function downloadSelectedOciObjects() {
     return;
   }
   
-  // トークンを確認
-  const loginToken = appState.get('loginToken');
+  // トークンを確認（localStorageから直接取得 - referenceプロジェクトに準拠）
+  const loginToken = localStorage.getItem('loginToken');
   const debugMode = appState.get('debugMode');
   
   if (!loginToken && !debugMode) {
     showToast('認証が必要です。ログインしてください', 'warning');
-    const { showLoginModal } = await import('./auth.js');
     showLoginModal();
     return;
   }
@@ -620,13 +619,12 @@ export async function convertSelectedOciObjectsToImages() {
     return;
   }
   
-  // トークンを確認
-  const loginToken = appState.get('loginToken');
+  // トークンを確認（localStorageから直接取得 - referenceプロジェクトに準拠）
+  const loginToken = localStorage.getItem('loginToken');
   const debugMode = appState.get('debugMode');
   
   if (!loginToken && !debugMode) {
     showToast('認証が必要です。ログインしてください', 'warning');
-    const { showLoginModal } = await import('./auth.js');
     showLoginModal();
     return;
   }
@@ -707,13 +705,12 @@ export async function vectorizeSelectedOciObjects() {
     return;
   }
   
-  // トークンを確認
-  const loginToken = appState.get('loginToken');
+  // トークンを確認（localStorageから直接取得 - referenceプロジェクトに準拠）
+  const loginToken = localStorage.getItem('loginToken');
   const debugMode = appState.get('debugMode');
   
   if (!loginToken && !debugMode) {
     showToast('認証が必要です。ログインしてください', 'warning');
-    const { showLoginModal } = await import('./auth.js');
     showLoginModal();
     return;
   }
