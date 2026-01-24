@@ -531,17 +531,34 @@ export async function downloadSelectedOciObjects() {
     return;
   }
   
+  // トークンを確認
+  const loginToken = appState.get('loginToken');
+  const debugMode = appState.get('debugMode');
+  
+  if (!loginToken && !debugMode) {
+    showToast('認証が必要です。ログインしてください', 'warning');
+    const { showLoginModal } = await import('./auth.js');
+    showLoginModal();
+    return;
+  }
+  
   try {
     appState.set('ociObjectsBatchDeleteLoading', true);
     showLoading(`${selectedOciObjects.length}件のファイルをZIPに圧縮中...`);
     
-    const loginToken = appState.get('loginToken');
+    // リクエストヘッダーを構築
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    
+    // トークンがある場合のみAuthorizationヘッダーを追加
+    if (loginToken) {
+      headers['Authorization'] = `Bearer ${loginToken}`;
+    }
+    
     const response = await fetch('/api/oci/objects/download', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${loginToken}`,
-      },
+      headers: headers,
       body: JSON.stringify({
         object_names: selectedOciObjects
       })
@@ -601,6 +618,17 @@ export async function convertSelectedOciObjectsToImages() {
     return;
   }
   
+  // トークンを確認
+  const loginToken = appState.get('loginToken');
+  const debugMode = appState.get('debugMode');
+  
+  if (!loginToken && !debugMode) {
+    showToast('認証が必要です。ログインしてください', 'warning');
+    const { showLoginModal } = await import('./auth.js');
+    showLoginModal();
+    return;
+  }
+  
   // 確認モーダルを表示
   const confirmed = await showConfirmModal(
     `選択された${selectedOciObjects.length}件のファイルを各ページPNG画像として同名フォルダに保存します。\n\n処理には時間がかかる場合があります。実行しますか？`,
@@ -615,13 +643,19 @@ export async function convertSelectedOciObjectsToImages() {
     appState.set('ociObjectsBatchDeleteLoading', true);
     showLoading('ページ画像化を開始しています...');
     
-    const loginToken = appState.get('loginToken');
+    // リクエストヘッダーを構築
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    
+    // トークンがある場合のみAuthorizationヘッダーを追加
+    if (loginToken) {
+      headers['Authorization'] = `Bearer ${loginToken}`;
+    }
+    
     const response = await fetch('/api/oci/objects/convert-to-images', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${loginToken}`,
-      },
+      headers: headers,
       body: JSON.stringify({
         object_names: selectedOciObjects
       })
@@ -669,6 +703,17 @@ export async function vectorizeSelectedOciObjects() {
     return;
   }
   
+  // トークンを確認
+  const loginToken = appState.get('loginToken');
+  const debugMode = appState.get('debugMode');
+  
+  if (!loginToken && !debugMode) {
+    showToast('認証が必要です。ログインしてください', 'warning');
+    const { showLoginModal } = await import('./auth.js');
+    showLoginModal();
+    return;
+  }
+  
   // 確認モーダルを表示
   const confirmed = await showConfirmModal(
     `選択された${selectedOciObjects.length}件のファイルを画像ベクトル化してデータベースに保存します。
@@ -688,13 +733,19 @@ export async function vectorizeSelectedOciObjects() {
     appState.set('ociObjectsBatchDeleteLoading', true);
     showLoading('ベクトル化を開始しています...');
     
-    const loginToken = appState.get('loginToken');
+    // リクエストヘッダーを構築
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    
+    // トークンがある場合のみAuthorizationヘッダーを追加
+    if (loginToken) {
+      headers['Authorization'] = `Bearer ${loginToken}`;
+    }
+    
     const response = await fetch('/api/oci/objects/vectorize', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${loginToken}`,
-      },
+      headers: headers,
       body: JSON.stringify({
         object_names: selectedOciObjects
       })
