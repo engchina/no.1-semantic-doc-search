@@ -249,8 +249,8 @@ export async function apiCall(endpoint, options = {}) {
   const url = apiBase ? `${apiBase}${endpoint}` : endpoint;
   const headers = options.headers || {};
   
-  // トークンがあれば追加
-  const loginToken = appState.get('loginToken');
+  // トークンがあれば追加（localStorageから直接取得 - 確実にトークンを取得）
+  const loginToken = localStorage.getItem('loginToken');
   if (loginToken) {
     headers['Authorization'] = `Bearer ${loginToken}`;
   }
