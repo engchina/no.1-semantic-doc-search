@@ -2,13 +2,13 @@ data "template_file" "cloud_init_file" {
   template = file("./cloud_init/bootstrap.template.yaml")
 
   vars = {
+    comp_id    = var.compartment_ocid
+    bucket     = var.oci_bucket_name    
     db_conn    = base64gzip("oml_user/${var.adb_password}@${lower(var.adb_name)}_high")
-    wallet     = oci_database_autonomous_database_wallet.generated_autonomous_data_warehouse_wallet.content
     db_pass    = var.adb_password
     db_dsn     = "${lower(var.adb_name)}_high"
-    comp_id    = var.compartment_ocid
     adb_name   = var.adb_name
-    bucket     = var.oci_bucket_name
+    adb_ocid   = oci_database_autonomous_database.generated_database_autonomous_database.id
   }
 }
 

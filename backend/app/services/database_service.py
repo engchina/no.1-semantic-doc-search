@@ -49,7 +49,7 @@ def setup_tns_admin() -> str:
 
 # 設定ファイルパス
 STORAGE_PATH = Path(os.getenv("STORAGE_PATH", "./storage"))
-DB_SETTINGS_FILE = STORAGE_PATH / "metadata" / "db_settings.json"
+# DB接続は.envのORACLE_26AI_CONNECTION_STRINGを使用
 
 # oracledbモジュールのインポート（オプション）
 try:
@@ -97,142 +97,204 @@ def init_oracle_client():
 
 def _execute_db_operation(func_name: str, **kwargs) -> Dict[str, Any]:
     """
-    Execute database operation in thread pool
+    データベース操作を実行（接続テスト用）
+    
+    参照プロジェクト（No.1-SQL-Assist）の実装に基づくシンプルな接続方式
     
     Args:
-        func_name: Name of the operation ('test_connection')
-        **kwargs: Arguments for the operation (username, password, dsn)
+        func_name: 操作名 ('test_connection')
+        **kwargs: 接続パラメータ (username, password, dsn)
         
     Returns:
         Dict with operation result
     """
-    import re
+    import time
     
-    def log_info(msg):
-        """ログ出力（logger と print 両方）"""
-        logger.info(msg)
-        print(msg, flush=True)
+    logger.info("========== データベース操作開始 ==========")
+    logger.info(f"操作: {func_name}")
     
-    def log_error(msg):
-        """エラーログ出力（logger と print 両方）"""
-        logger.error(msg)
-        print(f"ERROR: {msg}", flush=True)
-    
+    # Step 1: oracledbモジュール確認
+    logger.info("[Step 1] oracledbモジュール確認")
     if not ORACLEDB_AVAILABLE:
-        return {
-            'success': False,
-            'message': 'oracledbモジュールがインストールされていません'
-        }
-
-    try:
-        log_info(f"========== 接続テスト開始 ==========")
-        log_info(f"Executing {func_name}")
-        log_info(f"kwargs username: {kwargs.get('username')}")
-        log_info(f"kwargs password exists: {bool(kwargs.get('password'))}")
-        log_info(f"kwargs dsn: {kwargs.get('dsn')}")
+        logger.error("  ✘ oracledbモジュールが利用できません")
+        return {'success': False, 'message': 'oracledbモジュールがインストールされていません'}
+    logger.info(f"  ✔ oracledb version: {oracledb.__version__}")
+    
+    # Step 2: Oracle Client初期化
+    logger.info("[Step 2] Oracle Client初期化")
+    if not init_oracle_client():
+        logger.error("  ✘ Oracle Clientの初期化に失敗")
+        return {'success': False, 'message': 'Oracle Clientの初期化に失敗しました'}
+    logger.info("  ✔ Oracle Client初期化成功")
+    
+    # Step 3: TNS_ADMIN設定
+    logger.info("[Step 3] TNS_ADMIN設定")
+    tns_admin = setup_tns_admin()
+    logger.info(f"  TNS_ADMIN: {tns_admin}")
+    
+    if not tns_admin or not os.path.exists(tns_admin):
+        logger.error(f"  ✘ TNS_ADMINディレクトリが存在しません: {tns_admin}")
+        return {'success': False, 'message': f'Walletディレクトリが見つかりません: {tns_admin}'}
+    
+    # Walletファイル確認
+    wallet_files = os.listdir(tns_admin)
+    logger.info(f"  Walletファイル: {wallet_files}")
+    
+    required_files = ['cwallet.sso', 'tnsnames.ora']
+    missing = [f for f in required_files if f not in wallet_files]
+    if missing:
+        logger.error(f"  ✘ 必要なWalletファイルが不足: {missing}")
+        return {'success': False, 'message': f'必要なWalletファイルが不足: {missing}'}
+    logger.info("  ✔ WalletファイルOK")
+    
+    # 利用可能なサービス確認
+    import re
+    tnsnames_path = os.path.join(tns_admin, 'tnsnames.ora')
+    available_services = []
+    if os.path.exists(tnsnames_path):
+        with open(tnsnames_path, 'r') as f:
+            content = f.read()
+        available_services = re.findall(r'^([\w-]+)\s*=', content, re.MULTILINE)
+        logger.info(f"  利用可能なサービス: {available_services}")
+    
+    if func_name == 'test_connection':
+        # Step 4: 接続パラメータ確認
+        logger.info("[Step 4] 接続パラメータ確認")
+        username = kwargs.get('username')
+        password = kwargs.get('password')
+        dsn = kwargs.get('dsn')
         
-        # Oracle Client 初期化（Linuxのみ、一度だけ）
-        if not init_oracle_client():
-            return {
-                'success': False,
-                'message': 'Oracle Clientの初期化に失敗しました'
-            }
+        logger.info(f"  username: {username}")
+        logger.info(f"  password: {'***' if password else 'None'}")
+        logger.info(f"  dsn: {dsn}")
         
-        # Setup environment
-        tns_admin = setup_tns_admin()
-        log_info(f"TNS_ADMIN set to: {tns_admin}")
+        if not username:
+            logger.error("  ✘ usernameが設定されていません")
+            return {'success': False, 'message': 'ユーザー名が必要です'}
+        if not password:
+            logger.error("  ✘ passwordが設定されていません")
+            return {'success': False, 'message': 'パスワードが必要です'}
+        if not dsn:
+            logger.error("  ✘ dsnが設定されていません")
+            return {'success': False, 'message': 'DSNが必要です'}
         
-        # Wallet ディレクトリの確認
-        if tns_admin:
-            log_info(f"TNS_ADMIN exists: {os.path.exists(tns_admin)}")
-            if os.path.exists(tns_admin):
-                files = os.listdir(tns_admin)
-                log_info(f"Wallet files: {files}")
-                # tnsnames.ora の内容確認
-                tnsnames_path = os.path.join(tns_admin, 'tnsnames.ora')
-                if os.path.exists(tnsnames_path):
-                    with open(tnsnames_path, 'r') as f:
-                        content = f.read()
-                    # サービス名を抽出
-                    services = re.findall(r'^(\w+)\s*=', content, re.MULTILINE)
-                    log_info(f"Available services in tnsnames.ora: {services}")
-                else:
-                    log_error(f"tnsnames.ora not found at: {tnsnames_path}")
-            else:
-                log_error(f"TNS_ADMIN directory does not exist: {tns_admin}")
-        else:
-            log_error("TNS_ADMIN is None!")
+        # DSNがtnsnames.oraに存在するか確認
+        if available_services and dsn not in available_services:
+            logger.warning(f"  ⚠ DSN '{dsn}' がtnsnames.oraに見つかりません")
+            logger.warning(f"  利用可能なサービス: {available_services}")
         
-        if func_name == 'test_connection':
-            # Get connection parameters
-            username = kwargs.get('username')
-            password = kwargs.get('password')
-            dsn = kwargs.get('dsn')
-            
-            if not username or not password or not dsn:
-                log_error(f"Missing credentials - username: {bool(username)}, password: {bool(password)}, dsn: {bool(dsn)}")
-                return {
-                    'success': False,
-                    'message': 'ユーザー名、パスワード、DSNが必要です'
-                }
-            
-            log_info(f"Connecting to: username={username}, dsn={dsn}")
-            log_info(f"Using config_dir: {tns_admin}")
-            log_info(f"oracledb version: {oracledb.__version__}")
-            
-            # Connect to database with config_dir for Wallet support
-            connection = oracledb.connect(
-                user=username,
-                password=password,
-                dsn=dsn,
-                config_dir=tns_admin
-            )
-            
-            log_info(f"Connection established")
-            
-            # Execute test query
-            cursor = connection.cursor()
-            cursor.execute("SELECT 'OK' FROM DUAL")
-            result = cursor.fetchone()
-            cursor.close()
-            connection.close()
-            
-            log_info(f"Test query executed successfully")
-            
-            if result and result[0] == 'OK':
+        logger.info("  ✔ 接続パラメータOK")
+        
+        # Step 5: データベース接続（リトライ付き）
+        logger.info("[Step 5] データベース接続")
+        
+        max_retries = 3
+        retry_delay = 2
+        last_error = None
+        
+        for attempt in range(1, max_retries + 1):
+            connection = None
+            try:
+                from datetime import datetime
+                logger.info(f"  接続試行 {attempt}/{max_retries}...")
+                logger.info(f"  接続開始時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}")
+                start_time = time.time()
+                
+                # シンプルな接続（参照プロジェクトと同じ方式）
+                logger.info("  >>> oracledb.connect()呼び出し中... (ハングする場合はDB停止の可能性)")
+                connection = oracledb.connect(
+                    user=username,
+                    password=password,
+                    dsn=dsn,
+                    tcp_connect_timeout=30  # 30秒でタイムアウト
+                )
+                
+                elapsed = time.time() - start_time
+                logger.info(f"  <<< oracledb.connect()完了 ({elapsed:.2f}秒)")
+                
+                # Step 6: 接続テスト
+                logger.info("[Step 6] 接続テスト")
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1 FROM DUAL")
+                    result = cursor.fetchone()
+                    logger.info(f"  ✔ テストクエリ成功: {result}")
+                
+                # 接続をクローズ
+                connection.close()
+                
+                logger.info("========== 接続テスト完了: 成功 ==========")
                 return {
                     'success': True,
                     'message': 'データベース接続に成功しました',
-                    'details': {'status': 'connected'}
+                    'details': {'status': 'connected', 'attempts': attempt}
                 }
-            else:
-                return {
-                    'success': False,
-                    'message': '接続テストが失敗しました'
-                }
+                
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+                logger.error(f"  ✘ 接続失敗 (試行{attempt}): {error_str}")
+                
+                # エラー原因を解析
+                if "DPY-6005" in error_str or "DPY-6000" in error_str:
+                    logger.error("  原因: データベースが停止している可能性")
+                elif "ORA-01017" in error_str:
+                    logger.error("  原因: ユーザー名/パスワードが不正")
+                elif "ORA-12154" in error_str:
+                    logger.error("  原因: DSNが見つからない")
+                elif "ORA-12541" in error_str:
+                    logger.error("  原因: リスナーが応答しない")
+                elif "Broken pipe" in error_str:
+                    logger.error("  原因: ネットワーク接続切断")
+                
+                # 接続をクローズ
+                if connection:
+                    try:
+                        connection.close()
+                    except:
+                        pass
+                
+                # リトライ
+                if attempt < max_retries:
+                    logger.info(f"  {retry_delay}秒後にリトライ...")
+                    time.sleep(retry_delay)
         
-        return {
-            'success': False,
-            'message': f'不明な操作: {func_name}'
-        }
+        # 全リトライ失敗
+        logger.error(f"========== 接続テスト完了: 失敗 ==========")
+        error_msg = str(last_error) if last_error else '不明なエラー'
         
-    except Exception as e:
-        error_msg = str(e)
-        log_error(f"Database operation error: {error_msg}")
-        import traceback
-        log_error(f"Traceback: {traceback.format_exc()}")
-        return {
-            'success': False,
-            'message': f'接続エラー: {error_msg}'
-        }
+        # ユーザー向けのエラーメッセージを生成
+        if "DPY-6005" in error_msg or "DPY-6000" in error_msg:
+            user_msg = '接続エラー: データベースが停止している可能性があります。ADBの起動状態を確認してください。'
+        elif "ORA-01017" in error_msg:
+            user_msg = '接続エラー: ユーザー名またはパスワードが正しくありません。'
+        elif "ORA-12154" in error_msg:
+            user_msg = '接続エラー: DSNが見つかりません。Walletとtnsnames.oraを確認してください。'
+        elif "ORA-12541" in error_msg:
+            user_msg = '接続エラー: データベースサーバーに接続できません。ネットワーク設定を確認してください。'
+        elif "Broken pipe" in error_msg:
+            user_msg = '接続エラー: ネットワーク接続が切断されました。'
+        else:
+            user_msg = f'接続エラー: {error_msg}'
+        
+        return {'success': False, 'message': user_msg}
+    
+    return {'success': False, 'message': f'不明な操作: {func_name}'}
 
 
 class DatabaseService:
-    """データベース管理サービス（単例モード）"""
+    """データベース管理サービス（単例モード）
+    
+    参照プロジェクト（No.1-SQL-Assist）の実装方式に基づく:
+    - 接続プールを使用せず、単純な接続方式
+    - TNS_ADMIN環境変数を使用（config_dirパラメータは使用しない）
+    - 各操作前に接続状態をチェックし、必要に応じて再接続
+    """
     _instance = None
-    _pool = None
-    _pool_lock = None
     _initialized = False
+    
+    # リトライ設定
+    MAX_RETRIES = 3
+    RETRY_DELAY = 2  # 秒
     
     def __new__(cls):
         """単例モードの実装"""
@@ -243,37 +305,319 @@ class DatabaseService:
     def __init__(self):
         """初期化（一度だけ実行）"""
         if not self.__class__._initialized:
-            import threading
             self.connection = None
             self.settings = self._load_settings()
-            self.__class__._pool_lock = threading.Lock()
             self.__class__._initialized = True
-            logger.info("DatabaseService単例モードで初期化しました")
+            logger.info("========== DatabaseService初期化 ==========")
+            logger.info("データベースサービスを単例モードで初期化しました")
+            logger.info(f"MAX_RETRIES={self.MAX_RETRIES}, RETRY_DELAY={self.RETRY_DELAY}秒")
+    
+    def is_connected(self) -> bool:
+        """データベース接続状態をチェック
+        
+        Returns:
+            bool: 接続が有効な場合True
+        """
+        try:
+            if self.connection is None:
+                logger.debug("接続状態チェック: connectionはNone")
+                return False
+            # 簡単なクエリでテスト
+            with self.connection.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM DUAL")
+                cursor.fetchone()
+            logger.debug("接続状態チェック: 接続有効")
+            return True
+        except Exception as e:
+            logger.warning(f"接続状態チェック: 接続無効 - {e}")
+            return False
+    
+    def _reconnect_with_retry(self) -> bool:
+        """リトライロジックでデータベースに再接続
+        
+        Returns:
+            bool: 再接続成功の場合True
+        """
+        logger.info("========== データベース再接続開始 ==========")
+        
+        import time
+        for retry in range(self.MAX_RETRIES):
+            try:
+                logger.info(f"再接続試行 {retry + 1}/{self.MAX_RETRIES}")
+                
+                # 既存接続をクローズ
+                if self.connection:
+                    try:
+                        self.connection.close()
+                        logger.info("既存接続をクローズしました")
+                    except Exception as close_err:
+                        logger.warning(f"既存接続クローズエラー: {close_err}")
+                    self.connection = None
+                
+                # 新しい接続を作成
+                self.connection = self._create_connection_internal()
+                
+                if self.is_connected():
+                    logger.info(f"再接続成功 (試行{retry + 1}回目)")
+                    return True
+                
+                if retry < self.MAX_RETRIES - 1:
+                    logger.info(f"{self.RETRY_DELAY}秒後にリトライ...")
+                    time.sleep(self.RETRY_DELAY)
+                    
+            except Exception as e:
+                logger.error(f"再接続試行 {retry + 1} 失敗: {e}")
+                if retry < self.MAX_RETRIES - 1:
+                    logger.info(f"{self.RETRY_DELAY}秒後にリトライ...")
+                    time.sleep(self.RETRY_DELAY)
+        
+        logger.error(f"再接続失敗: {self.MAX_RETRIES}回試行後")
+        return False
+    
+    def _create_connection_internal(self) -> Optional[Any]:
+        """データベース接続を内部的に作成（リトライなし）
+        
+        Returns:
+            データベース接続、または失敗時はNone
+        """
+        logger.info("========== 接続作成開始 ==========")
+        
+        # Step 1: oracledbモジュール確認
+        logger.info("[Step 1] oracledbモジュール確認")
+        if not ORACLEDB_AVAILABLE:
+            logger.error("  ✘ oracledbモジュールが利用できません")
+            return None
+        logger.info(f"  ✔ oracledbモジュール利用可能 (version: {oracledb.__version__})")
+        
+        # Step 2: 接続情報取得
+        logger.info("[Step 2] 接続情報取得")
+        username = self.settings.get("username")
+        password = self.settings.get("password")
+        dsn = self.settings.get("dsn")
+        
+        logger.info(f"  設定ファイルから: username={username}, dsn={dsn}, password_exists={bool(password)}")
+        
+        # 設定が不完全な場合、.envから取得
+        if not username or not password or not dsn:
+            logger.info("  設定が不完全、.envから取得を試みます...")
+            env_info = self.get_env_connection_info()
+            if env_info.get("success"):
+                username = username or env_info.get("username")
+                password = password or env_info.get("password")
+                dsn = dsn or env_info.get("dsn")
+                logger.info(f"  .envから取得: username={username}, dsn={dsn}, password_exists={bool(password)}")
+            else:
+                logger.warning(f"  .envからの取得失敗: {env_info.get('message', 'unknown')}")
+        
+        if not username:
+            logger.error("  ✘ usernameが設定されていません")
+            return None
+        if not password:
+            logger.error("  ✘ passwordが設定されていません")
+            return None
+        if not dsn:
+            logger.error("  ✘ dsnが設定されていません")
+            return None
+        logger.info(f"  ✔ 接続情報OK: username={username}, dsn={dsn}")
+        
+        # Step 3: Oracle Client初期化
+        logger.info("[Step 3] Oracle Client初期化")
+        if not init_oracle_client():
+            logger.error("  ✘ Oracle Clientの初期化に失敗しました")
+            return None
+        logger.info("  ✔ Oracle Client初期化成功")
+        
+        # Step 4: Wallet場所確認とTNS_ADMIN設定
+        logger.info("[Step 4] Wallet場所確認とTNS_ADMIN設定")
+        wallet_location = self._get_wallet_location()
+        logger.info(f"  ORACLE_CLIENT_LIB_DIR: {os.getenv('ORACLE_CLIENT_LIB_DIR')}")
+        logger.info(f"  Wallet場所: {wallet_location}")
+        
+        if not wallet_location:
+            logger.error("  ✘ Wallet場所が取得できません")
+            return None
+        
+        if not os.path.exists(wallet_location):
+            logger.error(f"  ✘ Walletディレクトリが存在しません: {wallet_location}")
+            return None
+        
+        # Walletファイルの確認
+        wallet_files = os.listdir(wallet_location)
+        logger.info(f"  Walletファイル: {wallet_files}")
+        
+        required_files = ['cwallet.sso', 'tnsnames.ora']
+        missing_files = [f for f in required_files if f not in wallet_files]
+        if missing_files:
+            logger.error(f"  ✘ 必要なWalletファイルが不足: {missing_files}")
+            return None
+        
+        # TNS_ADMIN設定
+        os.environ['TNS_ADMIN'] = wallet_location
+        logger.info(f"  ✔ TNS_ADMIN設定完了: {wallet_location}")
+        
+        # tnsnames.oraのサービス確認
+        tnsnames_path = os.path.join(wallet_location, 'tnsnames.ora')
+        if os.path.exists(tnsnames_path):
+            import re
+            with open(tnsnames_path, 'r') as f:
+                content = f.read()
+            services = re.findall(r'^([\w-]+)\s*=', content, re.MULTILINE)
+            logger.info(f"  利用可能なサービス: {services}")
+            if dsn not in services:
+                logger.warning(f"  ⚠ 指定されたDSN '{dsn}' がtnsnames.oraに見つかりません")
+        
+        # Step 5: データベース接続
+        logger.info("[Step 5] データベース接続")
+        logger.info(f"  接続パラメータ: user={username}, dsn={dsn}")
+        
+        try:
+            import time
+            from datetime import datetime
+            
+            # 接続前の詳細情報
+            logger.info(f"  接続開始時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}")
+            logger.info(f"  環境変数 TNS_ADMIN: {os.environ.get('TNS_ADMIN')}")
+            logger.info(f"  環境変数 ORACLE_CLIENT_LIB_DIR: {os.environ.get('ORACLE_CLIENT_LIB_DIR')}")
+            
+            start_time = time.time()
+            logger.info("  >>> oracledb.connect()を呼び出し中... (ここでハングする場合はDBが停止している可能性)")
+            
+            # 接続タイムアウトを設定（60秒）
+            # tcp_connect_timeout: TCP接続タイムアウト
+            connection = oracledb.connect(
+                user=username,
+                password=password,
+                dsn=dsn,
+                tcp_connect_timeout=30  # 30秒でタイムアウト
+            )
+            
+            elapsed = time.time() - start_time
+            logger.info(f"  <<< oracledb.connect()完了 ({elapsed:.2f}秒)")
+            logger.info(f"  ✔ 接続成功")
+            
+            # Step 6: 接続テスト
+            logger.info("[Step 6] 接続テスト")
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM DUAL")
+                result = cursor.fetchone()
+                logger.info(f"  ✔ テストクエリ成功: {result}")
+            
+            logger.info("========== 接続作成完了 ==========")
+            return connection
+            
+        except Exception as e:
+            logger.error(f"  ✘ 接続失敗: {e}")
+            logger.error(f"  エラータイプ: {type(e).__name__}")
+            
+            # エラー詳細を解析
+            error_str = str(e)
+            if "DPY-6005" in error_str or "DPY-6000" in error_str:
+                logger.error("  原因: データベースが停止している可能性があります")
+            elif "ORA-01017" in error_str:
+                logger.error("  原因: ユーザー名またはパスワードが正しくありません")
+            elif "ORA-12154" in error_str:
+                logger.error("  原因: DSNが見つかりません。Walletとtnsnames.oraを確認してください")
+            elif "Broken pipe" in error_str or "errno 32" in error_str.lower():
+                logger.error("  原因: ネットワーク接続が切断されました")
+            
+            return None
+    
+    def _create_connection(self, settings: Optional[Dict[str, Any]] = None, max_retries: int = 3) -> Optional[Any]:
+        """データベース接続を作成（リトライ機能付き）
+        
+        Args:
+            settings: 接続設定（Noneの場合はself.settingsを使用）
+            max_retries: 最大リトライ回数
+            
+        Returns:
+            データベース接続、または失敗時はNone
+        """
+        logger.info(f"_create_connection呼び出し (max_retries={max_retries})")
+        
+        # settingsが指定されている場合は一時的に使用
+        original_settings = None
+        if settings is not None:
+            original_settings = self.settings
+            self.settings = settings
+        
+        try:
+            import time
+            for attempt in range(1, max_retries + 1):
+                logger.info(f"接続試行 {attempt}/{max_retries}")
+                
+                connection = self._create_connection_internal()
+                if connection:
+                    return connection
+                
+                if attempt < max_retries:
+                    logger.info(f"{self.RETRY_DELAY}秒後にリトライ...")
+                    time.sleep(self.RETRY_DELAY)
+            
+            logger.error(f"接続失敗: {max_retries}回試行後")
+            return None
+            
+        finally:
+            # settingsを元に戻す
+            if original_settings is not None:
+                self.settings = original_settings
+    
+    def _release_connection(self, connection):
+        """接続をクローズ"""
+        if connection:
+            try:
+                connection.close()
+                logger.info("データベース接続をクローズしました")
+            except Exception as e:
+                logger.error(f"接続クローズエラー: {e}")
     
     def _load_settings(self) -> Dict[str, Any]:
-        """DB設定をファイルから読み込む"""
-        if DB_SETTINGS_FILE.exists():
-            try:
-                with open(DB_SETTINGS_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.error(f"DB設定読み込みエラー: {e}")
+        """DB設定を.envのORACLE_26AI_CONNECTION_STRINGから読み込む
         
-        return {
+        形式: username/password@dsn
+        """
+        settings = {
             "username": None,
             "password": None,
             "dsn": None,
             "wallet_uploaded": False,
             "available_services": []
         }
+        
+        conn_string = os.getenv('ORACLE_26AI_CONNECTION_STRING')
+        if conn_string:
+            try:
+                # 形式: username/password@dsn
+                if '@' in conn_string and '/' in conn_string:
+                    user_pass, dsn = conn_string.rsplit('@', 1)
+                    if '/' in user_pass:
+                        username, password = user_pass.split('/', 1)
+                        settings['username'] = username
+                        settings['password'] = password
+                        settings['dsn'] = dsn
+                        logger.info(f"DB設定を.envから読み込み: {username}@{dsn}")
+            except Exception as e:
+                logger.error(f"ORACLE_26AI_CONNECTION_STRINGの解析エラー: {e}")
+        
+        # Wallet状態を確認
+        wallet_location = self._get_wallet_location()
+        if wallet_location and os.path.exists(wallet_location):
+            settings['wallet_uploaded'] = True
+            settings['available_services'] = self._extract_dsn_from_tnsnames(wallet_location)
+        
+        return settings
     
     def _save_settings(self, settings: Dict[str, Any]):
-        """DB設定をファイルに保存"""
+        """.envファイルのORACLE_26AI_CONNECTION_STRINGを更新"""
         try:
-            DB_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with open(DB_SETTINGS_FILE, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, ensure_ascii=False, indent=2)
-            logger.info("DB設定を保存しました")
+            username = settings.get('username')
+            password = settings.get('password')
+            dsn = settings.get('dsn')
+            
+            if username and password and dsn:
+                self._update_env_file_dsn(username, password, dsn)
+                logger.info(f"DB設定を.envに保存: {username}@{dsn}")
+            else:
+                logger.warning("ユーザー名、パスワード、DSNが不完全なため保存しませんでした")
         except Exception as e:
             logger.error(f"DB設定保存エラー: {e}")
             raise
@@ -287,16 +631,19 @@ class DatabaseService:
         return settings
     
     def save_settings(self, settings: Dict[str, Any]) -> bool:
-        """設定を保存"""
+        """設定を保存（.envに書き込み）"""
         try:
             # パスワードが[CONFIGURED]の場合は既存のものを保持
             if settings.get("password") == "[CONFIGURED]":
                 settings["password"] = self.settings.get("password")
             
-            self.settings = settings
-            self._save_settings(settings)
+            # メモリ上の設定を更新
+            self.settings.update(settings)
             
-            # 既存の接続とプールをクローズ（設定変更時）
+            # .envファイルに保存
+            self._save_settings(self.settings)
+            
+            # 既存の接続をクローズ（設定変更時）
             if self.connection:
                 try:
                     self.connection.close()
@@ -304,27 +651,25 @@ class DatabaseService:
                     pass
                 self.connection = None
             
-            # プールを無効化（次回再作成）
-            with self.__class__._pool_lock:
-                if self.__class__._pool:
-                    try:
-                        self.__class__._pool.close()
-                        logger.info("設定変更により接続プールをクローズしました")
-                    except Exception as e:
-                        logger.warning(f"プールクローズエラー: {e}")
-                    self.__class__._pool = None
-            
             return True
         except Exception as e:
             logger.error(f"設定保存エラー: {e}")
             return False
     
-    def _get_wallet_location(self) -> Optional[str]:
-        """�Wallet場所を取得"""
+    def _get_wallet_location(self, create_if_missing: bool = False) -> Optional[str]:
+        """Wallet場所を取得
+        
+        Args:
+            create_if_missing: ディレクトリが存在しない場合、パスだけを返すか（True）、Noneを返すか（False）
+        
+        Returns:
+            Walletのパス、またはNone
+        """
         lib_dir = os.getenv('ORACLE_CLIENT_LIB_DIR')
         if lib_dir:
             wallet_location = os.path.join(lib_dir, "network", "admin")
-            if os.path.exists(wallet_location):
+            # create_if_missing=Trueの場合は、存在しなくてもパスを返す
+            if create_if_missing or os.path.exists(wallet_location):
                 return wallet_location
         return None
     
@@ -373,10 +718,9 @@ class DatabaseService:
             # tnsnames.oraからDSNを抽出
             available_services = self._extract_dsn_from_tnsnames(wallet_location)
             
-            # 設定を更新
+            # メモリ上の設定を更新（.envには保存しない、Wallet情報のみ）
             self.settings["wallet_uploaded"] = True
             self.settings["available_services"] = available_services
-            self._save_settings(self.settings)
             
             return {
                 "success": True,
@@ -414,120 +758,6 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"DSN抽出エラー: {e}")
             return []
-    
-    def _ensure_pool(self, max_retries: int = 3) -> bool:
-        """接続プールを確保（作成または検証）、リトライ機能付き"""
-        if not ORACLEDB_AVAILABLE:
-            logger.error("oracledbモジュールが利用できません")
-            return False
-        
-        with self.__class__._pool_lock:
-            # 既存プールが有効かチェック
-            if self.__class__._pool is not None:
-                try:
-                    # プールから接続を取得して検証
-                    test_conn = self.__class__._pool.acquire()
-                    cursor = test_conn.cursor()
-                    cursor.execute("SELECT 1 FROM DUAL")
-                    cursor.close()
-                    self.__class__._pool.release(test_conn)
-                    logger.info("既存の接続プールが有効です")
-                    return True
-                except Exception as e:
-                    logger.warning(f"既存プールが無効です: {e}")
-                    # プールをクローズして再作成
-                    try:
-                        self.__class__._pool.close()
-                    except:
-                        pass
-                    self.__class__._pool = None
-            
-            # プールを作成（リトライ付き）
-            for attempt in range(1, max_retries + 1):
-                try:
-                    logger.info(f"接続プール作成試行 {attempt}/{max_retries}")
-                    
-                    # 接続情報を取得
-                    settings = self.settings
-                    username = settings.get("username")
-                    password = settings.get("password")
-                    dsn = settings.get("dsn")
-                    
-                    # 設定が不完全な場合、.envから取得を試みる
-                    if not username or not password or not dsn:
-                        logger.info(".envから接続情報を取得します...")
-                        env_info = self.get_env_connection_info()
-                        if env_info.get("success"):
-                            username = username or env_info.get("username")
-                            password = password or env_info.get("password")
-                            dsn = dsn or env_info.get("dsn")
-                            logger.info(f".envからの情報: username={username}, dsn={dsn}, password_exists={bool(password)}")
-                    
-                    if not username or not password or not dsn:
-                        raise ValueError("ユーザー名、パスワード、DSNが必要です")
-                    
-                    # Oracle Client初期化（Linuxのみ）
-                    if not init_oracle_client():
-                        raise Exception("Oracle Clientの初期化に失敗しました")
-                    
-                    # TNS_ADMIN設定
-                    wallet_location = self._get_wallet_location()
-                    if not wallet_location or not os.path.exists(wallet_location):
-                        raise ValueError(f"Walletが見つかりません: {wallet_location}")
-                    
-                    os.environ['TNS_ADMIN'] = wallet_location
-                    logger.info(f"Wallet場所: {wallet_location}")
-                    
-                    # 接続プールを作成
-                    self.__class__._pool = oracledb.create_pool(
-                        user=username,
-                        password=password,
-                        dsn=dsn,
-                        config_dir=wallet_location,
-                        min=5,
-                        max=20,
-                        increment=2,
-                        timeout=30,
-                        getmode=oracledb.POOL_GETMODE_WAIT
-                    )
-                    
-                    logger.info(f"接続プール作成成功 (試行{attempt}回目): min=5, max=20")
-                    return True
-                    
-                except Exception as e:
-                    logger.error(f"接続プール作成失敗 (試行{attempt}/{max_retries}): {e}")
-                    if attempt == max_retries:
-                        logger.error("接続プール作成の最大リトライ回数に達しました")
-                        return False
-                    # リトライ前に少し待機
-                    import time
-                    time.sleep(1)
-            
-            return False
-    
-    def _get_connection_from_pool(self) -> Optional[Any]:
-        """プールから接続を取得"""
-        if not self._ensure_pool():
-            return None
-        
-        try:
-            connection = self.__class__._pool.acquire()
-            return connection
-        except Exception as e:
-            logger.error(f"プールから接続取得失敗: {e}")
-            return None
-    
-    def _release_connection(self, connection):
-        """接続をプールに返却"""
-        if connection and self.__class__._pool:
-            try:
-                self.__class__._pool.release(connection)
-            except Exception as e:
-                logger.error(f"接続の返却失敗: {e}")
-    
-    def _create_connection(self, settings: Optional[Dict[str, Any]] = None):
-        """プールから接続を取得（後方互換性のため維持）"""
-        return self._get_connection_from_pool()
     
     def test_connection(self, settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """接続テストを実行（同期版）"""
@@ -1063,7 +1293,7 @@ class DatabaseService:
             return {"success": False, "deleted_count": 0, "message": str(e), "errors": errors}
     
     def get_env_connection_info(self) -> Dict[str, Any]:
-        """環境変数からDB接続情報を取得"""
+        """環境変数からDB接続情報を取得、Wallet未設定時はADB_OCIDから自動ダウンロード"""
         try:
             # ORACLE_26AI_CONNECTION_STRINGから解析
             conn_str = os.getenv('ORACLE_26AI_CONNECTION_STRING', '')
@@ -1112,6 +1342,26 @@ class DatabaseService:
                     # tnsnames.oraからDSNを抽出
                     available_services = self._extract_dsn_from_tnsnames(wallet_location)
             
+            # Walletが未設定の場合、ADB_OCIDからダウンロードを試みる
+            download_error = None
+            if not wallet_exists:
+                adb_ocid = os.getenv('ADB_OCID')
+                if adb_ocid:
+                    logger.info(f"Wallet未設定のため、ADB_OCIDからダウンロードを試みます: {adb_ocid}")
+                    download_result = self._download_wallet_from_adb(adb_ocid, password)
+                    
+                    if download_result.get('success'):
+                        wallet_exists = True
+                        available_services = download_result.get('available_services', [])
+                        # Walletロケーションを再取得
+                        wallet_location = self._get_wallet_location()
+                        logger.info(f"Walletダウンロード成功、利用可能なサービス: {len(available_services)}件")
+                    else:
+                        download_error = download_result.get('message')
+                        logger.warning(f"ADB_OCIDからのWalletダウンロードに失敗: {download_error}")
+                else:
+                    download_error = "ADB_OCID環境変数が設定されていません"
+            
             return {
                 "success": True,
                 "message": "環境変数から接続情報を取得しました",
@@ -1120,7 +1370,8 @@ class DatabaseService:
                 "dsn": dsn,
                 "wallet_exists": wallet_exists,
                 "wallet_location": wallet_location if wallet_exists else None,
-                "available_services": available_services
+                "available_services": available_services,
+                "download_error": download_error  # ダウンロードエラー情報を追加
             }
             
         except Exception as e:
@@ -1133,6 +1384,180 @@ class DatabaseService:
                 "wallet_exists": False,
                 "available_services": []
             }
+    
+    def _download_wallet_from_adb(self, adb_ocid: str, password: str) -> Dict[str, Any]:
+        """
+        ADB_OCIDからWalletをダウンロードして展開
+        
+        Args:
+            adb_ocid: Autonomous Database OCID
+            password: Walletのパスワード
+        
+        Returns:
+            Dict: {"success": bool, "message": str, "available_services": List[str]}
+        """
+        try:
+            import oci
+            from app.services.oci_service import oci_service
+            import tempfile
+            
+            # OCI設定を取得
+            config = oci_service.get_oci_config()
+            if not config:
+                return {
+                    "success": False,
+                    "message": "OCI設定が見つかりません",
+                    "available_services": []
+                }
+            
+            # Database ClientはOCI_REGION_DEPLOYを使用（ADBと同じリージョン）
+            deploy_region = os.environ.get("OCI_REGION_DEPLOY")
+            if deploy_region:
+                # 設定をコピーしてregionを上書き
+                db_config = config.copy()
+                db_config["region"] = deploy_region
+                logger.info(f"Database ClientをOCI_REGION_DEPLOYで作成: {deploy_region}")
+            else:
+                # OCI_REGION_DEPLOYがない場合はデフォルトregionを使用
+                logger.warning("OCI_REGION_DEPLOYが設定されていません。OCI_REGIONを使用します")
+                db_config = config
+            
+            # Database Clientを作成
+            db_client = oci.database.DatabaseClient(db_config)
+            
+            logger.info(f"ADB Walletをダウンロード中: {adb_ocid} (リージョン: {db_config['region']})")
+            
+            # Walletをダウンロード
+            wallet_details = oci.database.models.GenerateAutonomousDatabaseWalletDetails(
+                password=password
+            )
+            
+            wallet_response = db_client.generate_autonomous_database_wallet(
+                autonomous_database_id=adb_ocid,
+                generate_autonomous_database_wallet_details=wallet_details
+            )
+            
+            # Walletを一時ファイルに保存
+            temp_wallet_file = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+            with open(temp_wallet_file.name, 'wb') as f:
+                for chunk in wallet_response.data.raw.stream(1024 * 1024, decode_content=False):
+                    f.write(chunk)
+            
+            logger.info(f"Walletダウンロード完了: {temp_wallet_file.name}")
+            
+            # Walletを展開（ディレクトリが存在しなくてもパスを取得）
+            wallet_location = self._get_wallet_location(create_if_missing=True)
+            if not wallet_location:
+                return {
+                    "success": False,
+                    "message": "Wallet保存先が設定されていません（ORACLE_CLIENT_LIB_DIR環境変数が未設定）",
+                    "available_services": []
+                }
+            
+            # ディレクトリが存在する場合はバックアップ
+            if os.path.exists(wallet_location):
+                backup_location = wallet_location + "_backup_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+                shutil.move(wallet_location, backup_location)
+                logger.info(f"既存Walletをバックアップ: {backup_location}")
+            
+            # ディレクトリ作成
+            os.makedirs(wallet_location, exist_ok=True)
+            
+            # ZIPファイルを展開
+            with zipfile.ZipFile(temp_wallet_file.name, 'r') as zip_ref:
+                zip_ref.extractall(wallet_location)
+            
+            logger.info(f"Walletを展開しました: {wallet_location}")
+            
+            # 一時ファイルを削除
+            os.unlink(temp_wallet_file.name)
+            
+            # 必要なファイルの存在確認
+            required_files = ['cwallet.sso', 'tnsnames.ora', 'sqlnet.ora']
+            missing_files = []
+            for file in required_files:
+                if not os.path.exists(os.path.join(wallet_location, file)):
+                    missing_files.append(file)
+            
+            if missing_files:
+                return {
+                    "success": False,
+                    "message": f"必要なファイルが見つかりません: {', '.join(missing_files)}",
+                    "available_services": []
+                }
+            
+            # tnsnames.oraからDSNを抽出
+            available_services = self._extract_dsn_from_tnsnames(wallet_location)
+            
+            return {
+                "success": True,
+                "message": "Walletをダウンロードしました",
+                "available_services": available_services
+            }
+            
+        except Exception as e:
+            logger.error(f"Walletダウンロードエラー: {e}")
+            return {
+                "success": False,
+                "message": f"Walletダウンロードエラー: {str(e)}",
+                "available_services": []
+            }
+    
+    def _update_env_file_dsn(self, username: str, password: str, dsn: str) -> bool:
+        """
+        .envファイルのORACLE_26AI_CONNECTION_STRINGを更新
+        
+        Args:
+            username: ユーザー名
+            password: パスワード
+            dsn: DSN
+        
+        Returns:
+            bool: 成功したかどうか
+        """
+        try:
+            # .envファイルパス
+            env_file_path = Path('.env')
+            
+            if not env_file_path.exists():
+                logger.warning(".envファイルが見つかりません")
+                return False
+            
+            # 現在の.envファイルを読み込む
+            with open(env_file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            
+            # 新しい接続文字列
+            new_conn_str = f"{username}/{password}@{dsn}"
+            
+            # ORACLE_26AI_CONNECTION_STRINGを更新
+            updated = False
+            new_lines = []
+            for line in lines:
+                if line.startswith('ORACLE_26AI_CONNECTION_STRING='):
+                    new_lines.append(f"ORACLE_26AI_CONNECTION_STRING={new_conn_str}\n")
+                    updated = True
+                    logger.info(f"ORACLE_26AI_CONNECTION_STRINGを更新: {username}/*****@{dsn}")
+                else:
+                    new_lines.append(line)
+            
+            # ファイルを書き込む
+            if updated:
+                with open(env_file_path, 'w', encoding='utf-8') as f:
+                    f.writelines(new_lines)
+                
+                # 環境変数を更新
+                os.environ['ORACLE_26AI_CONNECTION_STRING'] = new_conn_str
+                
+                logger.info(".envファイルを更新しました")
+                return True
+            else:
+                logger.warning("ORACLE_26AI_CONNECTION_STRINGが.envファイルに見つかりません")
+                return False
+                
+        except Exception as e:
+            logger.error(f".envファイル更新エラー: {e}")
+            return False
     
     def is_connected(self) -> bool:
         """接続状態を確認"""

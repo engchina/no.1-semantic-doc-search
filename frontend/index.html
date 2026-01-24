@@ -454,7 +454,7 @@
                 <div class="text-sm font-medium text-blue-900" style="color: #1e3a8a; margin-bottom: 4px;">Autonomous Database 管理について</div>
                 <div class="text-sm text-blue-800" style="color: #1e40af;">
                   ターゲット Autonomous Database の状態を取得し、起動/停止を行います。<br>
-                  バックエンドの環境変数 <code class="bg-white px-2 py-0.5 rounded text-xs">ADB_NAME</code> と <code class="bg-white px-2 py-0.5 rounded text-xs">OCI_COMPARTMENT_OCID</code> が必要です。
+                  バックエンドの環境変数 <code class="bg-white px-2 py-0.5 rounded text-xs">ADB_OCID</code> が必要です。
                 </div>
               </div>
             </div>
@@ -469,6 +469,11 @@
             </button>
           </div>
           
+          <div style="margin-bottom: 20px;">
+            <label class="form-label">OCID</label>
+            <div id="adbOcid" class="form-input" style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 6px; color: #475569; font-size: 12px; word-break: break-all;">-</div>
+          </div>
+          
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
             <div>
               <label class="form-label">Display Name</label>
@@ -478,11 +483,6 @@
               <label class="form-label">Lifecycle State</label>
               <div id="adbLifecycleStateDetail" class="form-input" style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 6px; color: #475569;">-</div>
             </div>
-          </div>
-          
-          <div>
-            <label class="form-label">OCID</label>
-            <div id="adbOcid" class="form-input" style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 6px; color: #475569; font-size: 12px; word-break: break-all;">-</div>
           </div>
           
           <div id="adbOperationResult" style="margin-top: 20px; display: none;">

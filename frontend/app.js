@@ -154,22 +154,34 @@ async function switchTab(tabName, event) {
   try {
     if (tabName === 'settings') {
       console.log('Loading OCI settings...');
-      showLoading('OCI設定を読み込み中...');
+      utilsShowLoading('OCI設定を読み込み中...');
       await loadOciSettings();
       await loadObjectStorageSettings();
-      hideLoading();
+      utilsHideLoading();
       console.log('OCI settings loaded');
     } else if (tabName === 'database') {
-      console.log('Loading DB connection settings...');
-      showLoading('データベース設定を読み込み中...');
+      console.log('Loading DB connection settings, ADB OCID, and connection info from .env...');
+      utilsShowLoading('データベース設定を読み込み中...');
       await loadDbConnectionSettings();
-      hideLoading();
-      console.log('DB connection settings loaded');
+      // ADB OCIDのみを自動取得（Display NameやLifecycle Stateは取得しない）
+      try {
+        await loadAdbOcidOnly();
+      } catch (error) {
+        console.warn('ADB OCID取得エラー（スキップ）:', error);
+      }
+      // .envからDB接続情報を自動取得（ユーザー名、パスワード、DSN）
+      try {
+        await loadDbConnectionInfoFromEnv();
+      } catch (error) {
+        console.warn('DB接続情報取得エラー（スキップ）:', error);
+      }
+      utilsHideLoading();
+      console.log('DB connection settings, ADB OCID, and connection info loaded');
     }
   } catch (error) {
     console.error('Tab initialization error:', error);
-    hideLoading();
-    showToast(`設定読み込みエラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`設定読み込みエラー: ${error.message}`, 'error');
   }
 }
 
@@ -183,25 +195,25 @@ async function performSearch() {
   const minScore = parseFloat(document.getElementById('minScore').value) || 0.7;
   
   if (!query) {
-    showToast('検索クエリを入力してください', 'warning');
+    utilsShowToast('検索クエリを入力してください', 'warning');
     return;
   }
   
   try {
-    showLoading('検索中...');
+    utilsShowLoading('検索中...');
     
-    const data = await apiCall('/api/search', {
+    const data = await authApiCall('/api/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, top_k: topK, min_score: minScore })
     });
     
-    hideLoading();
+    utilsHideLoading();
     displaySearchResults(data);
     
   } catch (error) {
-    hideLoading();
-    showToast(`検索エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`検索エラー: ${error.message}`, 'error');
   }
 }
 
@@ -363,9 +375,9 @@ async function downloadFile(bucket, encodedObjectName) {
     // 新しいタブで開く
     window.open(imageUrl, '_blank');
     
-    showToast('ファイルを開きました', 'success');
+    utilsShowToast('ファイルを開きました', 'success');
   } catch (error) {
-    showToast(`ダウンロードエラー: ${error.message}`, 'error');
+    utilsShowToast(`ダウンロードエラー: ${error.message}`, 'error');
   }
 }
 
@@ -440,7 +452,7 @@ function handleMultipleFileSelect(event) {
   
   // 最大10ファイルチェック
   if (files.length > MAX_FILES) {
-    showToast(`アップロード可能なファイル数は最大${MAX_FILES}個です`, 'warning');
+    utilsShowToast(`アップロード可能なファイル数は最大${MAX_FILES}個です`, 'warning');
     event.target.value = '';
     return;
   }
@@ -466,7 +478,7 @@ function handleDropForMultipleInput(event) {
   
   // 最大10ファイルチェック
   if (files.length > MAX_FILES) {
-    showToast(`アップロード可能なファイル数は最大${MAX_FILES}個です`, 'warning');
+    utilsShowToast(`アップロード可能なファイル数は最大${MAX_FILES}個です`, 'warning');
     return;
   }
   
@@ -501,7 +513,7 @@ function displaySelectedFiles() {
         <span class="text-xs font-semibold text-purple-600">#${index + 1}</span>
         <div class="flex-1">
           <div class="text-sm font-medium text-gray-800">📄 ${file.name}</div>
-          <div class="text-xs text-gray-500">${formatFileSize(file.size)}</div>
+          <div class="text-xs text-gray-500">${utilsFormatFileSize(file.size)}</div>
         </div>
       </div>
       <button 
@@ -556,7 +568,7 @@ function clearMultipleFileSelection() {
  */
 async function uploadMultipleDocuments() {
   if (selectedMultipleFiles.length === 0) {
-    showToast('ファイルを選択してください', 'warning');
+    utilsShowToast('ファイルを選択してください', 'warning');
     return;
   }
   
@@ -565,7 +577,7 @@ async function uploadMultipleDocuments() {
     document.getElementById('uploadMultipleBtn').disabled = true;
     
     // オーバーレイを表示
-    showLoading(`${selectedMultipleFiles.length}個のファイルをアップロード中...`);
+    utilsShowLoading(`${selectedMultipleFiles.length}個のファイルをアップロード中...`);
     
     // FormDataを作成
     const formData = new FormData();
@@ -574,22 +586,22 @@ async function uploadMultipleDocuments() {
     });
     
     // API呼び出し
-    const data = await apiCall('/api/documents/upload/multiple', {
+    const data = await authApiCall('/api/documents/upload/multiple', {
       method: 'POST',
       body: formData
     });
     
     // オーバーレイを非表示
-    hideLoading();
+    utilsHideLoading();
     
     // 結果を表示
     displayUploadResults(data);
     
     // 成功した場合のトースト
     if (data.success) {
-      showToast(`${data.success_count}件のファイルアップロードが完了しました`, 'success');
+      utilsShowToast(`${data.success_count}件のファイルアップロードが完了しました`, 'success');
     } else {
-      showToast(data.message, 'warning');
+      utilsShowToast(data.message, 'warning');
     }
     
     // フォームをリセット（5秒後：showToastと同じタイミング）
@@ -599,10 +611,10 @@ async function uploadMultipleDocuments() {
     }, 5000);
     
   } catch (error) {
-    hideLoading();
+    utilsHideLoading();
     document.getElementById('uploadProgress').style.display = 'none';
     document.getElementById('uploadMultipleBtn').disabled = false;
-    showToast(`アップロードエラー: ${error.message}`, 'error');
+    utilsShowToast(`アップロードエラー: ${error.message}`, 'error');
   }
 }
 
@@ -663,7 +675,7 @@ function handleFileSelect(event) {
           <button onclick="clearFileSelection();" class="text-xs text-red-600 hover:text-red-800 hover:underline">クリア</button>
         </div>
         <div class="text-sm text-gray-600">
-          📄 ${file.name} (${formatFileSize(file.size)})
+          📄 ${file.name} (${utilsFormatFileSize(file.size)})
         </div>
       </div>
     `;
@@ -683,23 +695,23 @@ function clearFileSelection() {
 
 async function uploadDocument() {
   if (!selectedFile) {
-    showToast('ファイルを選択してください', 'warning');
+    utilsShowToast('ファイルを選択してください', 'warning');
     return;
   }
   
   try {
-    showLoading('文書をアップロード中...');
+    utilsShowLoading('文書をアップロード中...');
     
     const formData = new FormData();
     formData.append('file', selectedFile);
     
-    const data = await apiCall('/api/documents/upload', {
+    const data = await authApiCall('/api/documents/upload', {
       method: 'POST',
       body: formData
     });
     
-    hideLoading();
-    showToast('文書のアップロードと処理が完了しました', 'success');
+    utilsHideLoading();
+    utilsShowToast('文書のアップロードと処理が完了しました', 'success');
     
     // フォームをリセット
     clearFileSelection();
@@ -708,18 +720,18 @@ async function uploadDocument() {
     await loadDocuments();
     
   } catch (error) {
-    hideLoading();
-    showToast(`アップロードエラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`アップロードエラー: ${error.message}`, 'error');
   }
 }
 
 async function loadDocuments() {
   try {
-    const data = await apiCall('/api/documents');
+    const data = await authApiCall('/api/documents');
     documentsCache = data.documents;
     displayDocumentsList(data.documents);
   } catch (error) {
-    showToast(`エラー: ${error.message}`, 'error');
+    utilsShowToast(`エラー: ${error.message}`, 'error');
   }
 }
 
@@ -755,13 +767,13 @@ function getChildObjects(folderName) {
  */
 window.refreshDocumentsWithNotification = async function() {
   try {
-    showLoading('文書一覧を更新中...');
+    utilsShowLoading('文書一覧を更新中...');
     await loadOciObjects();
-    hideLoading();
-    showToast('文書一覧を更新しました', 'success');
+    utilsHideLoading();
+    utilsShowToast('文書一覧を更新しました', 'success');
   } catch (error) {
-    hideLoading();
-    showToast(`文書一覧更新エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`文書一覧更新エラー: ${error.message}`, 'error');
   }
 }
 
@@ -834,7 +846,7 @@ function updateDocumentsStatisticsBadges(statistics, type = 'success') {
  */
 async function loadOciObjects() {
   try {
-    showLoading('OCI Object Storage一覧を取得中...');
+    utilsShowLoading('OCI Object Storage一覧を取得中...');
     
     const params = new URLSearchParams({
       prefix: ociObjectsPrefix,
@@ -844,12 +856,12 @@ async function loadOciObjects() {
       filter_embeddings: ociObjectsFilterEmbeddings
     });
     
-    const data = await apiCall(`/api/oci/objects?${params}`);
+    const data = await authApiCall(`/api/oci/objects?${params}`);
     
-    hideLoading();
+    utilsHideLoading();
     
     if (!data.success) {
-      showToast(`エラー: ${data.message || 'オブジェクト一覧取得失敗'}`, 'error');
+      utilsShowToast(`エラー: ${data.message || 'オブジェクト一覧取得失敗'}`, 'error');
       updateDocumentsStatusBadge('エラー', 'error');
       return;
     }
@@ -875,8 +887,8 @@ async function loadOciObjects() {
     updateDocumentsStatisticsBadges(statistics, 'success');
     
   } catch (error) {
-    hideLoading();
-    showToast(`OCI Object Storage一覧取得エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`OCI Object Storage一覧取得エラー: ${error.message}`, 'error');
     updateDocumentsStatusBadge('エラー', 'error');
   }
 }
@@ -1136,8 +1148,8 @@ function displayOciObjectsList(data) {
                   <td style="font-weight: 500; font-family: monospace; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                     <span style="display: inline-block; padding-left: ${indentPx}px;">${displayName}</span>
                   </td>
-                  <td>${isFolder ? '-' : formatFileSize(obj.size)}</td>
-                  <td>${obj.time_created ? formatDateTime(obj.time_created) : '-'}</td>
+                  <td>${isFolder ? '-' : utilsFormatFileSize(obj.size)}</td>
+                  <td>${obj.time_created ? utilsFormatDateTime(obj.time_created) : '-'}</td>
                   <td style="text-align: center;">${pageImageStatusHtml}</td>
                   <td style="text-align: center;">${vectorizeStatusHtml}</td>
                 </tr>
@@ -1445,12 +1457,12 @@ function clearAllOciObjects() {
  */
 async function deleteSelectedOciObjects() {
   if (selectedOciObjects.length === 0) {
-    showToast('削除するオブジェクトを選択してください', 'warning');
+    utilsShowToast('削除するオブジェクトを選択してください', 'warning');
     return;
   }
   
   const count = selectedOciObjects.length;
-  const confirmed = await showConfirmModal(
+  const confirmed = await utilsShowConfirmModal(
     `選択された${count}件のオブジェクトを削除しますか？\n\nこの操作は元に戻せません。`,
     'オブジェクト削除の確認'
   );
@@ -1465,23 +1477,23 @@ async function deleteSelectedOciObjects() {
   
   try {
     // 一括削除APIを呼び出す
-    const response = await apiCall('/api/oci/objects/delete', {
+    const response = await authApiCall('/api/oci/objects/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ object_names: selectedOciObjects })
     });
     
     if (response.success) {
-      showToast(`${count}件のオブジェクトを削除しました`, 'success');
+      utilsShowToast(`${count}件のオブジェクトを削除しました`, 'success');
       // 選択をクリア
       selectedOciObjects = [];
       // ページを1にリセット
       ociObjectsPage = 1;
     } else {
-      showToast(`削除エラー: ${response.message || '不明なエラー'}`, 'error');
+      utilsShowToast(`削除エラー: ${response.message || '不明なエラー'}`, 'error');
     }
   } catch (error) {
-    showToast(`削除エラー: ${error.message}`, 'error');
+    utilsShowToast(`削除エラー: ${error.message}`, 'error');
   } finally {
     // 処理中表示を解除
     ociObjectsBatchDeleteLoading = false;
@@ -1495,18 +1507,18 @@ async function deleteSelectedOciObjects() {
  */
 window.downloadSelectedOciObjects = async function() {
   if (selectedOciObjects.length === 0) {
-    showToast('ダウンロードするファイルを選択してください', 'warning');
+    utilsShowToast('ダウンロードするファイルを選択してください', 'warning');
     return;
   }
   
   if (ociObjectsBatchDeleteLoading) {
-    showToast('処理中です。しばらくお待ちください', 'warning');
+    utilsShowToast('処理中です。しばらくお待ちください', 'warning');
     return;
   }
   
   try {
     ociObjectsBatchDeleteLoading = true;
-    showLoading(`${selectedOciObjects.length}件のファイルをZIPに圧縮中...`);
+    utilsShowLoading(`${selectedOciObjects.length}件のファイルをZIPに圧縮中...`);
     
     const response = await fetch('/api/oci/objects/download', {
       method: 'POST',
@@ -1535,15 +1547,15 @@ window.downloadSelectedOciObjects = async function() {
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
     
-    hideLoading();
+    utilsHideLoading();
     ociObjectsBatchDeleteLoading = false;
-    showToast(`${selectedOciObjects.length}件のファイルをダウンロードしました`, 'success');
+    utilsShowToast(`${selectedOciObjects.length}件のファイルをダウンロードしました`, 'success');
     
   } catch (error) {
-    hideLoading();
+    utilsHideLoading();
     ociObjectsBatchDeleteLoading = false;
     console.error('ダウンロードエラー:', error);
-    showToast(`ダウンロードエラー: ${error.message}`, 'error');
+    utilsShowToast(`ダウンロードエラー: ${error.message}`, 'error');
   }
 };
 
@@ -1552,17 +1564,17 @@ window.downloadSelectedOciObjects = async function() {
  */
 window.convertSelectedOciObjectsToImages = async function() {
   if (selectedOciObjects.length === 0) {
-    showToast('変換するファイルを選択してください', 'warning');
+    utilsShowToast('変換するファイルを選択してください', 'warning');
     return;
   }
   
   if (ociObjectsBatchDeleteLoading) {
-    showToast('処理中です。しばらくお待ちください', 'warning');
+    utilsShowToast('処理中です。しばらくお待ちください', 'warning');
     return;
   }
   
   // 確認モーダルを表示
-  const confirmed = await showConfirmModal(
+  const confirmed = await utilsShowConfirmModal(
     'ページ画像化確認',
     `選択された${selectedOciObjects.length}件のファイルを各ページPNG画像として同名フォルダに保存します。\n\n処理には時間がかかる場合があります。実行しますか？`
   );
@@ -1573,7 +1585,7 @@ window.convertSelectedOciObjectsToImages = async function() {
   
   try {
     ociObjectsBatchDeleteLoading = true;
-    showLoading('ページ画像化を開始しています...');
+    utilsShowLoading('ページ画像化を開始しています...');
     
     const response = await fetch('/api/oci/objects/convert-to-images', {
       method: 'POST',
@@ -1690,14 +1702,14 @@ window.convertSelectedOciObjectsToImages = async function() {
                 
               case 'complete':
                 results = data.results;
-                hideLoading();
+                utilsHideLoading();
                 ociObjectsBatchDeleteLoading = false;
                 
                 // 結果表示
                 if (data.success) {
-                  showToast(data.message, 'success');
+                  utilsShowToast(data.message, 'success');
                 } else {
-                  showToast(`${data.message}\n成功: ${data.success_count}件、失敗: ${data.failed_count}件`, 'warning');
+                  utilsShowToast(`${data.message}\n成功: ${data.success_count}件、失敗: ${data.failed_count}件`, 'warning');
                 }
                 
                 // 詳細結果をコンソールに出力
@@ -1716,10 +1728,10 @@ window.convertSelectedOciObjectsToImages = async function() {
     }
     
   } catch (error) {
-    hideLoading();
+    utilsHideLoading();
     ociObjectsBatchDeleteLoading = false;
     console.error('ページ画像化エラー:', error);
-    showToast(`ページ画像化エラー: ${error.message}`, 'error');
+    utilsShowToast(`ページ画像化エラー: ${error.message}`, 'error');
   }
 };
 
@@ -1728,17 +1740,17 @@ window.convertSelectedOciObjectsToImages = async function() {
  */
 window.vectorizeSelectedOciObjects = async function() {
   if (selectedOciObjects.length === 0) {
-    showToast('ベクトル化するファイルを選択してください', 'warning');
+    utilsShowToast('ベクトル化するファイルを選択してください', 'warning');
     return;
   }
   
   if (ociObjectsBatchDeleteLoading) {
-    showToast('処理中です。しばらくお待ちください', 'warning');
+    utilsShowToast('処理中です。しばらくお待ちください', 'warning');
     return;
   }
   
   // 確認モーダルを表示
-  const confirmed = await showConfirmModal(
+  const confirmed = await utilsShowConfirmModal(
     'ベクトル化確認',
     `選択された${selectedOciObjects.length}件のファイルを画像ベクトル化してデータベースに保存します。
 
@@ -1754,7 +1766,7 @@ window.vectorizeSelectedOciObjects = async function() {
   
   try {
     ociObjectsBatchDeleteLoading = true;
-    showLoading('ベクトル化を開始しています...');
+    utilsShowLoading('ベクトル化を開始しています...');
     
     const response = await fetch('/api/oci/objects/vectorize', {
       method: 'POST',
@@ -1866,14 +1878,14 @@ window.vectorizeSelectedOciObjects = async function() {
                 
               case 'complete':
                 results = data.results;
-                hideLoading();
+                utilsHideLoading();
                 ociObjectsBatchDeleteLoading = false;
                 
                 // 結果表示
                 if (data.success) {
-                  showToast(data.message, 'success');
+                  utilsShowToast(data.message, 'success');
                 } else {
-                  showToast(`${data.message}\n成功: ${data.success_count}件、失敗: ${data.failed_count}件`, 'warning');
+                  utilsShowToast(`${data.message}\n成功: ${data.success_count}件、失敗: ${data.failed_count}件`, 'warning');
                 }
                 
                 // 詳細結果をコンソールに出力
@@ -1892,10 +1904,10 @@ window.vectorizeSelectedOciObjects = async function() {
     }
     
   } catch (error) {
-    hideLoading();
+    utilsHideLoading();
     ociObjectsBatchDeleteLoading = false;
     console.error('ベクトル化エラー:', error);
-    showToast(`ベクトル化エラー: ${error.message}`, 'error');
+    utilsShowToast(`ベクトル化エラー: ${error.message}`, 'error');
     
     // 選択をクリアして一覧を更新
     selectedOciObjects = [];
@@ -1971,8 +1983,8 @@ function displayDocumentsList(documents) {
             <tr>
               <td style="font-weight: 500;">${doc.filename}</td>
               <td>${doc.page_count || '-'}</td>
-              <td>${formatFileSize(doc.file_size)}</td>
-              <td>${formatDateTime(doc.uploaded_at)}</td>
+              <td>${utilsFormatFileSize(doc.file_size)}</td>
+              <td>${utilsFormatDateTime(doc.uploaded_at)}</td>
               <td>
                 <span class="badge ${doc.status === 'completed' ? 'badge-success' : 'badge-warning'}">
                   ${doc.status === 'completed' ? '✓ 完了' : '⏳ 処理中'}
@@ -2009,20 +2021,20 @@ async function deleteDocument(documentId, filename) {
   }
   
   try {
-    showLoading('文書を削除中...');
+    utilsShowLoading('文書を削除中...');
     
-    await apiCall(`/api/documents/${documentId}`, {
+    await authApiCall(`/api/documents/${documentId}`, {
       method: 'DELETE'
     });
     
-    hideLoading();
-    showToast('文書を削除しました', 'success');
+    utilsHideLoading();
+    utilsShowToast('文書を削除しました', 'success');
     
     await loadDocuments();
     
   } catch (error) {
-    hideLoading();
-    showToast(`削除エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`削除エラー: ${error.message}`, 'error');
   }
 }
 
@@ -2052,7 +2064,7 @@ let ociConnectionTestResult = null;
  */
 async function loadOciSettings() {
   try {
-    const data = await apiCall('/api/oci/settings');
+    const data = await authApiCall('/api/oci/settings');
     ociSettings = data.settings;
     ociSettings.region = 'us-chicago-1'; // 固定値
     ociSettingsStatus = data.status;
@@ -2087,14 +2099,14 @@ async function saveOciSettings() {
   
   // 入力検証
   if (!userOcid || !tenancyOcid || !fingerprint) {
-    showToast('必須項目をすべて入力してください', 'warning');
+    utilsShowToast('必須項目をすべて入力してください', 'warning');
     return;
   }
   
   // 初回設定時はPrivate Keyが必須
   if (!ociSettings.key_content || ociSettings.key_content === '') {
     if (ociSettingsStatus !== 'configured' && ociSettingsStatus !== 'saved') {
-      showToast('Private Keyが必要です', 'warning');
+      utilsShowToast('Private Keyが必要です', 'warning');
       return;
     }
   }
@@ -2105,7 +2117,7 @@ async function saveOciSettings() {
   ociConnectionTestResult = null;
   
   try {
-    showLoading('APIキーを保存中...');
+    utilsShowLoading('APIキーを保存中...');
     
     // 設定を保存
     const settingsToSave = {
@@ -2118,7 +2130,7 @@ async function saveOciSettings() {
       namespace: document.getElementById('namespace').value.trim()
     };
     
-    const result = await apiCall('/api/oci/settings', {
+    const result = await authApiCall('/api/oci/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settingsToSave)
@@ -2140,8 +2152,8 @@ async function saveOciSettings() {
       }
     };
     
-    hideLoading();
-    showToast(result.message || '設定を保存しました', 'success');
+    utilsHideLoading();
+    utilsShowToast(result.message || '設定を保存しました', 'success');
     updateOciStatusBadge();
     
   } catch (error) {
@@ -2149,8 +2161,8 @@ async function saveOciSettings() {
       success: false,
       message: '設定の保存に失敗しました'
     };
-    hideLoading();
-    showToast('設定の保存に失敗しました', 'error');
+    utilsHideLoading();
+    utilsShowToast('設定の保存に失敗しました', 'error');
   } finally {
     ociLoading = false;
     ociAction = null;
@@ -2168,14 +2180,14 @@ async function testOciConnection() {
   
   // 入力検証
   if (!userOcid || !tenancyOcid || !fingerprint) {
-    showToast('必須項目をすべて入力してください', 'warning');
+    utilsShowToast('必須項目をすべて入力してください', 'warning');
     return;
   }
   
   // 初回設定時はPrivate Keyが必須
   if (!ociSettings.key_content || ociSettings.key_content === '') {
     if (ociSettingsStatus !== 'configured' && ociSettingsStatus !== 'saved') {
-      showToast('Private Keyが必要です', 'warning');
+      utilsShowToast('Private Keyが必要です', 'warning');
       return;
     }
   }
@@ -2186,9 +2198,9 @@ async function testOciConnection() {
   ociSaveResult = null;
   
   try {
-    showLoading('OCI接続テスト実行中...');
+    utilsShowLoading('OCI接続テスト実行中...');
     
-    const result = await apiCall('/api/oci/test', {
+    const result = await authApiCall('/api/oci/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ settings: ociSettings })
@@ -2196,17 +2208,17 @@ async function testOciConnection() {
     
     ociConnectionTestResult = result;
     
-    hideLoading();
+    utilsHideLoading();
     
     if (result.success) {
-      showToast('OCI接続テストに成功しました', 'success');
+      utilsShowToast('OCI接続テストに成功しました', 'success');
     } else {
-      showToast('OCI接続テストに失敗しました', 'error');
+      utilsShowToast('OCI接続テストに失敗しました', 'error');
     }
     
   } catch (error) {
-    hideLoading();
-    showToast('接続テスト中にエラーが発生しました', 'error');
+    utilsHideLoading();
+    utilsShowToast('接続テスト中にエラーが発生しました', 'error');
   } finally {
     ociLoading = false;
     ociAction = null;
@@ -2229,29 +2241,29 @@ function handlePrivateKeyFileSelect(event) {
       const pemPattern = /-----BEGIN[\s\S]*?PRIVATE KEY-----[\s\S]*?-----END[\s\S]*?PRIVATE KEY-----/;
       
       if (!content || typeof content !== 'string' || content.trim() === '') {
-        showToast('無効なPEMファイル形式です: ファイルが空です', 'error');
+        utilsShowToast('無効なPEMファイル形式です: ファイルが空です', 'error');
         event.target.value = '';
         return;
       }
       
       if (!pemPattern.test(content)) {
-        showToast('無効なPEMファイル形式です: 正しいPRIVATE KEYフォーマットが見つかりません', 'error');
+        utilsShowToast('無効なPEMファイル形式です: 正しいPRIVATE KEYフォーマットが見つかりません', 'error');
         event.target.value = '';
         return;
       }
       
       ociSettings.key_content = content;
-      showToast('Private Keyファイルを読み込みました', 'success');
+      utilsShowToast('Private Keyファイルを読み込みました', 'success');
       event.target.value = '';
       updatePrivateKeyStatus();
     };
     reader.onerror = function() {
-      showToast('ファイルの読み込みに失敗しました', 'error');
+      utilsShowToast('ファイルの読み込みに失敗しました', 'error');
       event.target.value = '';
     };
     reader.readAsText(file);
   } catch (error) {
-    showToast('ファイル処理中にエラーが発生しました: ' + error.message, 'error');
+    utilsShowToast('ファイル処理中にエラーが発生しました: ' + error.message, 'error');
     event.target.value = '';
   }
 }
@@ -2366,7 +2378,7 @@ window.handleDropForInput = handleDropForInput;
 
 async function loadDbConnectionSettings() {
   try {
-    const data = await apiCall('/api/settings/database');
+    const data = await authApiCall('/api/settings/database');
     const settings = data.settings;
     
     document.getElementById('dbUser').value = settings.username || '';
@@ -2409,21 +2421,21 @@ async function loadDbConnectionSettings() {
     
   } catch (error) {
     console.error('DB設定読み込みエラー:', error);
-    showToast(`設定の読み込みエラー: ${error.message}`, 'error');
+    utilsShowToast(`設定の読み込みエラー: ${error.message}`, 'error');
     throw error; // エラーを再スローしてswitchTabでキャッチさせる
   }
 }
 
 async function refreshDbConnectionFromEnv() {
   try {
-    showLoading('接続設定を更新中...');
+    utilsShowLoading('接続設定を更新中...');
     
     // 環境変数から情報を取得
-    const envData = await apiCall('/api/settings/database/env');
+    const envData = await authApiCall('/api/settings/database/env');
     
     if (!envData.success) {
-      hideLoading();
-      showToast(envData.message, 'error');
+      utilsHideLoading();
+      utilsShowToast(envData.message, 'error');
       return;
     }
     
@@ -2458,7 +2470,12 @@ async function refreshDbConnectionFromEnv() {
       }
     } else {
       walletStatus.style.display = 'block';
-      walletStatus.innerHTML = '<span class="text-yellow-600">⚠️ Walletが見つかりません。ZIPファイルをアップロードしてください。</span>';
+      // ダウンロードエラーがあれば表示
+      if (envData.download_error) {
+        walletStatus.innerHTML = '<span class="text-red-600">❌ Wallet自動ダウンロード失敗: ' + envData.download_error + '</span><br><span class="text-gray-600">手動でZIPファイルをアップロードしてください。</span>';
+      } else {
+        walletStatus.innerHTML = '<span class="text-yellow-600">⚠️ Walletが見つかりません。ZIPファイルをアップロードしてください。</span>';
+      }
     }
     
     // ステータスバッジを更新（設定ファイルの有無で判定、実際の接続確認はしない）
@@ -2474,12 +2491,12 @@ async function refreshDbConnectionFromEnv() {
       statusBadge.style.color = '#64748b';
     }
     
-    hideLoading();
-    showToast('接続設定を更新しました', 'success');
+    utilsHideLoading();
+    utilsShowToast('接続設定を更新しました', 'success');
     
   } catch (error) {
-    hideLoading();
-    showToast(`接続設定更新エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`接続設定更新エラー: ${error.message}`, 'error');
   }
 }
 
@@ -2493,7 +2510,7 @@ function handleWalletFileSelect(event) {
   if (!file) return;
   
   if (!file.name.toLowerCase().endsWith('.zip')) {
-    showToast('ZIPファイルを選択してください', 'error');
+    utilsShowToast('ZIPファイルを選択してください', 'error');
     return;
   }
   
@@ -2508,7 +2525,7 @@ function handleWalletFileSelect(event) {
 
 async function uploadWalletFile(file) {
   try {
-    showLoading('Walletをアップロード中...');
+    utilsShowLoading('Walletをアップロード中...');
     
     const formData = new FormData();
     formData.append('file', file);
@@ -2524,7 +2541,7 @@ async function uploadWalletFile(file) {
       body: formData
     });
     
-    hideLoading();
+    utilsHideLoading();
     
     if (!response.ok) {
       const error = await response.json();
@@ -2538,7 +2555,7 @@ async function uploadWalletFile(file) {
       walletStatus.style.display = 'block';
       walletStatus.innerHTML = '<span class="text-green-600">✅ Walletアップロード成功</span>';
       
-      showToast(data.message, 'success');
+      utilsShowToast(data.message, 'success');
       
       // 利用可能なDSNを表示
       if (data.available_services && data.available_services.length > 0) {
@@ -2557,8 +2574,8 @@ async function uploadWalletFile(file) {
     }
     
   } catch (error) {
-    hideLoading();
-    showToast(`Walletアップロードエラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`Walletアップロードエラー: ${error.message}`, 'error');
     
     const walletStatus = document.getElementById('walletStatus');
     walletStatus.style.display = 'block';
@@ -2577,12 +2594,12 @@ async function saveDbConnection() {
   const dsn = document.getElementById('dbDsn').value;
   
   if (!username || !password) {
-    showToast('ユーザー名とパスワードを入力してください', 'warning');
+    utilsShowToast('ユーザー名とパスワードを入力してください', 'warning');
     return;
   }
   
   if (!dsn) {
-    showToast('サービス名/DSNを選択してください', 'warning');
+    utilsShowToast('サービス名/DSNを選択してください', 'warning');
     return;
   }
   
@@ -2593,22 +2610,22 @@ async function saveDbConnection() {
   };
   
   try {
-    showLoading('DB設定を保存中...');
+    utilsShowLoading('DB設定を保存中...');
     
-    await apiCall('/api/settings/database', {
+    await authApiCall('/api/settings/database', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
     });
     
-    hideLoading();
-    showToast('DB設定を保存しました', 'success');
+    utilsHideLoading();
+    utilsShowToast('DB設定を保存しました', 'success');
     
     await loadDbConnectionSettings();
     
   } catch (error) {
-    hideLoading();
-    showToast(`保存エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`保存エラー: ${error.message}`, 'error');
   }
 }
 
@@ -2631,15 +2648,15 @@ async function testDbConnection() {
     
     // パスワードが入力されていない場合、環境変数から取得
     if (!password) {
-      showLoading('環境変数からパスワードを取得中...');
+      utilsShowLoading('環境変数からパスワードを取得中...');
       try {
-        const envData = await apiCall('/api/settings/database/env?include_password=true');
+        const envData = await authApiCall('/api/settings/database/env?include_password=true');
         if (envData.success && envData.password && envData.password !== '[CONFIGURED]') {
           password = envData.password;
         }
-        hideLoading();
+        utilsHideLoading();
       } catch (error) {
-        hideLoading();
+        utilsHideLoading();
         // console.warn('環境変数からパスワード取得エラー:', error);
       }
     }
@@ -2656,11 +2673,11 @@ async function testDbConnection() {
     
     // 入力チェック
     if (!username || !password || !dsn) {
-      showToast('ユーザー名、パスワード、DSNを入力してください', 'warning');
+      utilsShowToast('ユーザー名、パスワード、DSNを入力してください', 'warning');
       return;
     }
     
-    showLoading('接続テスト中...');
+    utilsShowLoading('接続テスト中...');
     
     const requestBody = {
       settings: {
@@ -2672,36 +2689,43 @@ async function testDbConnection() {
     
     // console.log('Request body:', JSON.stringify({...requestBody, settings: {...requestBody.settings, password: '[HIDDEN]'}}));
     
-    const data = await apiCall('/api/settings/database/test', {
+    // タイムアウト処理を追加（90秒）
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('接続テストがタイムアウトしました（90秒）')), 90000)
+    );
+    
+    const apiPromise = authApiCall('/api/settings/database/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody)
     });
     
-    hideLoading();
+    const data = await Promise.race([apiPromise, timeoutPromise]);
+    
+    utilsHideLoading();
     
     if (data.success) {
-      showToast(data.message, 'success');
+      utilsShowToast(data.message, 'success');
       
       // 接続成功時、DB情報を自動読み込み
-      await loadDbInfo();
+      // await loadDbInfo();
     } else {
-      showToast(data.message, 'error');
+      utilsShowToast(data.message, 'error');
     }
     
   } catch (error) {
-    hideLoading();
-    showToast(`接続テストエラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`接続テストエラー: ${error.message}`, 'error');
   }
 }
 
 async function loadDbInfo() {
   try {
-    showLoading('データベース情報を取得中...');
+    utilsShowLoading('データベース情報を取得中...');
     
-    const data = await apiCall('/api/database/info');
+    const data = await authApiCall('/api/database/info');
     
-    hideLoading();
+    utilsHideLoading();
     
     const infoDiv = document.getElementById('dbInfoContent');
     const statusBadge = document.getElementById('dbInfoStatusBadge');
@@ -2763,8 +2787,8 @@ async function loadDbInfo() {
     `;
     
   } catch (error) {
-    hideLoading();
-    showToast(`データベース情報取得エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`データベース情報取得エラー: ${error.message}`, 'error');
   }
 }
 
@@ -3156,7 +3180,7 @@ function handleTableDataNextPage() {
 function handleTableDataJumpPage() {
   const input = document.getElementById('tableDataPageInput');
   if (!input) {
-    showToast('ページ入力エラー', 'error');
+    utilsShowToast('ページ入力エラー', 'error');
     return;
   }
   
@@ -3164,7 +3188,7 @@ function handleTableDataJumpPage() {
   
   // NaNチェックを追加
   if (isNaN(page)) {
-    showToast('有効な数値を入力してください', 'error');
+    utilsShowToast('有効な数値を入力してください', 'error');
     input.value = tableDataPage;
     return;
   }
@@ -3173,7 +3197,7 @@ function handleTableDataJumpPage() {
     tableDataPage = page;
     loadTableData(selectedTableForPreview);
   } else {
-    showToast('無効なページ番号です', 'error');
+    utilsShowToast('無効なページ番号です', 'error');
     input.value = tableDataPage;
   }
 }
@@ -3224,7 +3248,7 @@ function deleteSelectedTableData() {
         utilsShowLoading('レコードを削除中...');
         
         // 削除APIを呼び出す
-        const response = await apiCall('/api/database/file-info/batch-delete', {
+        const response = await authApiCall('/api/database/file-info/batch-delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ file_ids: selectedTableDataRows })
@@ -3351,7 +3375,7 @@ function handleDbTablesNextPage() {
 function handleDbTablesJumpPage() {
   const input = document.getElementById('dbTablesPageInput');
   if (!input) {
-    showToast('ページ入力エラー', 'error');
+    utilsShowToast('ページ入力エラー', 'error');
     return;
   }
   
@@ -3359,7 +3383,7 @@ function handleDbTablesJumpPage() {
   
   // NaNチェックを追加
   if (isNaN(page)) {
-    showToast('有効な数値を入力してください', 'error');
+    utilsShowToast('有効な数値を入力してください', 'error');
     input.value = dbTablesPage;
     return;
   }
@@ -3368,7 +3392,7 @@ function handleDbTablesJumpPage() {
     dbTablesPage = page;
     loadDbTables();
   } else {
-    showToast('無効なページ番号です', 'error');
+    utilsShowToast('無効なページ番号です', 'error');
     input.value = dbTablesPage;
   }
 }
@@ -3467,7 +3491,7 @@ function clearAllDbTables() {
 // テーブル一覧 - 選択されたテーブルを削除
 async function deleteSelectedDbTables() {
   if (selectedDbTables.length === 0) {
-    showToast('削除するテーブルを選択してください', 'warning');
+    utilsShowToast('削除するテーブルを選択してください', 'warning');
     return;
   }
   
@@ -3487,23 +3511,23 @@ async function deleteSelectedDbTables() {
   
   try {
     // 一括削除APIを呼び出す
-    const response = await apiCall('/api/database/tables/batch-delete', {
+    const response = await authApiCall('/api/database/tables/batch-delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ table_names: selectedDbTables })
     });
     
     if (response.success) {
-      showToast(`${count}件のテーブルを削除しました`, 'success');
+      utilsShowToast(`${count}件のテーブルを削除しました`, 'success');
       // 選択をクリア
       selectedDbTables = [];
       // ページを1にリセット
       dbTablesPage = 1;
     } else {
-      showToast(`削除エラー: ${response.message || '不明なエラー'}`, 'error');
+      utilsShowToast(`削除エラー: ${response.message || '不明なエラー'}`, 'error');
     }
   } catch (error) {
-    showToast(`削除エラー: ${error.message}`, 'error');
+    utilsShowToast(`削除エラー: ${error.message}`, 'error');
   } finally {
     // 処理中表示を解除
     dbTablesBatchDeleteLoading = false;
@@ -3515,12 +3539,12 @@ async function deleteSelectedDbTables() {
 // データベース情報更新ボタン
 async function refreshDbInfo() {
   try {
-    showLoading('データベース情報を更新中...');
+    utilsShowLoading('データベース情報を更新中...');
     await loadDbInfo();
-    hideLoading();
+    utilsHideLoading();
   } catch (error) {
-    hideLoading();
-    showToast(`更新エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`更新エラー: ${error.message}`, 'error');
   }
 }
 
@@ -3530,7 +3554,7 @@ async function refreshDbTables() {
     utilsShowLoading('統計情報を更新中...');
     
     // 先に統計情報を更新
-    const statsResult = await apiCall('/api/database/tables/refresh-statistics', {
+    const statsResult = await authApiCall('/api/database/tables/refresh-statistics', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -3559,11 +3583,11 @@ async function refreshDbTables() {
 // ストレージ情報を読み込み
 async function loadDbStorage() {
   try {
-    showLoading('ストレージ情報を取得中...');
+    utilsShowLoading('ストレージ情報を取得中...');
     
-    const data = await apiCall('/api/database/storage');
+    const data = await authApiCall('/api/database/storage');
     
-    hideLoading();
+    utilsHideLoading();
     
     const storageDiv = document.getElementById('dbStorageContent');
     const statusBadge = document.getElementById('dbStorageStatusBadge');
@@ -3684,20 +3708,20 @@ async function loadDbStorage() {
     `;
     
   } catch (error) {
-    hideLoading();
-    showToast(`ストレージ情報取得エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`ストレージ情報取得エラー: ${error.message}`, 'error');
   }
 }
 
 // ストレージ情報更新ボタン
 async function refreshDbStorage() {
   try {
-    showLoading('ストレージ情報を更新中...');
+    utilsShowLoading('ストレージ情報を更新中...');
     await loadDbStorage();
-    hideLoading();
+    utilsHideLoading();
   } catch (error) {
-    hideLoading();
-    showToast(`更新エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`更新エラー: ${error.message}`, 'error');
   }
 }
 
@@ -3826,7 +3850,7 @@ async function handleLogin(event) {
       localStorage.setItem('loginUser', data.username);
       
       hideLoginModal();
-      showToast('ログインしました', 'success');
+      utilsShowToast('ログインしました', 'success');
       
       // UI更新
       updateUserInfo();
@@ -3878,7 +3902,7 @@ async function handleLogout() {
     localStorage.removeItem('loginToken');
     localStorage.removeItem('loginUser');
     
-    showToast('ログアウトしました');
+    utilsShowToast('ログアウトしました');
     
     // ページをリロードしてログイン画面へ遷移
     setTimeout(() => {
@@ -3971,17 +3995,83 @@ let currentAdbInfo = {
 /**
  * ADB情報を取得
  */
-async function getAdbInfo() {
+/**
+ * ADB OCIDのみを読み込む（軽量版、Display NameやLifecycle Stateは取得しない）
+ */
+async function loadAdbOcidOnly() {
   try {
-    showLoading('ADB情報を取得中...');
-    
-    // バックエンドのADB_NAMEとOCI_COMPARTMENT_OCIDを使用するため、
-    // 環境変数から読み取る（参考コードと同じパターン）
-    const data = await apiCall('/api/database/target', {
+    const data = await authApiCall('/api/database/target/ocid', {
       method: 'GET'
     });
     
-    hideLoading();
+    if (data.success && data.ocid) {
+      // OCIDのみを表示
+      document.getElementById('adbOcid').textContent = data.ocid;
+      console.log('ADB OCIDを読み込みました:', data.ocid);
+    } else {
+      document.getElementById('adbOcid').textContent = '-';
+    }
+  } catch (error) {
+    console.error('ADB OCID読み込みエラー:', error);
+    document.getElementById('adbOcid').textContent = '-';
+  }
+}
+
+/**
+ * DB接続情報を.envから読み込む（軽量版）
+ */
+async function loadDbConnectionInfoFromEnv() {
+  try {
+    const data = await authApiCall('/api/database/connection-info', {
+      method: 'GET'
+    });
+    
+    if (data.success) {
+      // ユーザー名、パスワード、DSNをフォームに設定
+      const userInput = document.getElementById('dbUser');
+      const passwordInput = document.getElementById('dbPassword');
+      const dsnSelect = document.getElementById('dbDsn');
+      
+      if (userInput) userInput.value = data.username || '';
+      if (passwordInput) passwordInput.value = data.password || '';
+      
+      // DSNをセレクトボックスに追加
+      if (dsnSelect && data.dsn) {
+        // 既存のオプションをクリア
+        dsnSelect.innerHTML = '<option value="">選択してください</option>';
+        // DSNを追加して選択
+        const option = document.createElement('option');
+        option.value = data.dsn;
+        option.textContent = data.dsn;
+        option.selected = true;
+        dsnSelect.appendChild(option);
+        // DSN表示エリアを表示
+        document.getElementById('dsnDisplay').style.display = 'block';
+      }
+      
+      console.log('.envからDB接続情報を読み込みました');
+    } else {
+      console.warn('DB接続情報の取得失敗:', data.message);
+    }
+  } catch (error) {
+    console.error('DB接続情報読み込みエラー:', error);
+  }
+}
+
+/**
+ * ADB情報を取得（フル情報）
+ */
+async function getAdbInfo() {
+  try {
+    utilsShowLoading('ADB情報を取得中...');
+    
+    // バックエンドのADB_OCIDを使用するため、
+    // 環境変数から読み取る（参考コードと同じパターン）
+    const data = await authApiCall('/api/database/target', {
+      method: 'GET'
+    });
+    
+    utilsHideLoading();
     
     // 情報を保存
     currentAdbInfo = {
@@ -3996,21 +4086,14 @@ async function getAdbInfo() {
     // UIを更新
     updateAdbDisplay();
     
-    // 操作結果を表示
-    showAdbOperationResult([
-      `ID: ${data.id}`,
-      `Display Name: ${data.display_name}`,
-      `DB Name: ${data.db_name}`,
-      `Lifecycle State: ${data.lifecycle_state}`,
-      `CPU Core Count: ${data.cpu_core_count}`,
-      `Storage (TB): ${data.data_storage_size_in_tbs}`
-    ]);
+    // 操作結果は表示しない（ユーザー要望により削除）
+    // showAdbOperationResult([...]);
     
-    showToast('ADB情報を取得しました', 'success');
+    utilsShowToast('ADB情報を取得しました', 'success');
     
   } catch (error) {
-    hideLoading();
-    showToast(`ADB情報取得エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`ADB情報取得エラー: ${error.message}`, 'error');
   }
 }
 
@@ -4019,39 +4102,37 @@ async function getAdbInfo() {
  */
 async function startAdb() {
   if (!currentAdbInfo.id) {
-    showToast('まずADB情報を取得してください', 'warning');
+    utilsShowToast('まずADB情報を取得してください', 'warning');
     return;
   }
   
   try {
-    showLoading('ADBを起動中...');
+    utilsShowLoading('ADBを起動中...');
     
-    const data = await apiCall('/api/database/target/start', {
+    const data = await authApiCall('/api/database/target/start', {
       method: 'POST'
     });
     
-    hideLoading();
+    utilsHideLoading();
     
     if (data.status === 'accepted' || data.status === 'noop') {
-      showToast(data.message, 'success');
-      showAdbOperationResult([
-        `Status: ${data.status}`,
-        `Message: ${data.message}`,
-        `ID: ${data.id}`
-      ]);
+      utilsShowToast(data.message, 'success');
+      // 操作結果は表示しない（ユーザー要望により削除）
+      // showAdbOperationResult([...]);
       
       // 少し待ってから情報を再取得
       setTimeout(() => {
         getAdbInfo();
       }, 3000);
     } else {
-      showToast(`エラー: ${data.message}`, 'error');
-      showAdbOperationResult([`Status: ${data.status}`, `Message: ${data.message}`]);
+      utilsShowToast(`エラー: ${data.message}`, 'error');
+      // 操作結果は表示しない（ユーザー要望により削除）
+      // showAdbOperationResult([...]);
     }
     
   } catch (error) {
-    hideLoading();
-    showToast(`ADB起動エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`ADB起動エラー: ${error.message}`, 'error');
   }
 }
 
@@ -4060,39 +4141,37 @@ async function startAdb() {
  */
 async function stopAdb() {
   if (!currentAdbInfo.id) {
-    showToast('まずADB情報を取得してください', 'warning');
+    utilsShowToast('まずADB情報を取得してください', 'warning');
     return;
   }
   
   try {
-    showLoading('ADBを停止中...');
+    utilsShowLoading('ADBを停止中...');
     
-    const data = await apiCall('/api/database/target/stop', {
+    const data = await authApiCall('/api/database/target/stop', {
       method: 'POST'
     });
     
-    hideLoading();
+    utilsHideLoading();
     
     if (data.status === 'accepted' || data.status === 'noop') {
-      showToast(data.message, 'success');
-      showAdbOperationResult([
-        `Status: ${data.status}`,
-        `Message: ${data.message}`,
-        `ID: ${data.id}`
-      ]);
+      utilsShowToast(data.message, 'success');
+      // 操作結果は表示しない（ユーザー要望により削除）
+      // showAdbOperationResult([...]);
       
       // 少し待ってから情報を再取得
       setTimeout(() => {
         getAdbInfo();
       }, 3000);
     } else {
-      showToast(`エラー: ${data.message}`, 'error');
-      showAdbOperationResult([`Status: ${data.status}`, `Message: ${data.message}`]);
+      utilsShowToast(`エラー: ${data.message}`, 'error');
+      // 操作結果は表示しない（ユーザー要望により削除）
+      // showAdbOperationResult([...]);
     }
     
   } catch (error) {
-    hideLoading();
-    showToast(`ADB停止エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`ADB停止エラー: ${error.message}`, 'error');
   }
 }
 
@@ -4319,7 +4398,7 @@ async function sendCopilotMessage() {
     copilotMessages[copilotMessages.length - 1].content = `エラー: ${error.message}`;
     copilotLoading = false;
     renderCopilotMessages();
-    showToast('AI Assistantの応答に失敗しました', 'error');
+    utilsShowToast('AI Assistantの応答に失敗しました', 'error');
   }
 }
 
@@ -4424,7 +4503,7 @@ function renderMarkdown(text) {
 function clearCopilotHistory() {
   copilotMessages = [];
   renderCopilotMessages();
-  showToast('会話履歴をクリアしました', 'success');
+  utilsShowToast('会話履歴をクリアしました', 'success');
 }
 
 /**
@@ -4452,7 +4531,7 @@ async function startNewConversation() {
       copilotMessages = [];
       copilotImages = [];
       renderCopilotMessages();
-      showToast('新しい会話を開始しました', 'success');
+      utilsShowToast('新しい会話を開始しました', 'success');
     }
   }
 }
@@ -4467,7 +4546,7 @@ function addCopilotImagesFromFiles(files) {
   
   // 既存の画像数を確認
   if (copilotImages.length >= MAX_IMAGES) {
-    showToast(`画像は最大${MAX_IMAGES}枚までアップロードできます`, 'warning');
+    utilsShowToast(`画像は最大${MAX_IMAGES}枚までアップロードできます`, 'warning');
     return;
   }
   
@@ -4476,7 +4555,7 @@ function addCopilotImagesFromFiles(files) {
   const filesToAdd = Array.from(files).filter(f => f.type.startsWith('image/')).slice(0, remainingSlots);
   
   if (filesToAdd.length < files.length) {
-    showToast(`画像は最大${MAX_IMAGES}枚までです。${filesToAdd.length}枚を追加します`, 'warning');
+    utilsShowToast(`画像は最大${MAX_IMAGES}枚までです。${filesToAdd.length}枚を追加します`, 'warning');
   }
   
   filesToAdd.forEach(file => {
@@ -4516,7 +4595,7 @@ function handleCopilotPaste(event) {
   
   // 既存の画像数を確認
   if (copilotImages.length >= MAX_IMAGES) {
-    showToast(`画像は最大${MAX_IMAGES}枚までアップロードできます`, 'warning');
+    utilsShowToast(`画像は最大${MAX_IMAGES}枚までアップロードできます`, 'warning');
     return;
   }
   
@@ -4525,7 +4604,7 @@ function handleCopilotPaste(event) {
   const itemsToAdd = imageItems.slice(0, remainingSlots);
   
   if (itemsToAdd.length < imageItems.length) {
-    showToast(`画像は最大${MAX_IMAGES}枚までです。${itemsToAdd.length}枚を追加します`, 'warning');
+    utilsShowToast(`画像は最大${MAX_IMAGES}枚までです。${itemsToAdd.length}枚を追加します`, 'warning');
   }
   
   itemsToAdd.forEach(item => {
@@ -4808,7 +4887,7 @@ function updateObjectStorageStatusBadge(bucketName, namespace) {
 async function loadObjectStorageSettings() {
   try {
     // OCI設定を取得
-    const settingsData = await apiCall('/api/oci/settings');
+    const settingsData = await authApiCall('/api/oci/settings');
     
     // Bucket Nameを設定
     const bucketNameInput = document.getElementById('bucketName');
@@ -4831,7 +4910,7 @@ async function loadObjectStorageSettings() {
       namespaceStatus.className = 'text-xs text-blue-600';
       
       try {
-        const namespaceData = await apiCall('/api/oci/namespace');
+        const namespaceData = await authApiCall('/api/oci/namespace');
         if (namespaceData.success) {
           namespaceInput.value = namespaceData.namespace;
           namespaceStatus.textContent = `OCI APIから自動取得済み`;
@@ -4855,7 +4934,7 @@ async function loadObjectStorageSettings() {
     
   } catch (error) {
     // console.error('Object Storage設定読み込みエラー:', error);
-    showToast('Object Storage設定の読み込みに失敗しました', 'error');
+    utilsShowToast('Object Storage設定の読み込みに失敗しました', 'error');
   }
 }
 
@@ -4868,18 +4947,18 @@ async function saveObjectStorageSettings() {
     const namespace = document.getElementById('namespace').value.trim();
     
     if (!bucketName) {
-      showToast('Bucket Nameを入力してください', 'warning');
+      utilsShowToast('Bucket Nameを入力してください', 'warning');
       return;
     }
     
     if (!namespace) {
-      showToast('Namespaceが取得されていません', 'warning');
+      utilsShowToast('Namespaceが取得されていません', 'warning');
       return;
     }
     
-    showLoading('Object Storage設定を保存中...');
+    utilsShowLoading('Object Storage設定を保存中...');
     
-    const response = await apiCall('/api/oci/object-storage/save', {
+    const response = await authApiCall('/api/oci/object-storage/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -4889,20 +4968,20 @@ async function saveObjectStorageSettings() {
     });
     
     if (response.success) {
-      showToast('Object Storage設定を保存しました', 'success');
+      utilsShowToast('Object Storage設定を保存しました', 'success');
       // ステータスバッジを更新
       updateObjectStorageStatusBadge(bucketName, namespace);
       // 設定を再読み込み
       await loadObjectStorageSettings();
     } else {
-      showToast(response.message || '保存に失敗しました', 'error');
+      utilsShowToast(response.message || '保存に失敗しました', 'error');
     }
     
   } catch (error) {
     // console.error('Object Storage設定保存エラー:', error);
-    showToast(`保存エラー: ${error.message}`, 'error');
+    utilsShowToast(`保存エラー: ${error.message}`, 'error');
   } finally {
-    hideLoading();
+    utilsHideLoading();
   }
 }
 
@@ -4915,18 +4994,18 @@ async function testObjectStorageConnection() {
     const namespace = document.getElementById('namespace').value.trim();
     
     if (!bucketName) {
-      showToast('Bucket Nameを入力してください', 'warning');
+      utilsShowToast('Bucket Nameを入力してください', 'warning');
       return;
     }
     
     if (!namespace) {
-      showToast('Namespaceが取得されていません', 'warning');
+      utilsShowToast('Namespaceが取得されていません', 'warning');
       return;
     }
     
-    showLoading('Object Storage接続テスト中...');
+    utilsShowLoading('Object Storage接続テスト中...');
     
-    const response = await apiCall('/api/oci/object-storage/test', {
+    const response = await authApiCall('/api/oci/object-storage/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -4936,16 +5015,16 @@ async function testObjectStorageConnection() {
     });
     
     if (response.success) {
-      showToast(response.message || '接続テストに成功しました', 'success');
+      utilsShowToast(response.message || '接続テストに成功しました', 'success');
     } else {
-      showToast(response.message || '接続テストに失敗しました', 'error');
+      utilsShowToast(response.message || '接続テストに失敗しました', 'error');
     }
     
   } catch (error) {
     // console.error('Object Storage接続テストエラー:', error);
-    showToast(`テストエラー: ${error.message}`, 'error');
+    utilsShowToast(`テストエラー: ${error.message}`, 'error');
   } finally {
-    hideLoading();
+    utilsHideLoading();
   }
 }
 

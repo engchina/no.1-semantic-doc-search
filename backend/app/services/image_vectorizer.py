@@ -26,7 +26,7 @@ class ImageVectorizer:
         self.genai_client = None
         self.db_connection = None
         self._initialize_genai_only()
-        logger.info("ImageVectorizerを初期化しました（DB接続プールは未作成）")
+        logger.info("ImageVectorizerを初期化しました（DB接続は遅延作成）")
     
     def _initialize_genai_only(self):
         """OCIクライアントのみを初期化（DB接続は遅延作成）"""
@@ -59,7 +59,7 @@ class ImageVectorizer:
             self.genai_client = None
     
     def _ensure_db_connection(self, max_retries: int = 3) -> bool:
-        """データベース接続を確保（database_serviceのプールを利用）"""
+        """データベース接続を確保（database_serviceから取得）"""
         from app.services.database_service import database_service
         
         # 既存接続が有効かチェック
@@ -68,7 +68,7 @@ class ImageVectorizer:
                 return True
             else:
                 logger.warning("既存のDB接続が無効です")
-                # 無効な接続をプールに返却
+                # 無効な接続をクローズ
                 try:
                     database_service._release_connection(self.db_connection)
                 except:
@@ -337,7 +337,7 @@ class ImageVectorizer:
                 self.db_connection.rollback()
             return None
         finally:
-            # 接続をプールに返却
+            # 接続をクローズ
             self._release_db_connection()
     
     def save_image_embedding(self, file_id: int, bucket: str, object_name: str, 
@@ -386,7 +386,7 @@ class ImageVectorizer:
                 self.db_connection.rollback()
             return None
         finally:
-            # 接続をプールに返却
+            # 接続をクローズ
             self._release_db_connection()
     
     def delete_file_embeddings(self, file_id: int) -> bool:
@@ -414,7 +414,7 @@ class ImageVectorizer:
                 self.db_connection.rollback()
             return False
         finally:
-            # 接続をプールに返却
+            # 接続をクローズ
             self._release_db_connection()
     
     def get_file_id_by_object_name(self, bucket: str, object_name: str) -> Optional[int]:
@@ -440,18 +440,19 @@ class ImageVectorizer:
             logger.error(f"FILE_ID取得エラー: {e}")
             return None
         finally:
-            # 接続をプールに返却
+            # 接続をクローズ
             self._release_db_connection()
 
     def _release_db_connection(self):
-        """接続をプールに返却"""
+        """接続をクローズ"""
         if self.db_connection:
             from app.services.database_service import database_service
             try:
                 database_service._release_connection(self.db_connection)
                 self.db_connection = None
+                logger.debug("データベース接続をクローズしました")
             except Exception as e:
-                logger.error(f"接続返却エラー: {e}")
+                logger.error(f"接続クローズエラー: {e}")
     
     def get_vectorization_status(self, bucket: str, object_names: List[str]) -> Dict[str, bool]:
         """

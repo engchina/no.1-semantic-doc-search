@@ -2015,23 +2015,76 @@ def find_target_autonomous_database(db_client, compartment_id: str, adb_name: st
             return adb
     return candidates[0]
 
+@app.get("/api/database/target/ocid")
+def get_target_autonomous_database_ocid():
+    """ターゲットAutonomous DatabaseのOCIDのみを取得（軽量版）"""
+    adb_ocid = os.environ.get("ADB_OCID")
+    if not adb_ocid:
+        raise HTTPException(status_code=400, detail="ADB_OCID が設定されていません")
+    
+    return {
+        "success": True,
+        "ocid": adb_ocid
+    }
+
+@app.get("/api/database/connection-info")
+def get_database_connection_info():
+    """.envファイルからデータベース接続情報を取得（軽量版）"""
+    conn_string = os.environ.get("ORACLE_26AI_CONNECTION_STRING")
+    
+    if not conn_string:
+        return {
+            "success": False,
+            "message": "ORACLE_26AI_CONNECTION_STRING が設定されていません"
+        }
+    
+    try:
+        # 接続文字列を解析: username/password@dsn
+        if '/' in conn_string and '@' in conn_string:
+            # username/password@dsn 形式
+            user_pass, dsn = conn_string.split('@', 1)
+            if '/' in user_pass:
+                username, password = user_pass.split('/', 1)
+            else:
+                username = user_pass
+                password = ""
+        else:
+            return {
+                "success": False,
+                "message": "無効な接続文字列形式です"
+            }
+        
+        return {
+            "success": True,
+            "username": username,
+            "password": password,
+            "dsn": dsn
+        }
+    except Exception as e:
+        logger.error(f"接続情報解析エラー: {e}")
+        return {
+            "success": False,
+            "message": f"解析エラー: {str(e)}"
+        }
+
 @app.get("/api/database/target")
 def get_target_autonomous_database():
     """ターゲットAutonomous Database情報を取得"""
-    adb_name = os.environ.get("ADB_NAME")
-    if not adb_name:
-        raise HTTPException(status_code=400, detail="ADB_NAME が設定されていません")
+    adb_ocid = os.environ.get("ADB_OCID")
+    if not adb_ocid:
+        raise HTTPException(status_code=400, detail="ADB_OCID が設定されていません")
 
     db_client = create_database_client()
-    compartment_id = os.environ.get("OCI_COMPARTMENT_OCID") or oci_service.get_settings().tenancy_ocid
-    adb = find_target_autonomous_database(db_client, compartment_id=compartment_id, adb_name=adb_name)
-    if not adb:
-        raise HTTPException(status_code=404, detail=f"Autonomous Database が見つかりません: {adb_name}")
+    
+    try:
+        # OCIDから直接ADB情報を取得
+        adb = db_client.get_autonomous_database(adb_ocid).data
+    except Exception as e:
+        logger.error(f"ADB情報取得エラー: {e}")
+        raise HTTPException(status_code=404, detail=f"Autonomous Database が見つかりません: {adb_ocid}")
 
-    # find_target_autonomous_databaseで既に取得済みの情報を使用（不要な追加API呼び出しを避ける）
+    # 取得した情報を返す
     return {
-        "target_compartment_id": compartment_id,
-        "target_adb_name": adb_name,
         "id": adb.id,
         "display_name": adb.display_name,
         "db_name": adb.db_name,
@@ -2047,17 +2100,20 @@ def get_target_autonomous_database():
 @app.post("/api/database/target/start")
 def start_target_autonomous_database():
     """ターゲットAutonomous Databaseを起動"""
-    adb_name = os.environ.get("ADB_NAME")
-    if not adb_name:
-        raise HTTPException(status_code=400, detail="ADB_NAME が設定されていません")
+    adb_ocid = os.environ.get("ADB_OCID")
+    if not adb_ocid:
+        raise HTTPException(status_code=400, detail="ADB_OCID が設定されていません")
 
     db_client = create_database_client()
-    compartment_id = os.environ.get("OCI_COMPARTMENT_OCID") or oci_service.get_settings().tenancy_ocid
-    adb = find_target_autonomous_database(db_client, compartment_id=compartment_id, adb_name=adb_name)
-    if not adb:
-        raise HTTPException(status_code=404, detail=f"Autonomous Database が見つかりません: {adb_name}")
+    
+    try:
+        # OCIDから直接ADB情報を取得
+        adb = db_client.get_autonomous_database(adb_ocid).data
+    except Exception as e:
+        logger.error(f"ADB情報取得エラー: {e}")
+        raise HTTPException(status_code=404, detail=f"Autonomous Database が見つかりません: {adb_ocid}")
 
-    # 既に取得済みの情報を使用（不要な追加API呼び出しを避ける）
+    # 現在の状態を確認
     if adb.lifecycle_state in {"AVAILABLE", "STARTING"}:
         return {"status": "noop", "message": f"Already {adb.lifecycle_state}", "id": adb.id}
 
@@ -2068,17 +2124,20 @@ def start_target_autonomous_database():
 @app.post("/api/database/target/stop")
 def stop_target_autonomous_database():
     """ターゲットAutonomous Databaseを停止"""
-    adb_name = os.environ.get("ADB_NAME")
-    if not adb_name:
-        raise HTTPException(status_code=400, detail="ADB_NAME が設定されていません")
+    adb_ocid = os.environ.get("ADB_OCID")
+    if not adb_ocid:
+        raise HTTPException(status_code=400, detail="ADB_OCID が設定されていません")
 
     db_client = create_database_client()
-    compartment_id = os.environ.get("OCI_COMPARTMENT_OCID") or oci_service.get_settings().tenancy_ocid
-    adb = find_target_autonomous_database(db_client, compartment_id=compartment_id, adb_name=adb_name)
-    if not adb:
-        raise HTTPException(status_code=404, detail=f"Autonomous Database が見つかりません: {adb_name}")
+    
+    try:
+        # OCIDから直接ADB情報を取得
+        adb = db_client.get_autonomous_database(adb_ocid).data
+    except Exception as e:
+        logger.error(f"ADB情報取得エラー: {e}")
+        raise HTTPException(status_code=404, detail=f"Autonomous Database が見つかりません: {adb_ocid}")
 
-    # 既に取得済みの情報を使用（不要な追加API呼び出しを避ける）
+    # 現在の状態を確認
     if adb.lifecycle_state in {"STOPPED", "STOPPING"}:
         return {"status": "noop", "message": f"Already {adb.lifecycle_state}", "id": adb.id}
 

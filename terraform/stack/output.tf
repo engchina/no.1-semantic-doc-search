@@ -3,6 +3,16 @@ output "autonomous_data_warehouse_admin_password" {
     value = var.adb_password
 }
 
+output "autonomous_data_warehouse_ocid" {
+  description = "Autonomous Database OCID"
+  value       = oci_database_autonomous_database.generated_database_autonomous_database.id
+}
+
+output "adb_ocid" {
+  description = "Autonomous Database OCID"
+  value       = oci_database_autonomous_database.generated_database_autonomous_database.id
+}
+
 output "autonomous_data_warehouse_high_connection_string" {
   value = lookup(
     oci_database_autonomous_database.generated_database_autonomous_database.connection_strings[0].all_connection_strings,

@@ -28,12 +28,11 @@ write_files:
   - path: "/u01/aipoc/props/oci_bucket.txt"
     permissions: "0644"
     content: ${bucket}
-  - path: "/u01/aipoc/wallet.zip"
+  - path: "/u01/aipoc/props/adb_ocid.txt"
     permissions: "0644"
-    encoding: base64
-    content: |
-      ${wallet}
+    content: ${adb_ocid}
 runcmd:
+  - apt install -y git unzip
   - iptables -I INPUT 6 -m state --state NEW -p tcp --dport 5173 -j ACCEPT
   - netfilter-persistent save
   - cd /u01/aipoc
