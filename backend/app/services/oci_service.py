@@ -628,7 +628,12 @@ class OCIService:
                     else:
                         # ファイルの場合：画像ファイル → 画像フォルダ → ファイル本体の順に削除
                         # ステップ1: ページ画像化で生成された画像ファイルを削除
-                        image_folder_name = obj_name + '/'
+                        # 注: 画像フォルダ名は「ファイル名.pdf/」ではなく「ファイル名/」（拡張子なし）
+                        from pathlib import Path
+                        file_path = Path(obj_name)
+                        file_name_without_ext = file_path.stem  # 拡張子を除去
+                        image_folder_name = file_name_without_ext + '/'
+                        logger.info(f"画像フォルダ名: {image_folder_name} (元のファイル: {obj_name})")
                         try:
                             # 画像フォルダ配下のファイルを検索
                             image_objects = self.list_objects(
@@ -639,12 +644,15 @@ class OCIService:
                                 include_metadata=False
                             )
                             
+                            logger.info(f"画像フォルダ検索結果: success={image_objects.get('success')}, objects_count={len(image_objects.get('objects', []))}")
+                            
                             if image_objects.get("success"):
                                 image_files = image_objects.get("objects", [])
                                 if image_files:
                                     logger.info(f"画像ファイル削除開始: {len(image_files)}件 (フォルダ: {image_folder_name})")
                                     for img_obj in image_files:
                                         try:
+                                            logger.debug(f"画像ファイル削除中: {img_obj['name']}")
                                             client.delete_object(
                                                 namespace_name=namespace,
                                                 bucket_name=bucket_name,
@@ -658,6 +666,8 @@ class OCIService:
                                             if "ObjectNotFound" not in error_str and "404" not in error_str:
                                                 logger.error(f"画像ファイル削除エラー: {img_obj['name']} - {img_e}")
                                                 failed_objects.append(img_obj["name"])
+                                else:
+                                    logger.info(f"画像ファイルなし: {image_folder_name}")
                         except Exception as folder_check_e:
                             # フォルダが存在しない場合はエラーを無視（画像化されていないファイル）
                             logger.debug(f"画像フォルダなし: {image_folder_name}")

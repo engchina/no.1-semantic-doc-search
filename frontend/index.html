@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>資料みつかるくん - セマンティック文書検索システム</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23667eea' stroke-width='2'%3E%3Cpath d='M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/src/style.css">
 </head>
 <body class="flex flex-col" style="height: 100vh; margin: 0; overflow: hidden;">
@@ -24,17 +25,17 @@
       <div class="ml-auto flex items-center gap-6 text-sm" id="userInfo" style="display: none;">
         <div class="flex items-center gap-3">
           <span class="opacity-90">ユーザー: <span id="userName"></span></span>
-          <button onclick="handleLogout()" class="apex-button px-3 py-1 bg-white/15 hover:bg-white/25 border border-white/25 rounded-md transition">ログアウト</button>
+          <button onclick="window.authModule.handleLogout()" class="apex-button px-3 py-1 bg-white/15 hover:bg-white/25 border border-white/25 rounded-md transition">ログアウト</button>
         </div>
       </div>
     </nav>
 
     <!-- タブナビゲーション -->
     <div class="apex-tabs" style="flex-shrink: 0; margin: 0;">
-      <div class="apex-tab active" onclick="switchTab('search')">🔍 検索</div>
-      <div class="apex-tab" onclick="switchTab('documents')">📁 文書管理</div>
-      <div class="apex-tab" onclick="switchTab('database')">🗄️ DB管理</div>
-      <div class="apex-tab" onclick="switchTab('settings')">⚙️ OCI設定</div>
+      <div class="apex-tab active" onclick="switchTab('search', event)">🔍 検索</div>
+      <div class="apex-tab" onclick="switchTab('documents', event)">📁 文書管理</div>
+      <div class="apex-tab" onclick="switchTab('database', event)">🗄️ DB管理</div>
+      <div class="apex-tab" onclick="switchTab('settings', event)">⚙️ OCI設定</div>
     </div>
 
     <!-- AI Assistant 浮動ボタン -->
@@ -168,10 +169,10 @@
           </div>
 
           <div style="display: flex; gap: 12px;">
-            <button class="apex-button px-4 py-2" onclick="performSearch()">
+            <button class="apex-button px-4 py-2" onclick="window.searchModule.performSearch()">
               🔍 検索実行
             </button>
-            <button class="apex-button-secondary px-4 py-2" onclick="clearSearchResults()">
+            <button class="apex-button-secondary px-4 py-2" onclick="window.searchModule.clearSearchResults()">
               🗑️ クリア
             </button>
           </div>
@@ -571,7 +572,7 @@
       </div>
 
       <!-- データベース情報 -->
-      <div class="apex-region" style="margin-bottom: 20px;">
+      <div class="apex-region" style="margin-bottom: 20px; display: none;">
         <div class="apex-region-header">
           📊 データベース情報
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -607,7 +608,7 @@
       </div>
 
       <!-- ストレージ情報 -->
-      <div class="apex-region" style="margin-bottom: 20px;">
+      <div class="apex-region" style="margin-bottom: 20px; display: none;">
         <div class="apex-region-header">
           💾 ストレージ情報
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -835,6 +836,19 @@
     </div>
   </div>
 
+  <!-- 共通モジュール -->
+  <script type="module" src="/src/config.js"></script>
+  <script type="module" src="/src/state.js"></script>
+  <script type="module" src="/src/i18n.js"></script>
+  <script type="module" src="/src/dom-utils.js"></script>
+  
+  <!-- 機能モジュール -->
+  <script type="module" src="/src/modules/utils.js"></script>
+  <script type="module" src="/src/modules/auth.js"></script>
+  <script type="module" src="/src/modules/search.js"></script>
+  <script type="module" src="/src/modules/oci.js"></script>
+  
+  <!-- UIコンポーネントとメインアプリ -->
   <script type="module" src="/components.js"></script>
   <script type="module" src="/app.js"></script>
 </body>

@@ -655,6 +655,77 @@ class DatabaseService:
                 self._release_connection(connection)
             return None
     
+    def refresh_table_statistics(self) -> Dict[str, Any]:
+        """全テーブルの統計情報を更新"""
+        connection = None
+        try:
+            if not ORACLEDB_AVAILABLE:
+                return {"success": False, "message": "Oracle DBが利用できません", "updated_count": 0}
+            
+            connection = self._create_connection()
+            if not connection:
+                return {"success": False, "message": "データベース接続に失敗しました", "updated_count": 0}
+            
+            cursor = connection.cursor()
+            
+            # '$'を含まないテーブル一覧を取得
+            cursor.execute("""
+                SELECT table_name 
+                FROM user_tables 
+                WHERE table_name NOT LIKE '%$%'
+            """)
+            tables = cursor.fetchall()
+            
+            updated_count = 0
+            errors = []
+            
+            # 各テーブルの統計情報を更新
+            for (table_name,) in tables:
+                try:
+                    # DBMS_STATS.GATHER_TABLE_STATSを使用して統計情報を収集
+                    cursor.execute("""
+                        BEGIN
+                            DBMS_STATS.GATHER_TABLE_STATS(
+                                ownname => USER,
+                                tabname => :table_name,
+                                estimate_percent => DBMS_STATS.AUTO_SAMPLE_SIZE,
+                                method_opt => 'FOR ALL COLUMNS SIZE AUTO',
+                                degree => DBMS_STATS.AUTO_DEGREE,
+                                cascade => FALSE
+                            );
+                        END;
+                    """, {'table_name': table_name})
+                    updated_count += 1
+                except Exception as e:
+                    logger.warning(f"テーブル {table_name} の統計情報更新に失敗: {e}")
+                    errors.append(f"{table_name}: {str(e)}")
+            
+            connection.commit()
+            cursor.close()
+            self._release_connection(connection)
+            
+            message = f"{updated_count}件のテーブルの統計情報を更新しました"
+            if errors:
+                message += f" ({len(errors)}件のエラー)"
+            
+            return {
+                "success": True,
+                "updated_count": updated_count,
+                "total_tables": len(tables),
+                "message": message,
+                "errors": errors
+            }
+        
+        except Exception as e:
+            logger.error(f"統計情報更新エラー: {e}")
+            if connection:
+                self._release_connection(connection)
+            return {
+                "success": False,
+                "message": f"統計情報の更新に失敗しました: {str(e)}",
+                "updated_count": 0
+            }
+    
     def get_tables(self, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
         """テーブル一覧を取得（ページング対応）"""
         connection = None
@@ -890,6 +961,104 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"テーブル一括削除エラー: {e}")
             if connection:
+                self._release_connection(connection)
+            return {"success": False, "deleted_count": 0, "message": str(e), "errors": errors}
+    
+    def delete_file_info_records(self, file_ids: list) -> Dict[str, Any]:
+        """FILE_INFOテーブルのレコードを一括削除（関連するIMG_EMBEDDINGSも自動削除）"""
+        deleted_count = 0
+        errors = []
+        connection = None
+        
+        try:
+            logger.info(f"[DEBUG] delete_file_info_records開始: file_ids={file_ids}")
+            
+            if not ORACLEDB_AVAILABLE:
+                logger.error("[DEBUG] Oracle DBが利用できません")
+                return {"success": False, "deleted_count": 0, "message": "Oracle DBが利用できません", "errors": []}
+            
+            if not file_ids:
+                logger.warning("[DEBUG] 削除するレコードが指定されていません")
+                return {"success": False, "deleted_count": 0, "message": "削除するレコードが指定されていません", "errors": []}
+            
+            logger.info(f"[DEBUG] DB接続作成中...")
+            connection = self._create_connection()
+            if not connection:
+                logger.error("[DEBUG] データベース接続に失敗しました")
+                return {"success": False, "deleted_count": 0, "message": "データベース接続に失敗しました", "errors": []}
+            
+            logger.info(f"[DEBUG] DB接続成功")
+            cursor = connection.cursor()
+            
+            for file_id in file_ids:
+                try:
+                    logger.info(f"[DEBUG] FILE_ID処理中: {file_id} (type={type(file_id).__name__})")
+                    
+                    # FILE_IDのバリデーション
+                    file_id_int = int(file_id)
+                    logger.info(f"[DEBUG] FILE_ID変換成功: {file_id} -> {file_id_int}")
+                    
+                    # 削除前にレコードの存在を確認
+                    cursor.execute('SELECT FILE_ID, BUCKET, OBJECT_NAME FROM FILE_INFO WHERE FILE_ID = :file_id', {'file_id': file_id_int})
+                    existing_record = cursor.fetchone()
+                    if existing_record:
+                        logger.info(f"[DEBUG] 削除対象レコード発見: FILE_ID={existing_record[0]}, BUCKET={existing_record[1]}, OBJECT_NAME={existing_record[2]}")
+                    else:
+                        logger.warning(f"[DEBUG] 削除対象レコードが見つかりません: FILE_ID={file_id_int}")
+                    
+                    # 関連するIMG_EMBEDDINGSレコード数を確認
+                    cursor.execute('SELECT COUNT(*) FROM IMG_EMBEDDINGS WHERE FILE_ID = :file_id', {'file_id': file_id_int})
+                    embedding_count = cursor.fetchone()[0]
+                    logger.info(f"[DEBUG] 関連IMG_EMBEDDINGSレコード数: {embedding_count}件")
+                    
+                    # DELETE文を実行（CASCADE制約によりIMG_EMBEDDINGSも自動削除）
+                    logger.info(f"[DEBUG] DELETE文実行: DELETE FROM FILE_INFO WHERE FILE_ID = {file_id_int}")
+                    cursor.execute('DELETE FROM FILE_INFO WHERE FILE_ID = :file_id', {'file_id': file_id_int})
+                    
+                    row_count = cursor.rowcount
+                    logger.info(f"[DEBUG] DELETE実行結果: rowcount={row_count}")
+                    
+                    if row_count > 0:
+                        deleted_count += 1
+                        logger.info(f"[DEBUG] FILE_INFOレコード削除成功: FILE_ID={file_id_int}, deleted_count={deleted_count}")
+                    else:
+                        errors.append(f"FILE_ID={file_id_int}: レコードが見つかりません")
+                        logger.warning(f"[DEBUG] FILE_INFOレコードが見つかりません: FILE_ID={file_id_int}")
+                    
+                except ValueError as ve:
+                    error_msg = f"無効なFILE_ID: {file_id}"
+                    errors.append(error_msg)
+                    logger.error(f"[DEBUG] FILE_ID変換エラー: {error_msg}, exception={ve}")
+                except Exception as e:
+                    error_msg = f"FILE_ID={file_id}: {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(f"[DEBUG] FILE_INFOレコード削除エラー: {error_msg}", exc_info=True)
+            
+            # コミット
+            logger.info(f"[DEBUG] COMMIT実行中... deleted_count={deleted_count}")
+            connection.commit()
+            logger.info(f"[DEBUG] COMMIT成功")
+            
+            cursor.close()
+            self._release_connection(connection)
+            
+            result = {
+                "success": deleted_count > 0,
+                "deleted_count": deleted_count,
+                "message": f"{deleted_count}件のレコードを削除しました" if deleted_count > 0 else "削除に失敗しました",
+                "errors": errors
+            }
+            logger.info(f"[DEBUG] delete_file_info_records結果: {result}")
+            return result
+        
+        except Exception as e:
+            logger.error(f"[DEBUG] FILE_INFOレコード一括削除エラー: {e}", exc_info=True)
+            if connection:
+                try:
+                    logger.info(f"[DEBUG] ROLLBACK実行")
+                    connection.rollback()
+                except:
+                    pass
                 self._release_connection(connection)
             return {"success": False, "deleted_count": 0, "message": str(e), "errors": errors}
     

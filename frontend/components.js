@@ -467,6 +467,171 @@ function closeModal(modalId) {
   }
 }
 
+/**
+ * モダンな確認モーダルを表示
+ * 
+ * @param {Object} options - モーダル設定オプション
+ * @param {string} options.title - モーダルのタイトル
+ * @param {string} options.content - モーダルの内容（HTML文字列）
+ * @param {string} [options.confirmText='確定'] - 確認ボタンのテキスト
+ * @param {string} [options.cancelText='取消'] - キャンセルボタンのテキスト
+ * @param {Function} options.onConfirm - 確認時のコールバック
+ * @param {Function} options.onCancel - キャンセル時のコールバック
+ * @param {string} [options.variant='default'] - バリアント ('default' | 'danger')
+ * 
+ * @example
+ * showModal({
+ *   title: '削除の確認',
+ *   content: '本当に削除しますか？',
+ *   confirmText: '削除',
+ *   cancelText: 'キャンセル',
+ *   variant: 'danger',
+ *   onConfirm: () => console.log('削除実行'),
+ *   onCancel: () => console.log('キャンセル')
+ * })
+ */
+function showModal({
+  title,
+  content,
+  confirmText = '確定',
+  cancelText = '取消',
+  onConfirm,
+  onCancel,
+  variant = 'default'
+}) {
+  // 既存のモーダルを削除
+  const existingModal = document.getElementById('global-confirm-modal');
+  if (existingModal) {
+    existingModal.remove();
+  }
+
+  // モーダルIDを生成
+  const modalId = 'global-confirm-modal';
+
+  // ボタンのスタイルをバリアントで変更
+  const confirmBtnClass = variant === 'danger'
+    ? 'bg-red-500 hover:bg-red-600 text-white'
+    : 'bg-blue-500 hover:bg-blue-600 text-white';
+
+  // モーダルHTMLを作成
+  const modalHtml = `
+    <div id="${modalId}" class="fixed inset-0 z-50 flex items-center justify-center" style="background-color: rgba(0, 0, 0, 0.5);">
+      <div class="bg-white rounded-lg shadow-2xl w-full max-w-md mx-4 transform transition-all" style="animation: modalSlideIn 0.2s ease-out;">
+        <!-- ヘッダー -->
+        <div class="px-6 py-4 border-b border-gray-200">
+          <h3 class="text-lg font-semibold text-gray-800">${title}</h3>
+        </div>
+        
+        <!-- コンテンツ -->
+        <div class="px-6 py-4">
+          <p class="text-sm text-gray-600 whitespace-pre-line">${content}</p>
+        </div>
+        
+        <!-- フッター（ボタン） -->
+        <div class="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+          <button 
+            id="${modalId}-cancel-btn"
+            class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+          >
+            ${cancelText}
+          </button>
+          <button 
+            id="${modalId}-confirm-btn"
+            class="px-4 py-2 text-sm font-medium rounded-md transition-colors ${confirmBtnClass}"
+          >
+            ${confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // スタイルを追加（一度だけ）
+  if (!document.getElementById('modal-animation-styles')) {
+    const style = document.createElement('style');
+    style.id = 'modal-animation-styles';
+    style.textContent = `
+      @keyframes modalSlideIn {
+        from {
+          opacity: 0;
+          transform: translateY(-20px) scale(0.95);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      @keyframes modalSlideOut {
+        from {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        to {
+          opacity: 0;
+          transform: translateY(-20px) scale(0.95);
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // モーダルをDOMに追加
+  const modalContainer = document.createElement('div');
+  modalContainer.innerHTML = modalHtml;
+  document.body.appendChild(modalContainer.firstElementChild);
+
+  // モーダルを閉じる関数
+  const closeConfirmModal = () => {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+      const innerModal = modal.querySelector('.bg-white');
+      if (innerModal) {
+        innerModal.style.animation = 'modalSlideOut 0.15s ease-in forwards';
+        setTimeout(() => modal.remove(), 150);
+      } else {
+        modal.remove();
+      }
+    }
+  };
+
+  // イベントリスナーを設定
+  const modal = document.getElementById(modalId);
+  const confirmBtn = document.getElementById(`${modalId}-confirm-btn`);
+  const cancelBtn = document.getElementById(`${modalId}-cancel-btn`);
+
+  // 確認ボタン
+  confirmBtn.addEventListener('click', () => {
+    closeConfirmModal();
+    if (onConfirm) onConfirm();
+  });
+
+  // キャンセルボタン
+  cancelBtn.addEventListener('click', () => {
+    closeConfirmModal();
+    if (onCancel) onCancel();
+  });
+
+  // 背景クリックで閉じる
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeConfirmModal();
+      if (onCancel) onCancel();
+    }
+  });
+
+  // ESCキーで閉じる
+  const handleEsc = (e) => {
+    if (e.key === 'Escape') {
+      closeConfirmModal();
+      if (onCancel) onCancel();
+      document.removeEventListener('keydown', handleEsc);
+    }
+  };
+  document.addEventListener('keydown', handleEsc);
+
+  console.log(`確認モーダルを表示: ${title}`);
+}
+
 // ========================================
 // 5. ローディング状態コンポーネント
 // ========================================
@@ -897,6 +1062,7 @@ if (typeof window !== 'undefined') {
     renderModal,
     openModal,
     closeModal,
+    showModal,
     renderLoading,
     showToast,
     renderTable,
@@ -919,6 +1085,7 @@ if (typeof module !== 'undefined' && module.exports) {
     renderModal,
     openModal,
     closeModal,
+    showModal,
     renderLoading,
     showToast,
     renderTable,

@@ -427,3 +427,28 @@ button:focus-visible,a:focus-visible{outline:2px solid #667eea;outline-offset:2p
 .pr-11{padding-right:2.75rem}
 .inline-flex{display:inline-flex}
 .justify-center{justify-content:center}
+
+/* 検索結果・空状態表示用 */
+.empty-state{text-align:center;padding:40px;color:#64748b}
+.empty-state-icon{font-size:48px;margin-bottom:16px}
+.empty-state-title{font-size:16px;font-weight:500}
+.empty-state-subtitle{font-size:14px;margin-top:8px}
+
+/* 検索結果カード */
+.search-result-card{margin-bottom:24px;border-left:4px solid #667eea}
+.search-result-header{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;padding:16px}
+.search-result-header-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.search-result-header-left{display:flex;align-items:center;gap:12px;flex:1}
+.search-result-badge-white{background:rgba(255,255,255,0.3);color:white;font-size:14px;padding:6px 12px}
+.search-result-filename{font-weight:600;font-size:16px;margin-bottom:4px}
+.search-result-path{font-size:12px;opacity:0.9}
+.search-result-stats{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.search-result-stat-badge{background:rgba(255,255,255,0.25);color:white;font-size:13px;padding:6px 12px}
+.search-result-download-btn{background:white;color:#667eea;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600}
+.search-result-download-btn:hover{background:#f8fafc}
+.search-result-body-title{font-weight:600;margin-bottom:12px;color:#334155;font-size:14px}
+.search-result-images-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px}
+.search-result-image-aspect{position:relative;width:100%;padding-top:141%;background:#f8fafc;overflow:hidden}
+.search-result-image-info{padding:12px;background:white;border-top:1px solid #e2e8f0}
+.search-result-image-title{font-size:13px;font-weight:600;color:#334155;margin-bottom:4px}
+.search-result-image-similarity{font-size:11px;color:#64748b}

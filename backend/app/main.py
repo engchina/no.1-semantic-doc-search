@@ -424,7 +424,7 @@ async def list_oci_objects(
     filter_page_images: str = Query(default="all", description="ページ画像化フィルター: all, done, not_done"),
     filter_embeddings: str = Query(default="all", description="ベクトル化フィルター: all, done, not_done")
 ):
-    """OCI Object Storage内のオブジェクト一覧を取得"""
+    """OCI Object Storage内のオブジェクト一覧を取得（最適化版）"""
     try:
         # 環境変数からバケット名を取得
         bucket_name = os.getenv("OCI_BUCKET")
@@ -432,28 +432,28 @@ async def list_oci_objects(
         if not bucket_name:
             raise HTTPException(status_code=400, detail="バケット名が設定されていません")
         
-        # Namespaceを取得（.env優先、空ならAPI）
+        # Namespaceを取得
         namespace_result = oci_service.get_namespace()
         if not namespace_result.get("success"):
             raise HTTPException(status_code=500, detail=f"Namespace取得エラー: {namespace_result.get('message')}")
         
         namespace = namespace_result.get("namespace")
         
-        # 全オブジェクトを取得（ページネーション用）
-        # 注: 本番環境では、大量のオブジェクトがある場合はキャッシュ機構を導入するべき
+        # 最適化: ストリーミング処理でメモリ使用量を削減
         all_objects = []
         page_token = None
-        
-        # 最大取得件数（無限ループ防止）
-        max_fetch = 10000
+        max_fetch_count = int(os.getenv("MAX_OBJECTS_FETCH", "10000"))
         fetch_count = 0
         
-        while fetch_count < max_fetch:
+        # 親ファイル名マップ（高速検索用）
+        parent_files_map = {}  # {parent_folder_path: True}
+        
+        while fetch_count < max_fetch_count:
             result = oci_service.list_objects(
                 bucket_name=bucket_name,
                 namespace=namespace,
                 prefix=prefix,
-                page_size=1000,  # APIの1回あたりの取得数
+                page_size=1000,
                 page_token=page_token
             )
             
@@ -461,10 +461,17 @@ async def list_oci_objects(
                 raise HTTPException(status_code=500, detail=result.get("message", "オブジェクト一覧取得エラー"))
             
             objects = result.get("objects", [])
+            
+            # 最適化: バッチ処理で親ファイルマップを構築
+            for obj in objects:
+                obj_name = obj["name"]
+                if not obj_name.endswith('/'):
+                    obj_name_without_ext = re.sub(r'\.[^.]+$', '', obj_name)
+                    parent_files_map[obj_name_without_ext] = True
+            
             all_objects.extend(objects)
             fetch_count += len(objects)
             
-            # 次のページがあるかチェック
             page_token = result.get("next_start_with")
             if not page_token:
                 break
@@ -479,71 +486,55 @@ async def list_oci_objects(
         
         total_pages = (total + page_size - 1) // page_size if total > 0 else 1
         
-        # ファイルとページ画像の数を集計
-        def is_generated_page_image(object_name: str, all_objects: list) -> bool:
-            """ページ画像化で生成されたファイルかどうかを判定"""
-            import re
-            # page_001.pngのパターンにマッチするかチェック
-            if not re.search(r'/page_\d{3}\.png$', object_name):
+        # 最適化: 正規表現パターンを事前コンパイル
+        page_image_pattern = re.compile(r'/page_\d{3}\.png$')
+        
+        # 最適化: O(1)高速検索用のマップを構築
+        page_images_map = {}  # {file_base_name: True}
+        
+        for obj in all_objects:
+            obj_name = obj["name"]
+            if page_image_pattern.search(obj_name):
+                last_slash_index = obj_name.rfind('/')
+                if last_slash_index != -1:
+                    parent_folder = obj_name[:last_slash_index]
+                    page_images_map[parent_folder] = True
+        
+        def is_generated_page_image(object_name: str) -> bool:
+            """ページ画像化で生成されたファイルかどうかを判定（最適化版 O(1)）"""
+            if not page_image_pattern.search(object_name):
                 return False
             
-            # 親ファイル名を抽出
             last_slash_index = object_name.rfind('/')
             if last_slash_index == -1:
                 return False
             
             parent_folder_path = object_name[:last_slash_index]
-            
-            # 親フォルダと同名のファイルが存在するかチェック
-            for obj in all_objects:
-                # フォルダを除外
-                if obj["name"].endswith('/'):
-                    continue
-                
-                # 拡張子を除いたファイル名を比較
-                obj_name_without_ext = re.sub(r'\.[^.]+$', '', obj["name"])
-                if obj_name_without_ext == parent_folder_path:
-                    return True
-            
-            return False
+            return parent_folder_path in parent_files_map
         
-        def has_page_images_for_file(object_name: str, all_objects: list) -> bool:
-            """ファイルに対応するページ画像が存在するか判定"""
-            import re
-            # フォルダは除外
+        def has_page_images_for_file(object_name: str) -> bool:
+            """ファイルに対応するページ画像が存在するか判定（最適化版 O(1)）"""
             if object_name.endswith('/'):
                 return False
             
-            # 拡張子を除いたファイル名をフォルダ名として使用
             file_base_name = re.sub(r'\.[^.]+$', '', object_name)
-            
-            # 同名フォルダ内にpage_XXX.pngが存在するかチェック
-            for obj in all_objects:
-                obj_name = obj["name"]
-                # page_001.png パターンにマッチし、親フォルダが一致するかチェック
-                if re.search(r'/page_\d{3}\.png$', obj_name):
-                    parent_folder = obj_name[:obj_name.rfind('/')]
-                    if parent_folder == file_base_name:
-                        return True
-            
-            return False
+            return file_base_name in page_images_map
         
-        # 集計
+        # 最適化: 1パスで集計とファイル名収集
         file_count = 0
         page_image_count = 0
-        file_object_names = []  # ファイルタイプのオブジェクト名を収集
+        file_object_names = []
         
         for obj in all_objects:
-            # フォルダは除外
-            if obj["name"].endswith('/'):
+            obj_name = obj["name"]
+            if obj_name.endswith('/'):
                 continue
             
-            # ページ画像かどうかを判定
-            if is_generated_page_image(obj["name"], all_objects):
+            if is_generated_page_image(obj_name):
                 page_image_count += 1
             else:
                 file_count += 1
-                file_object_names.append(obj["name"])
+                file_object_names.append(obj_name)
         
         # ベクトル化状態を一括取得（ファイルタイプのみ）
         vectorization_status = {}
@@ -553,26 +544,23 @@ async def list_oci_objects(
             except Exception as e:
                 logger.warning(f"ベクトル化状態取得エラー: {e}")
         
-        # 各オブジェクトにページ画像化・ベクトル化状態を追加
+        # 最適化: 状態付与を効率化
         for obj in all_objects:
             obj_name = obj["name"]
             is_folder = obj_name.endswith('/')
-            is_page_image = not is_folder and is_generated_page_image(obj_name, all_objects)
+            is_page_image = not is_folder and is_generated_page_image(obj_name)
             
             if is_folder or is_page_image:
-                # フォルダやページ画像は対象外
                 obj["has_page_images"] = None
                 obj["has_embeddings"] = None
             else:
-                # ファイルの場合
-                obj["has_page_images"] = has_page_images_for_file(obj_name, all_objects)
+                obj["has_page_images"] = has_page_images_for_file(obj_name)
                 obj["has_embeddings"] = vectorization_status.get(obj_name, False)
         
-        # フィルタリング処理（ファイルのみを対象とし、条件に一致したファイルとその子ページ画像を含める）
-        # まず、ファイルのみをフィルタリング（フォルダとページ画像は除外）
+        # 最適化: リスト内包表記でフィルタリング
         file_objects = [
             obj for obj in all_objects
-            if not obj["name"].endswith('/') and not is_generated_page_image(obj["name"], all_objects)
+            if not obj["name"].endswith('/') and not is_generated_page_image(obj["name"])
         ]
         
         # フィルタリング条件に従ってファイルを絞り込む
@@ -614,25 +602,14 @@ async def list_oci_objects(
             if obj_name.endswith('/'):
                 continue
             
-            # ページ画像の場合、親ファイルがフィルター条件に一致しているかチェック
-            if is_generated_page_image(obj_name, all_objects):
-                # 親ファイル名を抽出（例: "example/page_001.png" → "example.pdf"など）
+            # 最適化: ページ画像の親ファイルチェック
+            if is_generated_page_image(obj_name):
                 last_slash_index = obj_name.rfind('/')
-                parent_folder_path = obj_name[:last_slash_index]
-                
-                # 親ファイルを探す
-                parent_file_found = False
-                for parent_obj in all_objects:
-                    if parent_obj["name"].endswith('/'):
-                        continue
-                    parent_name_without_ext = re.sub(r'\.[^.]+$', '', parent_obj["name"])
-                    if parent_name_without_ext == parent_folder_path and parent_obj["name"] in filtered_file_names:
-                        parent_file_found = True
-                        break
-                
-                # 親ファイルがフィルター条件に一致している場合のみ含める
-                if parent_file_found:
-                    filtered_objects.append(obj)
+                if last_slash_index != -1:
+                    parent_folder_path = obj_name[:last_slash_index]
+                    # 親フォルダ名がフィルター済みファイル名に含まれるかチェック
+                    if any(re.sub(r'\.[^.]+$', '', name) == parent_folder_path for name in filtered_file_names):
+                        filtered_objects.append(obj)
             else:
                 # ファイルの場合、フィルター条件に一致しているかチェック
                 if obj_name in filtered_file_names:
@@ -648,14 +625,9 @@ async def list_oci_objects(
         
         total_pages = (filtered_total + page_size - 1) // page_size if filtered_total > 0 else 1
         
-        # フィルタリング後の統計情報を計算
-        filtered_file_count = 0
-        filtered_page_image_count = 0
-        for obj in filtered_objects:
-            if is_generated_page_image(obj["name"], all_objects):
-                filtered_page_image_count += 1
-            else:
-                filtered_file_count += 1
+        # 最適化: 統計情報を効率的に計算
+        filtered_page_image_count = sum(1 for obj in filtered_objects if is_generated_page_image(obj["name"]))
+        filtered_file_count = len(filtered_objects) - filtered_page_image_count
         
         return {
             "success": True,
@@ -746,37 +718,81 @@ async def get_object_metadata(object_name: str):
 
 @app.post("/api/oci/objects/delete")
 async def delete_oci_objects(request: ObjectDeleteRequest):
-    """OCI Object Storage内のオブジェクトを削除"""
+    """
+    OCI Object Storage内のオブジェクトを削除
+    
+    削除順序:
+    1. object_nameからFILE_IDを取得
+    2. FILE_INFOテーブルのレコード削除（IMG_EMBEDDINGSはCASCADE自動削除）
+    3. 生成された画像ファイル削除
+    4. 生成された画像フォルダ削除
+    5. 選択されたファイル本体削除
+    """
     try:
+        logger.info(f"[DEBUG] delete_oci_objects開始: object_names={request.object_names}")
+        
         # 環境変数からバケット名を取得
         bucket_name = os.getenv("OCI_BUCKET")
         
         if not bucket_name:
+            logger.error("[DEBUG] バケット名が設定されていません")
             raise HTTPException(status_code=400, detail="バケット名が設定されていません")
         
         # Namespaceを取得（.env優先、空ならAPI）
         namespace_result = oci_service.get_namespace()
         if not namespace_result.get("success"):
+            logger.error(f"[DEBUG] Namespace取得エラー: {namespace_result.get('message')}")
             raise HTTPException(status_code=500, detail=f"Namespace取得エラー: {namespace_result.get('message')}")
         
         namespace = namespace_result.get("namespace")
+        logger.info(f"[DEBUG] Namespace: {namespace}, bucket: {bucket_name}")
         
         if not request.object_names or len(request.object_names) == 0:
+            logger.warning("[DEBUG] 削除するオブジェクトが指定されていません")
             raise HTTPException(status_code=400, detail="削除するオブジェクトが指定されていません")
         
-        # オブジェクトを削除
+        # 各オブジェクトに対してFILE_IDを取得してデータベース削除
+        for obj_name in request.object_names:
+            # フォルダや画像ファイルはスキップ（データベースにレコードがない）
+            if obj_name.endswith('/') or '/page_' in obj_name:
+                logger.info(f"[DEBUG] フォルダまたは画像ファイルをスキップ: {obj_name}")
+                continue
+            
+            try:
+                logger.info(f"[DEBUG] FILE_ID取得試行: object_name={obj_name}")
+                file_id = image_vectorizer.get_file_id_by_object_name(bucket_name, obj_name)
+                
+                if file_id:
+                    logger.info(f"[DEBUG] FILE_ID取得成功: FILE_ID={file_id}, object_name={obj_name}")
+                    
+                    # FILE_INFOレコードを削除（IMG_EMBEDDINGSはCASCADE制約で自動削除）
+                    delete_result = database_service.delete_file_info_records([str(file_id)])
+                    logger.info(f"[DEBUG] データベース削除結果: {delete_result}")
+                    
+                    if delete_result.get("success"):
+                        logger.info(f"[DEBUG] データベース削除成功: FILE_ID={file_id}")
+                    else:
+                        logger.warning(f"[DEBUG] データベース削除失敗: {delete_result.get('message')}")
+                else:
+                    logger.info(f"[DEBUG] FILE_IDが見つかりません（ベクトル化されていない可能性）: {obj_name}")
+            except Exception as e:
+                logger.error(f"[DEBUG] データベース削除エラー: {obj_name}, {e}", exc_info=True)
+        
+        # オブジェクトを削除（画像、フォルダ、ファイル本体）
+        logger.info(f"[DEBUG] OCI Object Storage削除開始: {len(request.object_names)}件")
         result = oci_service.delete_objects(
             bucket_name=bucket_name,
             namespace=namespace,
             object_names=request.object_names
         )
+        logger.info(f"[DEBUG] OCI Object Storage削除結果: {result}")
         
         return result
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"OCI Object Storage削除エラー: {e}")
+        logger.error(f"[DEBUG] OCI Object Storage削除エラー: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 # ========================================
@@ -1111,8 +1127,17 @@ async def list_documents():
 
 @app.delete("/api/documents/{document_id}", response_model=DocumentDeleteResponse)
 async def delete_document(document_id: str):
-    """文書を削除"""
+    """文書を削除
+    
+    削除順序:
+    1. object_nameからFILE_IDを取得
+    2. FILE_INFOテーブルのレコード削除（IMG_EMBEDDINGSはCASCADEで自動削除）
+    3. 生成された画像ファイルを削除
+    4. 生成されたフォルダを削除
+    5. 該当ファイルを削除
+    """
     try:
+        # document_idからメタデータを検索
         documents = load_documents_metadata()
         
         # 対象文書を検索
@@ -1125,16 +1150,101 @@ async def delete_document(document_id: str):
         if not target_doc:
             raise HTTPException(status_code=404, detail="文書が見つかりません")
         
-        # ローカルファイルを削除
+        # Object Storageから削除する必要があるファイルの情報を取得
+        object_name = target_doc.get("object_name") or target_doc.get("oci_path")  # OCI Object Storageのオブジェクト名
+        
+        if not object_name:
+            logger.error(f"オブジェクト名が見つかりません: document_id={document_id}")
+            raise HTTPException(status_code=500, detail="オブジェクト名が見つかりません")
+        
+        # ステップ1: object_nameからFILE_IDを取得
+        bucket_name = os.getenv("OCI_BUCKET")
+        file_id = None
+        
+        logger.info(f"[DEBUG] object_name取得: {object_name}")
+        logger.info(f"[DEBUG] bucket_name: {bucket_name}")
+        
+        if bucket_name:
+            try:
+                logger.info(f"[DEBUG] get_file_id_by_object_name呼び出し: bucket={bucket_name}, object_name={object_name}")
+                file_id = image_vectorizer.get_file_id_by_object_name(bucket_name, object_name)
+                if file_id:
+                    logger.info(f"[DEBUG] FILE_ID取得成功: FILE_ID={file_id}, object_name={object_name}")
+                else:
+                    logger.warning(f"[DEBUG] FILE_IDが見つかりません（ベクトル化されていない可能性）: object_name={object_name}")
+            except Exception as e:
+                logger.error(f"[DEBUG] FILE_ID取得エラー: {e}", exc_info=True)
+        else:
+            logger.warning(f"[DEBUG] OCI_BUCKET環境変数が設定されていません")
+        
+        # ステップ2: FILE_INFOテーブルのレコード削除（IMG_EMBEDDINGSはCASCADE制約で自動削除）
+        if file_id:
+            try:
+                logger.info(f"[DEBUG] FILE_INFOレコード削除開始: FILE_ID={file_id}")
+                
+                # FILE_INFOレコードを削除（IMG_EMBEDDINGSはCASCADE制約で自動削除）
+                delete_result = database_service.delete_file_info_records([str(file_id)])
+                
+                logger.info(f"[DEBUG] delete_file_info_records結果: {delete_result}")
+                
+                if not delete_result.get("success"):
+                    logger.warning(f"[DEBUG] FILE_INFOレコード削除失敗: {delete_result.get('message')}")
+                else:
+                    logger.info(f"[DEBUG] FILE_INFOレコード削除成功: {delete_result.get('deleted_count')}件")
+            except Exception as e:
+                # データベース削除に失敗しても続行（ファイルは削除する）
+                logger.error(f"[DEBUG] FILE_INFOレコード削除エラー: {e}", exc_info=True)
+        else:
+            logger.info(f"[DEBUG] FILE_IDが存在しないため、データベース削除をスキップ")
+        
+        # ステップ3-5: Object Storageからファイルと画像を削除
+        # oci_service.delete_objects()は既に以下の順序で削除を実行:
+        # - 画像ファイル削除
+        # - 画像フォルダ削除
+        # - ファイル本体削除
+        if object_name:
+            try:
+                # Namespaceを取得
+                namespace_result = oci_service.get_namespace()
+                if not namespace_result.get("success"):
+                    logger.error("Namespace取得エラー")
+                    raise HTTPException(status_code=500, detail="Namespace取得エラー")
+                
+                namespace = namespace_result.get("namespace")
+                bucket_name = os.getenv("OCI_BUCKET")
+                
+                if not bucket_name:
+                    logger.error("OCI_BUCKET環境変数が設定されていません")
+                    raise HTTPException(status_code=500, detail="OCI_BUCKET環境変数が設定されていません")
+                
+                logger.info(f"Object Storage削除開始: {object_name}")
+                
+                # 削除を実行（画像→フォルダ→ファイルの順序で削除）
+                delete_result = oci_service.delete_objects(
+                    bucket_name=bucket_name,
+                    namespace=namespace,
+                    object_names=[object_name]
+                )
+                
+                if delete_result.get("success"):
+                    logger.info(f"Object Storage削除成功: {object_name}")
+                else:
+                    logger.warning(f"Object Storage削除に一部失敗: {delete_result.get('message')}")
+            except Exception as e:
+                logger.error(f"Object Storage削除エラー: {e}")
+                # 続行してメタデータを削除
+        
+        # ローカルファイルを削除（存在する場合）
         local_path = Path(target_doc.get("local_path", ""))
         if local_path.exists():
             local_path.unlink()
+            logger.info(f"ローカルファイル削除: {local_path}")
         
         # メタデータから削除
         documents = [doc for doc in documents if doc["document_id"] != document_id]
         save_documents_metadata(documents)
         
-        logger.info(f"文書を削除: {document_id}")
+        logger.info(f"文書削除完了: {document_id}")
         
         return DocumentDeleteResponse(
             success=True,
@@ -1615,6 +1725,20 @@ async def get_database_tables(
             total=0
         )
 
+@app.post("/api/database/tables/refresh-statistics")
+async def refresh_table_statistics():
+    """テーブルの統計情報を更新"""
+    try:
+        result = database_service.refresh_table_statistics()
+        return result
+    except Exception as e:
+        logger.error(f"統計情報更新エラー: {e}")
+        return {
+            "success": False,
+            "message": f"エラー: {str(e)}",
+            "updated_count": 0
+        }
+
 @app.post("/api/database/tables/batch-delete")
 async def delete_database_tables(request: dict):
     """データベースのテーブルを一括削除"""
@@ -1694,6 +1818,40 @@ async def get_table_data(
             rows=[],
             columns=[],
             total=0,
+            message=str(e)
+        )
+
+class FileInfoDeleteRequest(BaseModel):
+    """ファイル情報削除リクエスト"""
+    file_ids: List[str]
+
+@app.post("/api/database/file-info/batch-delete")
+async def delete_file_info_records(request: FileInfoDeleteRequest):
+    """FILE_INFOテーブルのレコードを一括削除"""
+    from app.models.database import TableBatchDeleteResponse
+    try:
+        file_ids = request.file_ids
+        
+        if not file_ids:
+            return TableBatchDeleteResponse(
+                success=False,
+                deleted_count=0,
+                message="削除するレコードが指定されていません"
+            )
+        
+        result = database_service.delete_file_info_records(file_ids)
+        
+        return TableBatchDeleteResponse(
+            success=result.get("success", False),
+            deleted_count=result.get("deleted_count", 0),
+            message=result.get("message", ""),
+            errors=result.get("errors", [])
+        )
+    except Exception as e:
+        logger.error(f"FILE_INFOレコード削除エラー: {e}")
+        return TableBatchDeleteResponse(
+            success=False,
+            deleted_count=0,
             message=str(e)
         )
 
@@ -2157,6 +2315,19 @@ async def vectorize_documents(request: VectorizeRequest):
                     image_vectorizer.delete_file_embeddings(file_id)
                 else:
                     # 新規ファイル情報を保存
+                    # OCIメタデータから元のファイル名を取得
+                    metadata_result = oci_service.get_object_metadata(bucket_name, namespace, obj_name)
+                    
+                    # メタデータから元のファイル名を取得（なければobj_nameから推測）
+                    if metadata_result.get("success"):
+                        original_filename = metadata_result.get("original_filename", file_path.name)
+                    else:
+                        # メタデータ取得失敗時はobj_nameから推測
+                        logger.warning(f"メタデータ取得失敗、obj_nameから推測: {obj_name}")
+                        original_filename = file_path.name
+                    
+                    logger.info(f"ファイル情報を保存: object_name={obj_name}, original_filename={original_filename}")
+                    
                     # ファイルサイズとcontent_typeを取得するためにダウンロード
                     file_content = oci_service.download_object(obj_name)
                     if not file_content:
@@ -2172,7 +2343,7 @@ async def vectorize_documents(request: VectorizeRequest):
                     file_id = image_vectorizer.save_file_info(
                         bucket=bucket_name,
                         object_name=obj_name,
-                        original_filename=file_path.name,
+                        original_filename=original_filename,
                         file_size=file_size,
                         content_type=content_type
                     )

@@ -1,173 +1,133 @@
 // ========================================
-// グローバル変数
+// モジュールインポート
+// ========================================
+import { appState, setAuthState, getAuthState } from './src/state.js';
+import { apiCall as authApiCall } from './src/modules/auth.js';
+import { 
+  showToast as utilsShowToast, 
+  showLoading as utilsShowLoading, 
+  hideLoading as utilsHideLoading,
+  formatFileSize as utilsFormatFileSize,
+  formatDateTime as utilsFormatDateTime,
+  showConfirmModal as utilsShowConfirmModal
+} from './src/modules/utils.js';
+
+// ========================================
+// グローバル変数（非推奨 - appStateへの移行中）
 // ========================================
 // 開発時はViteのプロキシを使うため空文字列、本番ビルド時は環境変数から設定
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
-let selectedFile = null;
-let documentsCache = [];
-let isLoggedIn = false;
-let loginToken = null;
-let loginUser = null;
-let debugMode = false;
-let requireLogin = true;
+// 注: 以下の変数はappStateに移行済み。後方互換性のため一時的に残しています。
+// TODO: すべての参照をappState.get()に置き換えた後、これらを削除します。
+let selectedFile = null;           // -> appState.get('selectedFile')
+let documentsCache = [];           // -> appState.get('documentsCache')
+let isLoggedIn = false;            // -> appState.get('isLoggedIn')
+let loginToken = null;             // -> appState.get('loginToken')
+let loginUser = null;              // -> appState.get('loginUser')
+let debugMode = false;             // -> appState.get('debugMode')
+let requireLogin = true;           // -> appState.get('requireLogin')
 
-// AI Assistant状態
-let copilotOpen = false;
-let copilotExpanded = false;
-let copilotMessages = [];
-let copilotLoading = false;
-let copilotImages = [];
+// AI Assistant状態（TODO: appStateへ移行）
+let copilotOpen = false;            // -> appState.get('copilotOpen')
+let copilotExpanded = false;        // -> appState.get('copilotExpanded')
+let copilotMessages = [];           // -> appState.get('copilotMessages')
+let copilotLoading = false;         // -> appState.get('copilotLoading')
+let copilotImages = [];             // -> appState.get('copilotImages')
 
-// テーブル一覧ページング状態
-let dbTablesPage = 1;           // 現在のページ
-let dbTablesPageSize = 20;      // ページサイズ
-let dbTablesTotalPages = 1;     // 総ページ数
+// テーブル一覧ページング状態（TODO: appStateへ移行）
+let dbTablesPage = 1;               // -> appState.get('dbTablesPage')
+let dbTablesPageSize = 20;          // -> appState.get('dbTablesPageSize')
+let dbTablesTotalPages = 1;         // -> appState.get('dbTablesTotalPages')
 
-// テーブル一覧選択状態
-let selectedDbTables = [];              // 選択されたテーブル名の配列
-let dbTablesBatchDeleteLoading = false; // 削除処理中フラグ
-let currentPageDbTables = [];           // 現在ページのテーブル一覧（チェック用）
+// テーブル一覧選択状態（TODO: appStateへ移行）
+let selectedDbTables = [];          // -> appState.get('selectedDbTables')
+let dbTablesBatchDeleteLoading = false; // -> appState.get('dbTablesBatchDeleteLoading')
+let currentPageDbTables = [];       // -> appState.get('currentPageDbTables')
 
-// テーブルデータプレビュー状態
-let selectedTableForPreview = null;     // プレビュー中のテーブル名
-let tableDataPage = 1;                  // データプレビューのページ
-let tableDataPageSize = 20;             // データプレビューのページサイズ
-let tableDataTotalPages = 1;            // データプレビューの総ページ数
-let selectedTableDataRows = [];         // 選択されたデータ行のindex配列
-let currentPageTableDataRows = [];      // 現在ページのデータ行数
+// テーブルデータプレビュー状態（TODO: appStateへ移行）
+let selectedTableForPreview = null; // -> appState.get('selectedTableForPreview')
+let tableDataPage = 1;              // -> appState.get('tableDataPage')
+let tableDataPageSize = 20;         // -> appState.get('tableDataPageSize')
+let tableDataTotalPages = 1;        // -> appState.get('tableDataTotalPages')
+let selectedTableDataRows = [];     // -> appState.get('selectedTableDataRows')
+let currentPageTableDataRows = [];  // -> appState.get('currentPageTableDataRows')
 
 // ========================================
-// ユーティリティ関数
+// ユーティリティ関数（モジュールからインポート）
 // ========================================
 
 /**
  * APIコールヘルパー（認証トークン付き）
+ * @deprecated auth.jsのapiCallを使用してください
  */
 async function apiCall(endpoint, options = {}) {
-  // API_BASEが空の場合は相対パス、設定されている場合は絶対パス
-  const url = API_BASE ? `${API_BASE}${endpoint}` : endpoint;
-  const headers = options.headers || {};
-  
-  // トークンがあれば追加
-  if (loginToken) {
-    headers['Authorization'] = `Bearer ${loginToken}`;
-  }
-  
-  const response = await fetch(url, {
-    ...options,
-    headers
-  });
-  
-  // 401エラーの場合、デバッグモードでなければログイン画面へ
-  if (response.status === 401 && !debugMode) {
-    showLoginModal();
-    throw new Error('認証が必要です');
-  }
-  
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail || 'リクエストに失敗しました');
-  }
-  
-  return await response.json();
+  // モジュールの関数に委譲
+  return await authApiCall(endpoint, options);
 }
 
 /**
  * Toastメッセージを表示
+ * @deprecated utils.jsのshowToastを使用してください
  */
-function showToast(message, type = 'info') {
-  const container = document.getElementById('toastContainer');
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  
-  const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : type === 'warning' ? '⚠' : 'ℹ';
-  
-  toast.innerHTML = `
-    <div class="toast-icon">${icon}</div>
-    <div class="toast-content">
-      <div class="toast-message">${message}</div>
-    </div>
-    <div class="toast-close" onclick="this.parentElement.remove()">✕</div>
-  `;
-  
-  container.appendChild(toast);
-  
-  setTimeout(() => {
-    toast.classList.add('removing');
-    setTimeout(() => toast.remove(), 300);
-  }, 5000);
+function showToast(message, type = 'info', duration = 4000) {
+  return utilsShowToast(message, type, duration);
 }
 
 /**
- * ローディングオーバーレイを表示/非表示
+ * ローディングオーバーレイを表示
+ * @deprecated utils.jsのshowLoadingを使用してください
  */
 function showLoading(message = '処理中...') {
-  const existing = document.getElementById('loadingOverlay');
-  if (existing) return;
-  
-  const overlay = document.createElement('div');
-  overlay.id = 'loadingOverlay';
-  overlay.className = 'loading-overlay';
-  overlay.innerHTML = `
-    <div class="loading-overlay-content">
-      <div class="loading-spinner">
-        <svg class="loading-spinner-svg" viewBox="0 0 50 50">
-          <defs>
-            <linearGradient id="spinner-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
-              <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
-            </linearGradient>
-          </defs>
-          <circle class="loading-spinner-circle" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
-        </svg>
-      </div>
-      <div class="loading-overlay-text">${message}</div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
+  return utilsShowLoading(message);
 }
 
+/**
+ * ローディングオーバーレイを非表示
+ * @deprecated utils.jsのhideLoadingを使用してください
+ */
 function hideLoading() {
-  const overlay = document.getElementById('loadingOverlay');
-  if (overlay) overlay.remove();
+  return utilsHideLoading();
 }
 
 /**
  * ファイルサイズを人間が読みやすい形式に変換
+ * @deprecated utils.jsのformatFileSizeを使用してください
  */
 function formatFileSize(bytes) {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  return utilsFormatFileSize(bytes);
 }
 
 /**
  * 日時フォーマット
+ * @deprecated utils.jsのformatDateTimeを使用してください
  */
 function formatDateTime(isoString) {
-  const date = new Date(isoString);
-  return date.toLocaleString('ja-JP', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  return utilsFormatDateTime(isoString);
+}
+
+/**
+ * 確認モーダルを表示
+ * @deprecated utils.jsのshowConfirmModalを使用してください
+ */
+function showConfirmModal(message, title = '確認') {
+  return utilsShowConfirmModal(message, title);
 }
 
 // ========================================
 // タブ切り替え
 // ========================================
 
-async function switchTab(tabName) {
+async function switchTab(tabName, event) {
+  console.log('switchTab called:', tabName);
+  
   // タブボタンのアクティブ状態を更新
   document.querySelectorAll('.apex-tab').forEach(tab => {
     tab.classList.remove('active');
   });
-  event.target.classList.add('active');
+  if (event && event.target) {
+    event.target.classList.add('active');
+  }
   
   // タブコンテンツの表示切り替え
   document.querySelectorAll('.tab-content').forEach(content => {
@@ -193,16 +153,21 @@ async function switchTab(tabName) {
   // 注: 文書管理タブの自動刷新は無効（🔄 更新ボタンで手動刷新）
   try {
     if (tabName === 'settings') {
+      console.log('Loading OCI settings...');
       showLoading('OCI設定を読み込み中...');
       await loadOciSettings();
       await loadObjectStorageSettings();
       hideLoading();
+      console.log('OCI settings loaded');
     } else if (tabName === 'database') {
+      console.log('Loading DB connection settings...');
       showLoading('データベース設定を読み込み中...');
       await loadDbConnectionSettings();
       hideLoading();
+      console.log('DB connection settings loaded');
     }
   } catch (error) {
+    console.error('Tab initialization error:', error);
     hideLoading();
     showToast(`設定読み込みエラー: ${error.message}`, 'error');
   }
@@ -428,8 +393,8 @@ function isGeneratedPageImage(objectName, allObjects = allOciObjects) {
     return false;
   }
   
-  // デバッグ用ログ
-  console.log('[isGeneratedPageImage] objectName:', objectName);
+  // デバッグ用ログ（本番環境ではコメントアウト）
+  // console.log('[isGeneratedPageImage] objectName:', objectName);
   
   // 親ファイル名を抽出（例: "example/page_001.png" → "example"）
   const lastSlashIndex = objectName.lastIndexOf('/');
@@ -439,7 +404,7 @@ function isGeneratedPageImage(objectName, allObjects = allOciObjects) {
   }
   
   const parentFolderPath = objectName.substring(0, lastSlashIndex);
-  console.log('[isGeneratedPageImage] parentFolderPath:', parentFolderPath);
+  // console.log('[isGeneratedPageImage] parentFolderPath:', parentFolderPath);
   
   // 親フォルダと同名のファイルが存在するかチェック
   // 例: "example/page_001.png" の場合、"example", "example.pdf", "example.pptx" などが存在すればページ画像化されたファイル
@@ -454,7 +419,7 @@ function isGeneratedPageImage(objectName, allObjects = allOciObjects) {
     return objNameWithoutExt === parentFolderPath;
   });
   
-  console.log('[isGeneratedPageImage] parentFileExists:', parentFileExists);
+  // console.log('[isGeneratedPageImage] parentFileExists:', parentFileExists);
   
   return parentFileExists;
 }
@@ -682,7 +647,11 @@ function displayUploadResults(data) {
 function handleFileSelect(event) {
   const file = event.target.files[0];
   if (file) {
+    // appStateに保存
+    appState.set('selectedFile', file);
+    // 後方互換性（TODO: 削除予定）
     selectedFile = file;
+    
     document.getElementById('uploadBtn').disabled = false;
     
     const statusDiv = document.getElementById('uploadStatus');
@@ -702,7 +671,11 @@ function handleFileSelect(event) {
 }
 
 function clearFileSelection() {
+  // appStateをクリア
+  appState.set('selectedFile', null);
+  // 後方互換性（TODO: 削除予定）
   selectedFile = null;
+  
   document.getElementById('fileInput').value = '';
   document.getElementById('uploadBtn').disabled = true;
   document.getElementById('uploadStatus').style.display = 'none';
@@ -918,11 +891,11 @@ function displayOciObjectsList(data) {
   const pagination = data.pagination || {};
   
   // デバッグ: 選択状態を確認
-  console.log('========== displayOciObjectsList ==========');
-  console.log('現在表示中のオブジェクト:', objects.map(o => o.name));
-  console.log('selectedOciObjects:', selectedOciObjects);
-  console.log('selectedOciObjects.length:', selectedOciObjects.length);
-  console.log('allOciObjects.length:', allOciObjects.length);
+  // console.log('========== displayOciObjectsList ==========');
+  // console.log('現在表示中のオブジェクト:', objects.map(o => o.name));
+  // console.log('selectedOciObjects:', selectedOciObjects);
+  // console.log('selectedOciObjects.length:', selectedOciObjects.length);
+  // console.log('allOciObjects.length:', allOciObjects.length);
   
   // 全ページ選択状態をチェック（チェックボックスを持つオブジェクトのみ対象）
   // ページ画像化で生成されたファイル（page_*.png）はチェックボックスを持たないため除外
@@ -1728,7 +1701,7 @@ window.convertSelectedOciObjectsToImages = async function() {
                 }
                 
                 // 詳細結果をコンソールに出力
-                console.log('ページ画像化結果:', data.results);
+                // console.log('ページ画像化結果:', data.results);
                 
                 // 選択をクリアして一覧を更新
                 selectedOciObjects = [];
@@ -1904,7 +1877,7 @@ window.vectorizeSelectedOciObjects = async function() {
                 }
                 
                 // 詳細結果をコンソールに出力
-                console.log('ベクトル化結果:', data.results);
+                // console.log('ベクトル化結果:', data.results);
                 
                 // 選択をクリアして一覧を更新
                 selectedOciObjects = [];
@@ -2019,8 +1992,15 @@ function displayDocumentsList(documents) {
 }
 
 async function deleteDocument(documentId, filename) {
-  const confirmed = await showConfirmModal(
-    `文書「${filename}」を削除してもよろしいですか?`,
+  const confirmed = await utilsShowConfirmModal(
+    `文書「${filename}」を削除してもよろしいですか?
+
+※以下のデータも削除されます:
+- データベース内のレコード（FILE_INFO, IMG_EMBEDDINGS）
+- 生成された画像ファイル
+- Object Storageのファイル
+
+この操作は元に戻せません。`,
     '文書削除の確認'
   );
   
@@ -2428,7 +2408,9 @@ async function loadDbConnectionSettings() {
     }
     
   } catch (error) {
+    console.error('DB設定読み込みエラー:', error);
     showToast(`設定の読み込みエラー: ${error.message}`, 'error');
+    throw error; // エラーを再スローしてswitchTabでキャッチさせる
   }
 }
 
@@ -2658,18 +2640,19 @@ async function testDbConnection() {
         hideLoading();
       } catch (error) {
         hideLoading();
-        console.warn('環境変数からパスワード取得エラー:', error);
+        // console.warn('環境変数からパスワード取得エラー:', error);
       }
     }
     
     // デバッグログ
-    console.log('=== 接続テスト情報 ===');
-    console.log('Username:', username);
-    console.log('Password length:', password ? password.length : 0);
-    console.log('DSN:', dsn);
-    console.log('Password exists:', !!password);
-    console.log('Password from env:', !passwordField.value && !!password);
-    console.log('=====================');
+    // デバッグ情報（本番環境ではコメントアウト）
+    // console.log('=== 接続テスト情報 ===');
+    // console.log('Username:', username);
+    // console.log('Password length:', password ? password.length : 0);
+    // console.log('DSN:', dsn);
+    // console.log('Password exists:', !!password);
+    // console.log('Password from env:', !passwordField.value && !!password);
+    // console.log('=====================');
     
     // 入力チェック
     if (!username || !password || !dsn) {
@@ -2687,7 +2670,7 @@ async function testDbConnection() {
       }
     };
     
-    console.log('Request body:', JSON.stringify({...requestBody, settings: {...requestBody.settings, password: '[HIDDEN]'}}));
+    // console.log('Request body:', JSON.stringify({...requestBody, settings: {...requestBody.settings, password: '[HIDDEN]'}}));
     
     const data = await apiCall('/api/settings/database/test', {
       method: 'POST',
@@ -2787,12 +2770,12 @@ async function loadDbInfo() {
 
 async function loadDbTables() {
   try {
-    showLoading('テーブル一覧を取得中...');
+    utilsShowLoading('テーブル一覧を取得中...');
     
     // ページングパラメータ付きでAPIを呼び出し
-    const data = await apiCall(`/api/database/tables?page=${dbTablesPage}&page_size=${dbTablesPageSize}`);
+    const data = await authApiCall(`/api/database/tables?page=${dbTablesPage}&page_size=${dbTablesPageSize}`);
     
-    hideLoading();
+    utilsHideLoading();
     
     // 総ページ数を保存
     dbTablesTotalPages = data.total_pages || 1;
@@ -2888,8 +2871,8 @@ async function loadDbTables() {
                   <td><input type="checkbox" onchange="toggleDbTableSelection('${escapedTableName}')" ${selectedDbTables.includes(table.table_name) ? 'checked' : ''} class="w-4 h-4 rounded" ${dbTablesBatchDeleteLoading ? 'disabled' : ''}></td>
                   <td style="font-weight: 500; font-family: monospace;">${table.table_name}</td>
                   <td>${table.num_rows !== null ? table.num_rows.toLocaleString() : '-'}</td>
-                  <td>${table.created ? formatDateTime(table.created) : '-'}</td>
-                  <td>${table.last_analyzed ? formatDateTime(table.last_analyzed) : '-'}</td>
+                  <td>${table.created ? utilsFormatDateTime(table.created) : '-'}</td>
+                  <td>${table.last_analyzed ? utilsFormatDateTime(table.last_analyzed) : '-'}</td>
                   <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                     ${table.comments || '-'}
                   </td>
@@ -2910,8 +2893,8 @@ async function loadDbTables() {
     `;
     
   } catch (error) {
-    hideLoading();
-    showToast(`テーブル一覧取得エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`テーブル一覧取得エラー: ${error.message}`, 'error');
   }
 }
 
@@ -2946,15 +2929,15 @@ async function toggleTablePreview(tableName) {
 // テーブルデータを読み込む
 async function loadTableData(tableName) {
   try {
-    showLoading(`テーブル ${tableName} のデータを読み込み中...`);
+    utilsShowLoading(`テーブル ${tableName} のデータを読み込み中...`);
     
-    const data = await apiCall(`/api/database/tables/${encodeURIComponent(tableName)}/data?page=${tableDataPage}&page_size=${tableDataPageSize}`);
+    const data = await authApiCall(`/api/database/tables/${encodeURIComponent(tableName)}/data?page=${tableDataPage}&page_size=${tableDataPageSize}`);
     
-    hideLoading();
+    utilsHideLoading();
     
     if (!data.success) {
       // エラーメッセージを明確に表示
-      showToast(data.message || 'データ取得に失敗しました', 'error');
+      utilsShowToast(data.message || 'データ取得に失敗しました', 'error');
       showTablePreview(tableName, [], [], 0, data);
       return;
     }
@@ -2970,8 +2953,8 @@ async function loadTableData(tableName) {
     showTablePreview(tableName, data.columns, data.rows, data.total, data);
     
   } catch (error) {
-    hideLoading();
-    showToast(`データ取得エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`データ取得エラー: ${error.message}`, 'error');
     // エラー時もプレビューを非表示にする
     hideTablePreview();
     selectedTableForPreview = null;
@@ -3049,8 +3032,17 @@ function showTablePreview(tableName, columns, rows, total, paginationData) {
     end_row: rows.length
   };
   
-  // 現在ページの行数を記録
-  currentPageTableDataRows = rows.map((_, index) => index);
+  // 現在ページの行のFILE_IDを記録（columns配列から「FILE_ID」のインデックスを取得）
+  const fileIdColumnIndex = columns.indexOf('FILE_ID');
+  
+  if (fileIdColumnIndex === -1) {
+    console.warn('FILE_ID column not found in table');
+    // FILE_IDがない場合は、行インデックスをそのまま使用
+    currentPageTableDataRows = rows.map((_, index) => String(safePageData.start_row + index - 1));
+  } else {
+    // FILE_IDを使用して行を識別（文字列に統一）
+    currentPageTableDataRows = rows.map(row => String(row[fileIdColumnIndex]));
+  }
   
   // ヘッダーチェックボックスの状態を判定
   const allPageSelected = currentPageTableDataRows.length > 0 && 
@@ -3106,12 +3098,17 @@ function showTablePreview(tableName, columns, rows, total, paginationData) {
             </tr>
           </thead>
           <tbody>
-            ${rows.map((row, index) => `
+            ${rows.map((row, index) => {
+              // 行を一意に識別するためにFILE_IDを使用（文字列に統一）
+              const rowId = fileIdColumnIndex !== -1 ? String(row[fileIdColumnIndex]) : String(safePageData.start_row + index - 1);
+              const isChecked = selectedTableDataRows.includes(rowId);
+              return `
               <tr>
-                <td><input type="checkbox" onchange="toggleTableDataRowSelection(${index})" ${selectedTableDataRows.includes(index) ? 'checked' : ''} class="w-4 h-4 rounded"></td>
+                <td><input type="checkbox" onchange="toggleTableDataRowSelection('${rowId}')" ${isChecked ? 'checked' : ''} class="w-4 h-4 rounded"></td>
                 ${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}
               </tr>
-            `).join('')}
+            `;
+            }).join('')}
           </tbody>
         </table>
       </div>
@@ -3203,41 +3200,106 @@ function clearAllTableData() {
 
 function deleteSelectedTableData() {
   if (selectedTableDataRows.length === 0) {
-    showToast('削除するデータを選択してください', 'warning');
+    utilsShowToast('削除するデータを選択してください', 'warning');
     return;
   }
   
-  showToast('この機能はまだ実装されていません', 'info');
+  // FILE_INFOテーブルの場合のみ削除可能
+  if (selectedTableForPreview !== 'FILE_INFO') {
+    utilsShowToast('FILE_INFOテーブルのレコードのみ削除可能です', 'warning');
+    return;
+  }
+  
+  const count = selectedTableDataRows.length;
+  
+  // 確認モーダルを表示
+  window.UIComponents.showModal({
+    title: 'レコード削除の確認',
+    content: `選択された${count}件のレコードを削除しますか？\n\n※関連するエンベディングデータも削除されます。\n※この操作は元に戻せません。`,
+    confirmText: '削除',
+    cancelText: 'キャンセル',
+    variant: 'danger',
+    onConfirm: async () => {
+      try {
+        utilsShowLoading('レコードを削除中...');
+        
+        // 削除APIを呼び出す
+        const response = await apiCall('/api/database/file-info/batch-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file_ids: selectedTableDataRows })
+        });
+        
+        utilsHideLoading();
+        
+        if (response.success) {
+          utilsShowToast(`${response.deleted_count}件のレコードを削除しました`, 'success');
+          // 選択をクリア
+          selectedTableDataRows = [];
+          // ページを1にリセット
+          tableDataPage = 1;
+          // テーブルデータを再読み込み
+          loadTableData(selectedTableForPreview);
+        } else {
+          const errMsg = response.errors && response.errors.length > 0 
+            ? response.errors.join(', ') 
+            : response.message || '不明なエラー';
+          utilsShowToast(`削除エラー: ${errMsg}`, 'error');
+        }
+      } catch (error) {
+        utilsHideLoading();
+        utilsShowToast(`削除エラー: ${error.message}`, 'error');
+      }
+    }
+  });
 }
 
 // テーブルデータ - 個別チェックボックス切り替え
-function toggleTableDataRowSelection(rowIndex) {
-  const index = selectedTableDataRows.indexOf(rowIndex);
+function toggleTableDataRowSelection(rowId) {
+  // スクロール位置を保存
+  const scrollableArea = document.querySelector('#tableDataPreview .table-wrapper-scrollable');
+  const scrollTop = scrollableArea ? scrollableArea.scrollTop : 0;
+  
+  // 文字列に統一
+  const rowIdStr = String(rowId);
+  const index = selectedTableDataRows.indexOf(rowIdStr);
   if (index > -1) {
     selectedTableDataRows.splice(index, 1);
   } else {
-    selectedTableDataRows.push(rowIndex);
+    selectedTableDataRows.push(rowIdStr);
   }
   
   // UIを更新
   if (selectedTableForPreview) {
-    loadTableData(selectedTableForPreview);
+    loadTableData(selectedTableForPreview).then(() => {
+      // スクロール位置を復元
+      const scrollableAreaAfter = document.querySelector('#tableDataPreview .table-wrapper-scrollable');
+      if (scrollableAreaAfter) {
+        requestAnimationFrame(() => {
+          scrollableAreaAfter.scrollTop = scrollTop;
+        });
+      }
+    });
   }
 }
 
 // テーブルデータ - ヘッダーチェックボックス切り替え（現在ページ全選択/解除）
 function toggleSelectAllTableData(checked) {
+  // スクロール位置を保存
+  const scrollableArea = document.querySelector('#tableDataPreview .table-wrapper-scrollable');
+  const scrollTop = scrollableArea ? scrollableArea.scrollTop : 0;
+  
   if (checked) {
     // 現在ページのすべてを選択に追加
-    currentPageTableDataRows.forEach(rowIndex => {
-      if (!selectedTableDataRows.includes(rowIndex)) {
-        selectedTableDataRows.push(rowIndex);
+    currentPageTableDataRows.forEach(rowId => {
+      if (!selectedTableDataRows.includes(rowId)) {
+        selectedTableDataRows.push(rowId);
       }
     });
   } else {
     // 現在ページのすべてを選択から除外
-    currentPageTableDataRows.forEach(rowIndex => {
-      const index = selectedTableDataRows.indexOf(rowIndex);
+    currentPageTableDataRows.forEach(rowId => {
+      const index = selectedTableDataRows.indexOf(rowId);
       if (index > -1) {
         selectedTableDataRows.splice(index, 1);
       }
@@ -3246,9 +3308,28 @@ function toggleSelectAllTableData(checked) {
   
   // UIを更新
   if (selectedTableForPreview) {
-    loadTableData(selectedTableForPreview);
+    loadTableData(selectedTableForPreview).then(() => {
+      // スクロール位置を復元
+      const scrollableAreaAfter = document.querySelector('#tableDataPreview .table-wrapper-scrollable');
+      if (scrollableAreaAfter) {
+        requestAnimationFrame(() => {
+          scrollableAreaAfter.scrollTop = scrollTop;
+        });
+      }
+    });
   }
 }
+
+// グローバルスコープに公開（HTMLインラインイベントハンドラから呼び出せるように）
+window.toggleTableDataRowSelection = toggleTableDataRowSelection;
+window.toggleSelectAllTableData = toggleSelectAllTableData;
+window.selectAllTableData = selectAllTableData;
+window.clearAllTableData = clearAllTableData;
+window.deleteSelectedTableData = deleteSelectedTableData;
+window.refreshTableData = refreshTableData;
+window.handleTableDataPrevPage = handleTableDataPrevPage;
+window.handleTableDataNextPage = handleTableDataNextPage;
+window.handleTableDataJumpPage = handleTableDataJumpPage;
 
 // テーブル一覧ページング - 前のページへ
 function handleDbTablesPrevPage() {
@@ -3391,7 +3472,10 @@ async function deleteSelectedDbTables() {
   }
   
   const count = selectedDbTables.length;
-  const confirmed = confirm(`選択された${count}件のテーブルを削除しますか？\n\nこの操作は元に戻せません。`);
+  const confirmed = await showConfirmModal(
+    `選択された${count}件のテーブルを削除しますか？\n\nこの操作は元に戻せません。`,
+    'テーブル削除の確認'
+  );
   
   if (!confirmed) {
     return;
@@ -3443,14 +3527,32 @@ async function refreshDbInfo() {
 // テーブル一覧更新ボタン
 async function refreshDbTables() {
   try {
-    showLoading('テーブル一覧を更新中...');
+    utilsShowLoading('統計情報を更新中...');
+    
+    // 先に統計情報を更新
+    const statsResult = await apiCall('/api/database/tables/refresh-statistics', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!statsResult.success) {
+      utilsShowToast(`統計情報更新エラー: ${statsResult.message}`, 'error');
+    } else {
+      utilsShowToast(statsResult.message, 'success');
+    }
+    
     // ページを1にリセット
     dbTablesPage = 1;
+    
+    // テーブル一覧を再読み込み
+    utilsShowLoading('テーブル一覧を更新中...');
     await loadDbTables();
-    hideLoading();
+    utilsHideLoading();
   } catch (error) {
-    hideLoading();
-    showToast(`更新エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`更新エラー: ${error.message}`, 'error');
   }
 }
 
@@ -3615,10 +3717,10 @@ async function loadConfig() {
       const config = await response.json();
       debugMode = config.debug;
       requireLogin = config.require_login;
-      console.log('設定を読み込みました:', config);
+      // console.log('設定を読み込みました:', config);
     }
   } catch (error) {
-    console.warn('設定の読み込みに失敗しました:', error);
+    // console.warn('設定の読み込みに失敗しました:', error);
   }
 }
 
@@ -3711,14 +3813,17 @@ async function handleLogin(event) {
     const data = await response.json();
     
     if (data.status === 'success') {
-      // ログイン成功
+      // ログイン成功 - appStateに保存
+      setAuthState(true, data.token, data.username);
+      
+      // 後方互換性のためグローバル変数も更新（TODO: 削除予定）
       isLoggedIn = true;
       loginToken = data.token;
       loginUser = data.username;
       
       // ローカルストレージに保存
-      localStorage.setItem('loginToken', loginToken);
-      localStorage.setItem('loginUser', loginUser);
+      localStorage.setItem('loginToken', data.token);
+      localStorage.setItem('loginUser', data.username);
       
       hideLoginModal();
       showToast('ログインしました', 'success');
@@ -3760,12 +3865,16 @@ async function handleLogout() {
       });
     }
   } catch (error) {
-    console.warn('ログアウトエラー:', error);
+    // console.warn('ログアウトエラー:', error);
   } finally {
-    // ローカル状態をクリア
+    // ローカル状態をクリア - appStateと同期
+    setAuthState(false, null, null);
+    
+    // 後方互換性のためグローバル変数も更新（TODO: 削除予定）
     isLoggedIn = false;
     loginToken = null;
     loginUser = null;
+    
     localStorage.removeItem('loginToken');
     localStorage.removeItem('loginUser');
     
@@ -3785,8 +3894,11 @@ function updateUserInfo() {
   const userInfo = document.getElementById('userInfo');
   const userName = document.getElementById('userName');
   
-  if (isLoggedIn && loginUser) {
-    userName.textContent = `${loginUser}`;
+  // appStateから取得
+  const authState = getAuthState();
+  
+  if (authState.isLoggedIn && authState.loginUser) {
+    userName.textContent = `${authState.loginUser}`;
     userInfo.style.display = 'block';
   } else {
     userInfo.style.display = 'none';
@@ -3802,6 +3914,10 @@ async function checkLoginStatus() {
   const user = localStorage.getItem('loginUser');
   
   if (token && user) {
+    // appStateに保存
+    setAuthState(true, token, user);
+    
+    // 後方互換性のためグローバル変数も更新（TODO: 削除予定）
     loginToken = token;
     loginUser = user;
     isLoggedIn = true;
@@ -3830,7 +3946,7 @@ async function checkLoginStatus() {
 
 // ページロード時の初期化
 window.addEventListener('DOMContentLoaded', async () => {
-  console.log('資料みつかるくん - 初期化開始');
+  // console.log('資料みつかるくん - 初期化開始');
   
   // 設定を読み込む
   await loadConfig();
@@ -3838,7 +3954,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   // ログイン状態を確認
   await checkLoginStatus();
   
-  console.log('資料みつかるくん - 初期化完了');
+  // console.log('資料みつかるくん - 初期化完了');
 });
 
 // ========================================
@@ -4034,27 +4150,24 @@ function showAdbOperationResult(items) {
   resultDiv.style.display = 'block';
 }
 
-// グローバルスコープに関数を公開
-window.switchTab = switchTab;
-window.performSearch = performSearch;
-window.clearSearchResults = clearSearchResults;
-window.handleFileSelect = handleFileSelect;
-window.uploadDocument = uploadDocument;
+// ========================================
+// グローバル関数公開（window経由） - 初期初期化部分
+// ========================================
+// 注: 以下はページ初期化時に必要な関数公開（最終的な公開はファイル末尾で行います）
+
+// ドキュメント管理
 window.loadDocuments = loadDocuments;
-window.deleteDocument = deleteDocument;
-window.loadOciSettings = loadOciSettings;
-window.saveOciSettings = saveOciSettings;
-window.testOciConnection = testOciConnection;
+
+// 秘密鍵関連
 window.handlePrivateKeyFileSelect = handlePrivateKeyFileSelect;
 window.clearPrivateKey = clearPrivateKey;
+
+// データベース接続関連
 window.loadDbConnectionSettings = loadDbConnectionSettings;
 window.saveDbConnection = saveDbConnection;
 window.testDbConnection = testDbConnection;
 window.loadDbInfo = loadDbInfo;
 window.loadDbTables = loadDbTables;
-window.handleLogin = handleLogin;
-window.handleLogout = handleLogout;
-window.toggleLoginPassword = toggleLoginPassword;
 
 // ADB関連関数
 window.getAdbInfo = getAdbInfo;
@@ -4577,14 +4690,9 @@ function closeImageModal() {
   modal.remove();
 }
 
-// 基本機能をグローバルスコープに公開
-window.switchTab = switchTab;
-
-// 検索機能をグローバルスコープに公開
-window.performSearch = performSearch;
-window.clearSearchResults = clearSearchResults;
-window.showSearchImageModal = showSearchImageModal;
-window.downloadFile = downloadFile;
+// ========================================
+// グローバル関数公開（window経由） - AI Assistant関連
+// ========================================
 
 // AI Assistant関数をグローバルスコープに公開
 window.toggleCopilot = toggleCopilot;
@@ -4599,9 +4707,15 @@ window.removeCopilotImageAt = removeCopilotImageAt;
 window.clearCopilotImages = clearCopilotImages;
 window.showImageModal = showImageModal;
 window.closeImageModal = closeImageModal;
+window.openCopilotImage = openCopilotImage;
+
+// 検索関連
+window.showSearchImageModal = showSearchImageModal;
+window.downloadFile = downloadFile;
+
+// モーダル
 window.showConfirmModal = showConfirmModal;
 window.closeConfirmModal = closeConfirmModal;
-window.openCopilotImage = openCopilotImage;
 
 // AI Assistantテキストエリアにペーストイベントリスナーを追加
 const copilotInput = document.getElementById('copilotInput');
@@ -4609,15 +4723,14 @@ if (copilotInput) {
   copilotInput.addEventListener('paste', handleCopilotPaste);
 }
 
+// ========================================
+// グローバル関数公開（window経由） - データベース関連
+// ========================================
+
 // データベース関連関数をグローバルスコープに公開
 window.refreshDbInfo = refreshDbInfo;
 window.refreshDbTables = refreshDbTables;
 window.refreshDbStorage = refreshDbStorage;
-window.loadDbConnectionSettings = loadDbConnectionSettings;
-window.testDbConnection = testDbConnection;
-window.getAdbInfo = getAdbInfo;
-window.startAdb = startAdb;
-window.stopAdb = stopAdb;
 window.handleWalletFileSelect = handleWalletFileSelect;
 window.loadDbStorage = loadDbStorage;
 
@@ -4646,28 +4759,12 @@ window.escapeHtml = escapeHtml;
 // ========================================
 // 確認モーダル機能
 // ========================================
+// 注: この確認モーダル関数はutils.jsに移行済み
+// 下位互換性のために残しています（L113の委譲関数を参照）
 
 let confirmModalResolve = null;
 
-/**
- * 確認モーダルを表示
- * @param {string} message - 確認メッセージ
- * @param {string} title - タイトル（オプション）
- * @returns {Promise<boolean>} - ユーザーの選択
- */
-function showConfirmModal(message, title = '確認') {
-  return new Promise((resolve) => {
-    confirmModalResolve = resolve;
-    
-    const modal = document.getElementById('confirmModal');
-    const titleElement = document.getElementById('confirmModalTitle');
-    const messageElement = document.getElementById('confirmModalMessage');
-    
-    titleElement.textContent = title;
-    messageElement.textContent = message;
-    modal.style.display = 'flex';
-  });
-}
+// 以下の関数定義は削除（L113に委譲関数が存在）
 
 /**
  * 確認モーダルを閉じる
@@ -4744,7 +4841,7 @@ async function loadObjectStorageSettings() {
           namespaceStatus.className = 'text-xs text-red-600';
         }
       } catch (namespaceError) {
-        console.error('Namespace取得エラー:', namespaceError);
+        // console.error('Namespace取得エラー:', namespaceError);
         namespaceStatus.textContent = `⚠️ 取得エラー: ${namespaceError.message}`;
         namespaceStatus.className = 'text-xs text-red-600';
       }
@@ -4757,7 +4854,7 @@ async function loadObjectStorageSettings() {
     );
     
   } catch (error) {
-    console.error('Object Storage設定読み込みエラー:', error);
+    // console.error('Object Storage設定読み込みエラー:', error);
     showToast('Object Storage設定の読み込みに失敗しました', 'error');
   }
 }
@@ -4802,7 +4899,7 @@ async function saveObjectStorageSettings() {
     }
     
   } catch (error) {
-    console.error('Object Storage設定保存エラー:', error);
+    // console.error('Object Storage設定保存エラー:', error);
     showToast(`保存エラー: ${error.message}`, 'error');
   } finally {
     hideLoading();
@@ -4845,35 +4942,45 @@ async function testObjectStorageConnection() {
     }
     
   } catch (error) {
-    console.error('Object Storage接続テストエラー:', error);
+    // console.error('Object Storage接続テストエラー:', error);
     showToast(`テストエラー: ${error.message}`, 'error');
   } finally {
     hideLoading();
   }
 }
 
-// Object Storage関連関数をグローバルスコープに公開
-window.loadObjectStorageSettings = loadObjectStorageSettings;
-window.saveObjectStorageSettings = saveObjectStorageSettings;
-window.testObjectStorageConnection = testObjectStorageConnection;
+// ========================================
+// グローバル関数公開（window経由）
+// ========================================
+// 注: 以下の関数はHTMLから直接呼び出されるため、windowオブジェクトに公開しています。
+// 新規機能はモジュール経由（window.searchModule, window.authModule等）を使用してください。
 
-// その他のグローバル関数
+// タブ切り替え
 window.switchTab = switchTab;
-window.performSearch = performSearch;
-window.clearSearchResults = clearSearchResults;
+
+// ファイルアップロード関連
 window.handleFileSelect = handleFileSelect;
 window.uploadDocument = uploadDocument;
 window.deleteDocument = deleteDocument;
-window.loadOciSettings = loadOciSettings;
-window.saveOciSettings = saveOciSettings;
-window.testOciConnection = testOciConnection;
-window.handleLogin = handleLogin;
-window.handleLogout = handleLogout;
-window.toggleLoginPassword = toggleLoginPassword;
-
-// 複数ファイルアップロード関連関数をグローバルスコープに公開
 window.handleMultipleFileSelect = handleMultipleFileSelect;
 window.handleDropForMultipleInput = handleDropForMultipleInput;
 window.uploadMultipleDocuments = uploadMultipleDocuments;
 window.clearMultipleFileSelection = clearMultipleFileSelection;
 window.removeFileFromSelection = removeFileFromSelection;
+
+// OCI設定関連
+window.loadOciSettings = loadOciSettings;
+window.saveOciSettings = saveOciSettings;
+window.testOciConnection = testOciConnection;
+window.loadObjectStorageSettings = loadObjectStorageSettings;
+window.saveObjectStorageSettings = saveObjectStorageSettings;
+window.testObjectStorageConnection = testObjectStorageConnection;
+
+// 認証関連（TODO: window.authModuleに移行予定）
+window.handleLogin = handleLogin;
+window.handleLogout = handleLogout;
+window.toggleLoginPassword = toggleLoginPassword;
+
+// 検索関連（TODO: window.searchModuleに移行済み、下位互換性のため残存）
+window.performSearch = performSearch;
+window.clearSearchResults = clearSearchResults;
