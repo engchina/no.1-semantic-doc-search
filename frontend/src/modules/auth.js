@@ -220,6 +220,25 @@ export async function checkLoginStatus() {
 }
 
 /**
+ * 強制ログアウト処理（401エラー時に呼び出し）
+ * referenceプロジェクトの実装に準拠
+ */
+export function forceLogout() {
+  // セッションを完全にクリア
+  setAuthState(false, null, null);
+  localStorage.removeItem('loginToken');
+  localStorage.removeItem('loginUser');
+  
+  // ログイン画面を表示してユーザーに通知
+  setTimeout(() => {
+    if (window.UIComponents && window.UIComponents.showToast) {
+      window.UIComponents.showToast('ログインの有効期限が切れました。再度ログインしてください。', 'error');
+    }
+    showLoginModal();
+  }, 0);
+}
+
+/**
  * APIコールヘルパー（認証トークン付き）
  * @param {string} endpoint - APIエンドポイント
  * @param {Object} options - fetchオプション
@@ -241,10 +260,15 @@ export async function apiCall(endpoint, options = {}) {
     headers
   });
   
-  // 401エラーの場合、デバッグモードでなければログイン画面へ
+  // 401エラーの場合、デバッグモードでなければ強制ログアウト
   const debugMode = appState.get('debugMode');
   if (response.status === 401 && !debugMode) {
-    showLoginModal();
+    const requireLogin = appState.get('requireLogin');
+    if (requireLogin) {
+      forceLogout();
+    } else {
+      showLoginModal();
+    }
     throw new Error('認証が必要です');
   }
   
@@ -265,6 +289,7 @@ window.authModule = {
   handleLogout,
   updateUserInfo,
   checkLoginStatus,
+  forceLogout,
   apiCall
 };
 
@@ -277,5 +302,6 @@ export default {
   handleLogout,
   updateUserInfo,
   checkLoginStatus,
+  forceLogout,
   apiCall
 };

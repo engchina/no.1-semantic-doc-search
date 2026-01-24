@@ -1545,11 +1545,13 @@ window.downloadSelectedOciObjects = async function() {
     });
     
     if (!response.ok) {
-      // 401エラーの場合は認証エラー
+      // 401エラーの場合は強制ログアウト
       if (response.status === 401) {
         utilsHideLoading();
         ociObjectsBatchDeleteLoading = false;
-        showLoginModal();
+        if (!debugMode) {
+          forceLogout();
+        }
         throw new Error('無効または期限切れのトークンです');
       }
       
@@ -1633,12 +1635,14 @@ window.convertSelectedOciObjectsToImages = async function() {
     });
     
     if (!response.ok) {
-      // 401エラーの場合は認証エラー
+      // 401エラーの場合は強制ログアウト
       if (response.status === 401) {
         utilsHideLoading();
         ociObjectsBatchDeleteLoading = false;
-        showLoginModal();
-        throw new Error('無効または期限切れのトークンです。再度ログインしてください。');
+        if (!debugMode) {
+          forceLogout();
+        }
+        throw new Error('無効または期限切れのトークンです');
       }
       
       const errorData = await response.json();
@@ -1835,12 +1839,14 @@ window.vectorizeSelectedOciObjects = async function() {
     });
     
     if (!response.ok) {
-      // 401エラーの場合は認証エラー
+      // 401エラーの場合は強制ログアウト
       if (response.status === 401) {
         utilsHideLoading();
         ociObjectsBatchDeleteLoading = false;
-        showLoginModal();
-        throw new Error('無効または期限切れのトークンです。再度ログインしてください。');
+        if (!debugMode) {
+          forceLogout();
+        }
+        throw new Error('無効または期限切れのトークンです');
       }
       
       const errorData = await response.json();
@@ -3829,6 +3835,29 @@ function showLoginModal() {
       usernameInput.focus();
     }
   }
+}
+
+/**
+ * 強制ログアウト処理（401エラー時に呼び出し）
+ * referenceプロジェクトの実装に準拠
+ */
+function forceLogout() {
+  // セッションを完全にクリア
+  setAuthState(false, null, null);
+  
+  // 後方互換性のためグローバル変数もクリア
+  isLoggedIn = false;
+  loginToken = null;
+  loginUser = null;
+  
+  localStorage.removeItem('loginToken');
+  localStorage.removeItem('loginUser');
+  
+  // ログイン画面を表示してユーザーに通知
+  setTimeout(() => {
+    utilsShowToast('ログインの有効期限が切れました。再度ログインしてください。', 'error');
+    showLoginModal();
+  }, 0);
 }
 
 /**

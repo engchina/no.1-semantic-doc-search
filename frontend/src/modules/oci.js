@@ -5,7 +5,7 @@
  */
 
 import { appState, getSelectedOciObjects, toggleOciObjectSelection, setAllOciObjectsSelection } from '../state.js';
-import { apiCall } from './auth.js';
+import { apiCall, forceLogout } from './auth.js';
 import { showLoading, hideLoading, showToast, showConfirmModal, updateStatusBadge } from './utils.js';
 
 // ========================================
@@ -565,12 +565,13 @@ export async function downloadSelectedOciObjects() {
     });
     
     if (!response.ok) {
-      // 401エラーの場合は認証エラー
+      // 401エラーの場合は強制ログアウト
       if (response.status === 401) {
         hideLoading();
         appState.set('ociObjectsBatchDeleteLoading', false);
-        const { showLoginModal } = await import('./auth.js');
-        showLoginModal();
+        if (!debugMode) {
+          forceLogout();
+        }
         throw new Error('無効または期限切れのトークンです');
       }
       
@@ -662,12 +663,13 @@ export async function convertSelectedOciObjectsToImages() {
     });
     
     if (!response.ok) {
-      // 401エラーの場合は認証エラー
+      // 401エラーの場合は強制ログアウト
       if (response.status === 401) {
         hideLoading();
         appState.set('ociObjectsBatchDeleteLoading', false);
-        const { showLoginModal } = await import('./auth.js');
-        showLoginModal();
+        if (!debugMode) {
+          forceLogout();
+        }
         throw new Error('無効または期限切れのトークンです');
       }
       
@@ -752,12 +754,13 @@ export async function vectorizeSelectedOciObjects() {
     });
     
     if (!response.ok) {
-      // 401エラーの場合は認証エラー
+      // 401エラーの場合は強制ログアウト
       if (response.status === 401) {
         hideLoading();
         appState.set('ociObjectsBatchDeleteLoading', false);
-        const { showLoginModal } = await import('./auth.js');
-        showLoginModal();
+        if (!debugMode) {
+          forceLogout();
+        }
         throw new Error('無効または期限切れのトークンです');
       }
       
