@@ -496,6 +496,53 @@ async def list_oci_objects(
 class ObjectDeleteRequest(BaseModel):
     object_names: List[str]
 
+@app.get("/api/oci/objects/{object_name:path}/metadata")
+async def get_object_metadata(object_name: str):
+    """オブジェクトのメタデータ（原始ファイル名など）を取得"""
+    try:
+        # URLデコード（日本語ファイル名対応）
+        from urllib.parse import unquote
+        decoded_object_name = unquote(object_name)
+        
+        # 環境変数からバケット名を取得
+        bucket_name = os.getenv("OCI_BUCKET")
+        
+        if not bucket_name:
+            raise HTTPException(status_code=400, detail="バケット名が設定されていません")
+        
+        # Namespaceを取得
+        namespace_result = oci_service.get_namespace()
+        if not namespace_result.get("success"):
+            raise HTTPException(status_code=500, detail=f"Namespace取得エラー: {namespace_result.get('message')}")
+        
+        namespace = namespace_result.get("namespace")
+        
+        # メタデータを取得
+        result = oci_service.get_object_metadata(
+            bucket_name=bucket_name,
+            namespace=namespace,
+            object_name=decoded_object_name  # デコードされた名前を使用
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("message", "メタデータ取得エラー"))
+        
+        return {
+            "success": True,
+            "object_name": decoded_object_name,
+            "original_filename": result.get("original_filename"),
+            "metadata": result.get("metadata"),
+            "content_type": result.get("content_type"),
+            "content_length": result.get("content_length"),
+            "last_modified": result.get("last_modified")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"メタデータ取得エラー: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/oci/objects/delete")
 async def delete_oci_objects(request: ObjectDeleteRequest):
     """OCI Object Storage内のオブジェクトを削除"""
@@ -580,9 +627,9 @@ async def upload_document(file: UploadFile = File(...)):
                 logger.warning(f"MIMEタイプの不一致: 拡張子={file_ext}, Content-Type={content_type}")
         
         # ファイルサイズチェック
-        file.file.seek(0, 2)
+        file.file.seek(0, 2)  # ファイル末尾に移動
         file_size = file.file.tell()
-        file.file.seek(0)
+        file.file.seek(0)  # 先頭に戻す
         
         if file_size > max_size:
             raise HTTPException(status_code=400, detail=f"ファイルサイズが大きすぎます（最大{max_size}バイト）")
@@ -603,12 +650,17 @@ async def upload_document(file: UploadFile = File(...)):
         safe_filename = f"{timestamp}_{document_id[:8]}_{safe_basename}"
         oci_object_name = safe_filename
         
+        # アップロード前にストリーム位置をリセット
+        file.file.seek(0)
+        
         # Object Storageにアップロード
         logger.info(f"Object Storageにアップロード中: {file.filename} ({file_size} バイト)")
         upload_success = oci_service.upload_file(
             file_content=file.file,
             object_name=oci_object_name,
-            content_type=content_type or f"application/{file_ext}"
+            content_type=content_type or f"application/{file_ext}",
+            original_filename=file.filename,
+            file_size=file_size
         )
         
         if not upload_success:
@@ -764,7 +816,9 @@ async def upload_multiple_documents(files: List[UploadFile] = File(...)):
                 upload_success = oci_service.upload_file(
                     file_content=file.file,
                     object_name=oci_object_name,
-                    content_type=content_type or f"application/{file_ext}"
+                    content_type=content_type or f"application/{file_ext}",
+                    original_filename=file.filename,
+                    file_size=file_size
                 )
                 
                 if not upload_success:

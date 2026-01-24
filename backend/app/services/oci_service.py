@@ -3,9 +3,11 @@ import json
 import oci
 import logging
 import configparser
+import base64
 from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
 from typing import Dict, Any, Optional
+from datetime import datetime
 from app.models.oci import OCISettings
 
 logger = logging.getLogger(__name__)
@@ -327,7 +329,7 @@ class OCIService:
                 "message": f"Object Storage設定保存エラー: {str(e)}"
             }
     
-    def list_objects(self, bucket_name: str, namespace: str, prefix: str = "", page_size: int = 50, page_token: Optional[str] = None) -> Dict[str, Any]:
+    def list_objects(self, bucket_name: str, namespace: str, prefix: str = "", page_size: int = 50, page_token: Optional[str] = None, include_metadata: bool = False) -> Dict[str, Any]:
         """
         Object Storage内のオブジェクト一覧を取得
         
@@ -337,6 +339,7 @@ class OCIService:
             prefix: プレフィックス（フォルダパス）
             page_size: ページサイズ
             page_token: ページトークン（次ページ取得用）
+            include_metadata: メタデータ（原始ファイル名など）を含めるか
             
         Returns:
             オブジェクト一覧とページ情報（階層構造情報付き）
@@ -379,7 +382,7 @@ class OCIService:
                     if parent and not parent.endswith('/'):
                         parent += '/'
                 
-                objects.append({
+                obj_data = {
                     "name": obj.name,
                     "size": obj.size if obj.size else 0,
                     "time_created": obj.time_created.isoformat() if obj.time_created else None,
@@ -388,7 +391,22 @@ class OCIService:
                     "type": "folder" if is_folder else "file",
                     "depth": depth,
                     "parent": parent
-                })
+                }
+                
+                # メタデータを含める場合（ファイルのみ）
+                # 注意: 大量のファイルがある場合はパフォーマンス問題が発生する可能性があります
+                if include_metadata and not is_folder:
+                    try:
+                        metadata_result = self.get_object_metadata(bucket_name, namespace, obj.name)
+                        if metadata_result.get("success"):
+                            obj_data["original_filename"] = metadata_result.get("original_filename")
+                            obj_data["metadata"] = metadata_result.get("metadata", {})
+                    except Exception as e:
+                        logger.warning(f"メタデータ取得エラー: {obj.name} - {e}")
+                        # エラーが発生してもオブジェクト名から推測
+                        obj_data["original_filename"] = obj.name.split("/")[-1]
+                
+                objects.append(obj_data)
             
             return {
                 "success": True,
@@ -408,14 +426,16 @@ class OCIService:
             }
     
     
-    def upload_file(self, file_content, object_name: str, content_type: str = None) -> bool:
+    def upload_file(self, file_content, object_name: str, content_type: str = None, original_filename: str = None, file_size: int = None) -> bool:
         """
-        ファイルをObject Storageにアップロード
+        ファイルをObject Storageにアップロード（メタデータ付き）
         
         Args:
             file_content: ファイル内容（バイナリデータまたはBytesIO）
             object_name: Object名（パス含む）
             content_type: Content-Type
+            original_filename: 原始ファイル名（日本語・スペース対応）
+            file_size: ファイルサイズ
             
         Returns:
             成功した場合True
@@ -437,12 +457,33 @@ class OCIService:
             
             namespace = namespace_result.get("namespace")
             
+            # メタデータを準備（日本語対応のためbase64エンコード）
+            opc_meta = {}
+            if original_filename and original_filename.strip():  # 空白のみの文字列を除外
+                try:
+                    # ASCII文字のみかチェック
+                    original_filename.strip().encode('latin-1')
+                    opc_meta['original-filename'] = original_filename.strip()
+                except UnicodeEncodeError:
+                    # 非ASCII文字（日本語など）が含まれる場合はbase64エンコード
+                    encoded_value = base64.b64encode(original_filename.strip().encode('utf-8')).decode('ascii')
+                    opc_meta['original-filename-b64'] = encoded_value
+                    logger.debug(f"ファイル名をbase64エンコード: {original_filename.strip()}")
+            
+            # その他のメタデータ
+            if file_size is not None:
+                opc_meta['file-size'] = str(file_size)
+            
+            opc_meta['upload-source'] = 'file'
+            opc_meta['uploaded-at'] = datetime.now().isoformat()
+            
             # Object Storageにアップロード
             put_object_kwargs = {
                 "namespace_name": namespace,
                 "bucket_name": bucket_name,
                 "object_name": object_name,
-                "put_object_body": file_content
+                "put_object_body": file_content,
+                "opc_meta": opc_meta
             }
             
             if content_type:
@@ -450,12 +491,76 @@ class OCIService:
             
             client.put_object(**put_object_kwargs)
             
-            logger.info(f"Object Storageアップロード成功: {object_name}")
+            logger.info(f"Object Storageアップロード成功: {object_name} (原始ファイル名: {original_filename})")
             return True
             
         except Exception as e:
             logger.error(f"Object Storageアップロードエラー: {e}")
             return False
+    
+    def get_object_metadata(self, bucket_name: str, namespace: str, object_name: str) -> Dict[str, Any]:
+        """
+        Object Storage内のオブジェクトのメタデータを取得
+        
+        Args:
+            bucket_name: バケット名
+            namespace: ネームスペース
+            object_name: オブジェクト名
+            
+        Returns:
+            メタデータ情報
+        """
+        try:
+            client = self.get_object_storage_client()
+            if not client:
+                raise Exception("Object Storage Clientの取得に失敗しました")
+            
+            # HEADリクエストでメタデータを取得
+            response = client.head_object(
+                namespace_name=namespace,
+                bucket_name=bucket_name,
+                object_name=object_name
+            )
+            
+            # メタデータを抽出（キーを正規化）
+            metadata = {}
+            if response.headers:
+                # opc-meta-*で始まるヘッダーを抽出
+                for key, value in response.headers.items():
+                    if key.lower().startswith('opc-meta-'):
+                        # キーを小文字に正規化（大文字小文字の不一致を防ぐ）
+                        meta_key = key.lower()[9:]  # 'opc-meta-'を除去して小文字化
+                        metadata[meta_key] = value
+            
+            # 原始ファイル名を復元（base64エンコードされている場合）
+            original_filename = None
+            if 'original-filename-b64' in metadata:
+                try:
+                    encoded_value = metadata['original-filename-b64']
+                    original_filename = base64.b64decode(encoded_value).decode('utf-8')
+                    logger.debug(f"base64ファイル名をデコード: {original_filename}")
+                except Exception as e:
+                    logger.warning(f"base64ファイル名のデコード失敗: {e}")
+            
+            # フォールバック: 通常のファイル名またはオブジェクト名
+            if not original_filename:
+                original_filename = metadata.get('original-filename', object_name.split("/")[-1])
+            
+            return {
+                "success": True,
+                "metadata": metadata,
+                "original_filename": original_filename,
+                "content_type": response.headers.get('Content-Type'),
+                "content_length": response.headers.get('Content-Length'),
+                "last_modified": response.headers.get('Last-Modified')
+            }
+            
+        except Exception as e:
+            logger.error(f"メタデータ取得エラー: {e}")
+            return {
+                "success": False,
+                "message": f"メタデータ取得エラー: {str(e)}"
+            }
     
     def delete_objects(self, bucket_name: str, namespace: str, object_names: list) -> Dict[str, Any]:
         """
@@ -481,8 +586,14 @@ class OCIService:
                 try:
                     # フォルダの場合は配下のオブジェクトも削除
                     if obj_name.endswith('/'):
-                        # フォルダ配下のオブジェクトを取得
-                        prefix_objects = self.list_objects(bucket_name, namespace, prefix=obj_name, page_size=1000)
+                        # フォルダ配下のオブジェクトを取得（メタデータ不要）
+                        prefix_objects = self.list_objects(
+                            bucket_name, 
+                            namespace, 
+                            prefix=obj_name, 
+                            page_size=1000, 
+                            include_metadata=False  # 削除時はメタデータ不要
+                        )
                         if prefix_objects.get("success"):
                             for sub_obj in prefix_objects.get("objects", []):
                                 try:
