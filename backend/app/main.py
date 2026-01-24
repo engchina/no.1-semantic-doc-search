@@ -420,7 +420,9 @@ async def test_object_storage_connection(request: ObjectStorageSettingsRequest):
 async def list_oci_objects(
     prefix: str = Query(default="", description="プレフィックス（フォルダパス）"),
     page: int = Query(default=1, ge=1, description="ページ番号"),
-    page_size: int = Query(default=50, ge=1, le=100, description="ページサイズ")
+    page_size: int = Query(default=50, ge=1, le=100, description="ページサイズ"),
+    filter_page_images: str = Query(default="all", description="ページ画像化フィルター: all, done, not_done"),
+    filter_embeddings: str = Query(default="all", description="ベクトル化フィルター: all, done, not_done")
 ):
     """OCI Object Storage内のオブジェクト一覧を取得"""
     try:
@@ -505,9 +507,32 @@ async def list_oci_objects(
             
             return False
         
+        def has_page_images_for_file(object_name: str, all_objects: list) -> bool:
+            """ファイルに対応するページ画像が存在するか判定"""
+            import re
+            # フォルダは除外
+            if object_name.endswith('/'):
+                return False
+            
+            # 拡張子を除いたファイル名をフォルダ名として使用
+            file_base_name = re.sub(r'\.[^.]+$', '', object_name)
+            
+            # 同名フォルダ内にpage_XXX.pngが存在するかチェック
+            for obj in all_objects:
+                obj_name = obj["name"]
+                # page_001.png パターンにマッチし、親フォルダが一致するかチェック
+                if re.search(r'/page_\d{3}\.png$', obj_name):
+                    parent_folder = obj_name[:obj_name.rfind('/')]
+                    if parent_folder == file_base_name:
+                        return True
+            
+            return False
+        
         # 集計
         file_count = 0
         page_image_count = 0
+        file_object_names = []  # ファイルタイプのオブジェクト名を収集
+        
         for obj in all_objects:
             # フォルダは除外
             if obj["name"].endswith('/'):
@@ -518,6 +543,119 @@ async def list_oci_objects(
                 page_image_count += 1
             else:
                 file_count += 1
+                file_object_names.append(obj["name"])
+        
+        # ベクトル化状態を一括取得（ファイルタイプのみ）
+        vectorization_status = {}
+        if file_object_names:
+            try:
+                vectorization_status = image_vectorizer.get_vectorization_status(bucket_name, file_object_names)
+            except Exception as e:
+                logger.warning(f"ベクトル化状態取得エラー: {e}")
+        
+        # 各オブジェクトにページ画像化・ベクトル化状態を追加
+        for obj in all_objects:
+            obj_name = obj["name"]
+            is_folder = obj_name.endswith('/')
+            is_page_image = not is_folder and is_generated_page_image(obj_name, all_objects)
+            
+            if is_folder or is_page_image:
+                # フォルダやページ画像は対象外
+                obj["has_page_images"] = None
+                obj["has_embeddings"] = None
+            else:
+                # ファイルの場合
+                obj["has_page_images"] = has_page_images_for_file(obj_name, all_objects)
+                obj["has_embeddings"] = vectorization_status.get(obj_name, False)
+        
+        # フィルタリング処理（ファイルのみを対象とし、条件に一致したファイルとその子ページ画像を含める）
+        # まず、ファイルのみをフィルタリング（フォルダとページ画像は除外）
+        file_objects = [
+            obj for obj in all_objects
+            if not obj["name"].endswith('/') and not is_generated_page_image(obj["name"], all_objects)
+        ]
+        
+        # フィルタリング条件に従ってファイルを絞り込む
+        filtered_files = file_objects
+        
+        # ページ画像化フィルター（ファイルのみ対象）
+        if filter_page_images == "done":
+            filtered_files = [
+                obj for obj in filtered_files
+                if obj["has_page_images"] is True
+            ]
+        elif filter_page_images == "not_done":
+            filtered_files = [
+                obj for obj in filtered_files
+                if obj["has_page_images"] is False
+            ]
+        
+        # ベクトル化フィルター（ファイルのみ対象）
+        if filter_embeddings == "done":
+            filtered_files = [
+                obj for obj in filtered_files
+                if obj["has_embeddings"] is True
+            ]
+        elif filter_embeddings == "not_done":
+            filtered_files = [
+                obj for obj in filtered_files
+                if obj["has_embeddings"] is False
+            ]
+        
+        # フィルター条件に一致したファイルの名前セットを作成
+        filtered_file_names = {obj["name"] for obj in filtered_files}
+        
+        # 該当ファイルとその子ページ画像を含める
+        filtered_objects = []
+        for obj in all_objects:
+            obj_name = obj["name"]
+            
+            # フォルダは常に除外（フィルター対象外）
+            if obj_name.endswith('/'):
+                continue
+            
+            # ページ画像の場合、親ファイルがフィルター条件に一致しているかチェック
+            if is_generated_page_image(obj_name, all_objects):
+                # 親ファイル名を抽出（例: "example/page_001.png" → "example.pdf"など）
+                last_slash_index = obj_name.rfind('/')
+                parent_folder_path = obj_name[:last_slash_index]
+                
+                # 親ファイルを探す
+                parent_file_found = False
+                for parent_obj in all_objects:
+                    if parent_obj["name"].endswith('/'):
+                        continue
+                    parent_name_without_ext = re.sub(r'\.[^.]+$', '', parent_obj["name"])
+                    if parent_name_without_ext == parent_folder_path and parent_obj["name"] in filtered_file_names:
+                        parent_file_found = True
+                        break
+                
+                # 親ファイルがフィルター条件に一致している場合のみ含める
+                if parent_file_found:
+                    filtered_objects.append(obj)
+            else:
+                # ファイルの場合、フィルター条件に一致しているかチェック
+                if obj_name in filtered_file_names:
+                    filtered_objects.append(obj)
+        
+        # フィルタリング後のページネーション情報を計算
+        filtered_total = len(filtered_objects)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        
+        # 現在のページのオブジェクトを取得
+        paginated_objects = filtered_objects[start_idx:end_idx]
+        
+        total_pages = (filtered_total + page_size - 1) // page_size if filtered_total > 0 else 1
+        
+        # フィルタリング後の統計情報を計算
+        filtered_file_count = 0
+        filtered_page_image_count = 0
+        for obj in filtered_objects:
+            if is_generated_page_image(obj["name"], all_objects):
+                filtered_page_image_count += 1
+            else:
+                filtered_file_count += 1
         
         return {
             "success": True,
@@ -526,16 +664,24 @@ async def list_oci_objects(
                 "current_page": page,
                 "total_pages": total_pages,
                 "page_size": page_size,
-                "total": total,
-                "start_row": start_idx + 1 if total > 0 else 0,
-                "end_row": min(end_idx, total),
+                "total": filtered_total,
+                "total_unfiltered": total,
+                "start_row": start_idx + 1 if filtered_total > 0 else 0,
+                "end_row": min(end_idx, filtered_total),
                 "has_next": page < total_pages,
                 "has_prev": page > 1
             },
             "statistics": {
-                "file_count": file_count,
-                "page_image_count": page_image_count,
-                "total_count": file_count + page_image_count
+                "file_count": filtered_file_count,
+                "page_image_count": filtered_page_image_count,
+                "total_count": filtered_file_count + filtered_page_image_count,
+                "unfiltered_file_count": file_count,
+                "unfiltered_page_image_count": page_image_count,
+                "unfiltered_total_count": file_count + page_image_count
+            },
+            "filters": {
+                "filter_page_images": filter_page_images,
+                "filter_embeddings": filter_embeddings
             },
             "bucket_name": bucket_name,
             "namespace": namespace,

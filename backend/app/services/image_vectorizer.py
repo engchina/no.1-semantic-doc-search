@@ -403,6 +403,65 @@ class ImageVectorizer:
                 self.db_connection = None
             except Exception as e:
                 logger.error(f"接続返却エラー: {e}")
+    
+    def get_vectorization_status(self, bucket: str, object_names: List[str]) -> Dict[str, bool]:
+        """
+        複数ファイルのベクトル化状態を一括取得
+        
+        Args:
+            bucket: バケット名
+            object_names: オブジェクト名のリスト
+            
+        Returns:
+            Dict[object_name, has_embeddings] - 各ファイルのベクトル化状態
+        """
+        result = {name: False for name in object_names}
+        
+        if not object_names:
+            return result
+        
+        if not self._ensure_db_connection():
+            logger.warning("DB接続なし、ベクトル化状態をすべてFalseで返します")
+            return result
+        
+        try:
+            with self.db_connection.cursor() as cursor:
+                # FILE_INFOテーブルとIMG_EMBEDDINGSテーブルを結合して、
+                # 各ファイルにembeddingが存在するかチェック
+                placeholders = ', '.join([f":obj_{i}" for i in range(len(object_names))])
+                
+                query = f"""
+                    SELECT f.OBJECT_NAME, 
+                           CASE WHEN e.FILE_ID IS NOT NULL THEN 1 ELSE 0 END as HAS_EMBEDDINGS
+                    FROM FILE_INFO f
+                    LEFT JOIN (
+                        SELECT DISTINCT FILE_ID FROM IMG_EMBEDDINGS
+                    ) e ON f.FILE_ID = e.FILE_ID
+                    WHERE f.BUCKET = :bucket 
+                    AND f.OBJECT_NAME IN ({placeholders})
+                """
+                
+                # パラメータを構築
+                params = {'bucket': bucket}
+                for i, name in enumerate(object_names):
+                    params[f'obj_{i}'] = name
+                
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                
+                for row in rows:
+                    object_name = row[0]
+                    has_embeddings = row[1] == 1
+                    result[object_name] = has_embeddings
+                
+                logger.info(f"ベクトル化状態取得完了: {len(rows)}件のファイルを確認")
+                return result
+                
+        except Exception as e:
+            logger.error(f"ベクトル化状態取得エラー: {e}")
+            return result
+        finally:
+            self._release_db_connection()
 
 
 # グローバルインスタンス

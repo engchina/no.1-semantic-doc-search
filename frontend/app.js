@@ -653,6 +653,10 @@ let selectedOciObjects = [];
 let ociObjectsBatchDeleteLoading = false;
 let allOciObjects = []; // 全オブジェクトのキャッシュ（親子関係処理用）
 
+// フィルター状態
+let ociObjectsFilterPageImages = "all";  // all, done, not_done
+let ociObjectsFilterEmbeddings = "all";  // all, done, not_done
+
 /**
  * 指定したフォルダの子オブジェクトをすべて取得
  */
@@ -753,7 +757,9 @@ async function loadOciObjects() {
     const params = new URLSearchParams({
       prefix: ociObjectsPrefix,
       page: ociObjectsPage.toString(),
-      page_size: ociObjectsPageSize.toString()
+      page_size: ociObjectsPageSize.toString(),
+      filter_page_images: ociObjectsFilterPageImages,
+      filter_embeddings: ociObjectsFilterEmbeddings
     });
     
     const data = await apiCall(`/api/oci/objects?${params}`);
@@ -809,23 +815,89 @@ function displayOciObjectsList(data) {
   console.log('selectedOciObjects.length:', selectedOciObjects.length);
   console.log('allOciObjects.length:', allOciObjects.length);
   
+  // 全ページ選択状態をチェック（チェックボックスを持つオブジェクトのみ対象）
+  // ページ画像化で生成されたファイル（page_*.png）はチェックボックスを持たないため除外
+  const selectableObjects = objects.filter(obj => {
+    return !isGeneratedPageImage(obj.name, allOciObjects);
+  });
+  const allPageSelected = selectableObjects.length > 0 && selectableObjects.every(obj => selectedOciObjects.includes(obj.name));
+  
+  // フィルターUI HTML（常に表示）
+  const filterHtml = `
+    <div class="flex items-center gap-4 mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-medium text-gray-600">🖼️ ページ画像化:</span>
+        <div class="flex gap-1">
+          <button 
+            onclick="setOciObjectsFilterPageImages('all')" 
+            class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterPageImages === 'all' ? 'bg-gray-700 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
+          >
+            すべて
+          </button>
+          <button 
+            onclick="setOciObjectsFilterPageImages('done')" 
+            class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterPageImages === 'done' ? 'bg-green-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
+          >
+            ✓ 完了
+          </button>
+          <button 
+            onclick="setOciObjectsFilterPageImages('not_done')" 
+            class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterPageImages === 'not_done' ? 'bg-orange-500 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
+          >
+            未実行
+          </button>
+        </div>
+      </div>
+      <div class="w-px h-6 bg-gray-300"></div>
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-medium text-gray-600">🔢 ベクトル化:</span>
+        <div class="flex gap-1">
+          <button 
+            onclick="setOciObjectsFilterEmbeddings('all')" 
+            class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterEmbeddings === 'all' ? 'bg-gray-700 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
+          >
+            すべて
+          </button>
+          <button 
+            onclick="setOciObjectsFilterEmbeddings('done')" 
+            class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterEmbeddings === 'done' ? 'bg-green-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
+          >
+            ✓ 完了
+          </button>
+          <button 
+            onclick="setOciObjectsFilterEmbeddings('not_done')" 
+            class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterEmbeddings === 'not_done' ? 'bg-orange-500 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
+          >
+            未実行
+          </button>
+        </div>
+      </div>
+      ${(ociObjectsFilterPageImages !== 'all' || ociObjectsFilterEmbeddings !== 'all') ? `
+        <button 
+          onclick="clearOciObjectsFilters()" 
+          class="ml-auto px-2.5 py-1 text-xs rounded-full bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-all flex items-center gap-1"
+        >
+          <span>✕</span>
+          <span>フィルタークリア</span>
+        </button>
+      ` : ''}
+    </div>
+  `;
+  
+  // データが0件の場合の表示
   if (objects.length === 0) {
     listDiv.innerHTML = `
-      <div style="text-align: center; padding: 40px; color: #64748b;">
-        <div style="font-size: 48px; margin-bottom: 16px;">📁</div>
-        <div style="font-size: 16px; font-weight: 500;">オブジェクトがありません</div>
-        <div style="font-size: 14px; margin-top: 8px;">バケット: ${data.bucket_name || '-'}</div>
+      <div>
+        ${filterHtml}
+        <div style="text-align: center; padding: 40px; color: #64748b;">
+          <div style="font-size: 48px; margin-bottom: 16px;">📁</div>
+          <div style="font-size: 16px; font-weight: 500;">オブジェクトがありません</div>
+          <div style="font-size: 14px; margin-top: 8px;">バケット: ${data.bucket_name || '-'}</div>
+        </div>
       </div>
     `;
     return;
   }
-  
-  // 全ページ選択状態をチェック（チェックボックスを持つオブジェクトのみ対象）
-  // ページ画像化で生成されたファイル（page_*.png）はチェックボックスを持たないため除外
-  const selectableObjects = objects.filter(obj => {
-    return !isGeneratedPageImage(obj.name, objects);
-  });
-  const allPageSelected = selectableObjects.length > 0 && selectableObjects.every(obj => selectedOciObjects.includes(obj.name));
   
   // 選択ボタンHTML
   const selectionButtonsHtml = `
@@ -895,6 +967,7 @@ function displayOciObjectsList(data) {
   
   listDiv.innerHTML = `
     <div>
+      ${filterHtml}
       ${selectionButtonsHtml}
       ${paginationHtml}
       <div class="table-wrapper-scrollable">
@@ -906,6 +979,8 @@ function displayOciObjectsList(data) {
               <th>名前</th>
               <th>サイズ</th>
               <th>作成日時</th>
+              <th style="text-align: center;">ページ画像化</th>
+              <th style="text-align: center;">ベクトル化</th>
             </tr>
           </thead>
           <tbody>
@@ -933,7 +1008,8 @@ function displayOciObjectsList(data) {
               }
               
               // ページ画像化で生成されたファイル（page_001.png, page_002.pngなど）かどうかを判定
-              const isPageImage = !isFolder && isGeneratedPageImage(obj.name, objects);
+              // 注: 親ファイルが別のページにある場合もあるため、全オブジェクトキャッシュを使用
+              const isPageImage = !isFolder && isGeneratedPageImage(obj.name, allOciObjects);
               
               // タイプラベルとアイコンを設定
               let icon, typeLabel;
@@ -948,6 +1024,29 @@ function displayOciObjectsList(data) {
                 typeLabel = 'ファイル';
               }
               
+              // ページ画像化・ベクトル化ステータスバッジを生成
+              let pageImageStatusHtml = '';
+              let vectorizeStatusHtml = '';
+              
+              if (isFolder || isPageImage) {
+                // フォルダやページ画像は対象外
+                pageImageStatusHtml = '<span style="color: #9ca3af;">-</span>';
+                vectorizeStatusHtml = '<span style="color: #9ca3af;">-</span>';
+              } else {
+                // ファイルの場合
+                if (obj.has_page_images === true) {
+                  pageImageStatusHtml = '<span class="px-2 py-0.5 text-xs font-semibold rounded" style="background: #dcfce7; color: #166534;">✓ 完了</span>';
+                } else {
+                  pageImageStatusHtml = '<span class="px-2 py-0.5 text-xs font-semibold rounded" style="background: #f3f4f6; color: #6b7280;">未実行</span>';
+                }
+                
+                if (obj.has_embeddings === true) {
+                  vectorizeStatusHtml = '<span class="px-2 py-0.5 text-xs font-semibold rounded" style="background: #dcfce7; color: #166534;">✓ 完了</span>';
+                } else {
+                  vectorizeStatusHtml = '<span class="px-2 py-0.5 text-xs font-semibold rounded" style="background: #f3f4f6; color: #6b7280;">未実行</span>';
+                }
+              }
+              
               return `
                 <tr>
                   <td>${isPageImage ? '' : `<input type="checkbox" data-object-name="${escapedNameForHtml}" onchange="toggleOciObjectSelection(this.getAttribute('data-object-name'))" ${selectedOciObjects.includes(obj.name) ? 'checked' : ''} class="w-4 h-4 rounded" ${ociObjectsBatchDeleteLoading ? 'disabled' : ''}>`}</td>
@@ -957,6 +1056,8 @@ function displayOciObjectsList(data) {
                   </td>
                   <td>${isFolder ? '-' : formatFileSize(obj.size)}</td>
                   <td>${obj.time_created ? formatDateTime(obj.time_created) : '-'}</td>
+                  <td style="text-align: center;">${pageImageStatusHtml}</td>
+                  <td style="text-align: center;">${vectorizeStatusHtml}</td>
                 </tr>
               `;
             }).join('')}
@@ -1000,6 +1101,40 @@ function handleOciObjectsJumpPage() {
     ociObjectsPage = page;
     loadOciObjects();
   }
+}
+
+/**
+ * ページ画像化フィルターを設定
+ */
+window.setOciObjectsFilterPageImages = function(value) {
+  if (ociObjectsBatchDeleteLoading) return;
+  ociObjectsFilterPageImages = value;
+  ociObjectsPage = 1;  // フィルター変更時は1ページ目に戻る
+  selectedOciObjects = [];  // 選択状態をクリア
+  loadOciObjects();
+}
+
+/**
+ * ベクトル化フィルターを設定
+ */
+window.setOciObjectsFilterEmbeddings = function(value) {
+  if (ociObjectsBatchDeleteLoading) return;
+  ociObjectsFilterEmbeddings = value;
+  ociObjectsPage = 1;  // フィルター変更時は1ページ目に戻る
+  selectedOciObjects = [];  // 選択状態をクリア
+  loadOciObjects();
+}
+
+/**
+ * すべてのフィルターをクリア
+ */
+window.clearOciObjectsFilters = function() {
+  if (ociObjectsBatchDeleteLoading) return;
+  ociObjectsFilterPageImages = "all";
+  ociObjectsFilterEmbeddings = "all";
+  ociObjectsPage = 1;
+  selectedOciObjects = [];
+  loadOciObjects();
 }
 
 /**
