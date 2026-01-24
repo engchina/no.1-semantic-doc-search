@@ -116,10 +116,10 @@ export const appState = new StateManager({
   // API設定
   apiBase: '',
   
-  // 認証関連
-  isLoggedIn: false,
-  loginToken: null,
-  loginUser: null,
+  // 認証関連（referenceプロジェクトに準拠：初期化時にlocalStorageから読み込み）
+  isLoggedIn: !!localStorage.getItem('loginToken'),
+  loginToken: localStorage.getItem('loginToken'),
+  loginUser: localStorage.getItem('loginUser'),
   debugMode: false,
   requireLogin: true,
   

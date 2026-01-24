@@ -114,6 +114,21 @@ function showConfirmModal(message, title = '確認') {
   return utilsShowConfirmModal(message, title);
 }
 
+/**
+ * 認証トークン付きの画像URLを生成（referenceプロジェクトに準拠）
+ * @param {string} bucket - バケット名
+ * @param {string} objectName - オブジェクト名
+ * @returns {string} トークン付きの画像URL
+ */
+function getAuthenticatedImageUrl(bucket, objectName) {
+  const baseUrl = `/api/oci/image/${bucket}/${encodeURIComponent(objectName)}`;
+  const token = localStorage.getItem('loginToken');
+  if (token) {
+    return `${baseUrl}?token=${encodeURIComponent(token)}`;
+  }
+  return baseUrl;
+}
+
 // ========================================
 // タブ切り替え
 // ========================================
@@ -283,7 +298,7 @@ function displaySearchResults(data) {
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px;">
             ${fileResult.matched_images.map((img, imgIndex) => {
               const imgDistancePercent = (1 - img.vector_distance) * 100;
-              const imageUrl = `/api/oci/image/${img.bucket}/${encodeURIComponent(img.object_name)}`;
+              const imageUrl = getAuthenticatedImageUrl(img.bucket, img.object_name);
               
               return `
                 <div 
@@ -370,7 +385,7 @@ function showSearchImageModal(imageUrl, title, vectorDistance) {
  */
 async function downloadFile(bucket, encodedObjectName) {
   try {
-    const imageUrl = `/api/oci/image/${bucket}/${encodedObjectName}`;
+    const imageUrl = getAuthenticatedImageUrl(bucket, decodeURIComponent(encodedObjectName));
     
     // 新しいタブで開く
     window.open(imageUrl, '_blank');
