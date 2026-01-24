@@ -668,8 +668,8 @@ class DatabaseService:
             
             cursor = connection.cursor()
             
-            # 総件数を取得
-            count_query = "SELECT COUNT(*) FROM user_tables"
+            # 総件数を取得（'$'を含むテーブルを除外）
+            count_query = "SELECT COUNT(*) FROM user_tables WHERE table_name NOT LIKE '%$%'"
             cursor.execute(count_query)
             total = cursor.fetchone()[0]
             
@@ -678,6 +678,7 @@ class DatabaseService:
             end_row = page * page_size
             
             # 最適化：先にページングを完了し、その後JOINを実行
+            # '$'を含むテーブルを除外
             query = """
                 SELECT 
                     p.table_name,
@@ -694,6 +695,7 @@ class DatabaseService:
                             last_analyzed,
                             ROW_NUMBER() OVER (ORDER BY table_name) rn
                         FROM user_tables
+                        WHERE table_name NOT LIKE '%$%'
                     )
                     WHERE rn BETWEEN :start_row AND :end_row
                 ) p
@@ -726,6 +728,116 @@ class DatabaseService:
             if connection:
                 self._release_connection(connection)
             return {"tables": [], "total": 0}
+    
+    def get_table_data(self, table_name: str, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+        """テーブルデータを取得（ページング対応）"""
+        connection = None
+        try:
+            if not ORACLEDB_AVAILABLE:
+                return {"success": False, "rows": [], "columns": [], "total": 0, "message": "Oracle DBが利用できません"}
+            
+            # テーブル名のバリデーション（SQLインジェクション防止）
+            if not table_name.isidentifier() and not table_name.replace('_', '').replace('$', '').isalnum():
+                return {"success": False, "rows": [], "columns": [], "total": 0, "message": "無効なテーブル名です"}
+            
+            connection = self._create_connection()
+            if not connection:
+                return {"success": False, "rows": [], "columns": [], "total": 0, "message": "データベース接続に失敗しました"}
+            
+            cursor = connection.cursor()
+            
+            # 総件数を取得
+            count_query = f'SELECT COUNT(*) FROM "{table_name}"'
+            cursor.execute(count_query)
+            total = cursor.fetchone()[0]
+            
+            # ページング用の範囲計算
+            start_row = (page - 1) * page_size + 1
+            end_row = page * page_size
+            
+            # データ取得（ページング対応）
+            query = f'''
+                SELECT * FROM (
+                    SELECT t.*, ROW_NUMBER() OVER (ORDER BY ROWID) as rn
+                    FROM "{table_name}" t
+                )
+                WHERE rn BETWEEN :start_row AND :end_row
+            '''
+            
+            cursor.execute(query, {"start_row": start_row, "end_row": end_row})
+            
+            # カラム名を取得
+            columns = [desc[0] for desc in cursor.description if desc[0] != 'RN']
+            
+            # データを取得
+            rows = []
+            for row in cursor.fetchall():
+                # 最後のRN列を除外
+                row_data = []
+                for i, value in enumerate(row[:-1]):  # RN列を除く
+                    # データ型に応じて変換
+                    if value is None:
+                        row_data.append(None)
+                    elif isinstance(value, (int, float)):
+                        row_data.append(value)
+                    elif isinstance(value, datetime):
+                        row_data.append(value.isoformat())
+                    elif isinstance(value, bytes):
+                        # BLOBデータは最初の100文字のみASCIIで表示
+                        try:
+                            ascii_repr = value[:100].decode('ascii', errors='ignore')
+                            if len(value) > 100:
+                                row_data.append(f"{ascii_repr}...")
+                            else:
+                                row_data.append(ascii_repr if ascii_repr else f"<BLOB: {len(value)} bytes>")
+                        except:
+                            row_data.append(f"<BLOB: {len(value)} bytes>")
+                    elif hasattr(value, 'read'):
+                        # LOBオブジェクト（CLOB, BLOB等）
+                        try:
+                            lob_data = value.read()
+                            if isinstance(lob_data, bytes):
+                                row_data.append(f"<LOB: {len(lob_data)} bytes>")
+                            else:
+                                # CLOBの場合、最初の100文字のみ表示
+                                lob_str = str(lob_data)
+                                if len(lob_str) > 100:
+                                    row_data.append(lob_str[:100] + "...")
+                                else:
+                                    row_data.append(lob_str)
+                        except Exception as lob_err:
+                            row_data.append(f"<LOB: 読み取りエラー>")
+                            logger.warning(f"LOB読み取りエラー: {lob_err}")
+                    else:
+                        # その他の型は文字列に変換
+                        try:
+                            str_value = str(value)
+                            # 長すぎる文字列は切り詰め
+                            if len(str_value) > 1000:
+                                row_data.append(str_value[:1000] + "...")
+                            else:
+                                row_data.append(str_value)
+                        except Exception as str_err:
+                            row_data.append(f"<変換エラー: {type(value).__name__}>")
+                            logger.warning(f"文字列変換エラー: {str_err}")
+                rows.append(row_data)
+            
+            cursor.close()
+            self._release_connection(connection)
+            
+            return {
+                "success": True,
+                "rows": rows,
+                "columns": columns,
+                "total": total,
+                "message": "データ取得成功"
+            }
+        
+        except Exception as e:
+            logger.error(f"テーブルデータ取得エラー: {e}")
+            if connection:
+                self._release_connection(connection)
+            return {"success": False, "rows": [], "columns": [], "total": 0, "message": str(e)}
     
     def delete_tables(self, table_names: list) -> Dict[str, Any]:
         """テーブルを一括削除"""

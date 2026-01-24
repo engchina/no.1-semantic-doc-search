@@ -29,6 +29,14 @@ let selectedDbTables = [];              // 選択されたテーブル名の配�
 let dbTablesBatchDeleteLoading = false; // 削除処理中フラグ
 let currentPageDbTables = [];           // 現在ページのテーブル一覧（チェック用）
 
+// テーブルデータプレビュー状態
+let selectedTableForPreview = null;     // プレビュー中のテーブル名
+let tableDataPage = 1;                  // データプレビューのページ
+let tableDataPageSize = 20;             // データプレビューのページサイズ
+let tableDataTotalPages = 1;            // データプレビューの総ページ数
+let selectedTableDataRows = [];         // 選択されたデータ行のindex配列
+let currentPageTableDataRows = [];      // 現在ページのデータ行数
+
 // ========================================
 // ユーティリティ関数
 // ========================================
@@ -2545,13 +2553,16 @@ async function loadDbTables() {
     // 総ページ数を保存
     dbTablesTotalPages = data.total_pages || 1;
     
+    // '$'を含むテーブルをフィルタリング（バックエンドでも処理済みだが、念のため）
+    const filteredTables = (data.tables || []).filter(t => !t.table_name.includes('$'));
+    
     // 現在ページのテーブル一覧を保存（チェック用）
-    currentPageDbTables = data.tables ? data.tables.map(t => t.table_name) : [];
+    currentPageDbTables = filteredTables.map(t => t.table_name);
     
     const tablesDiv = document.getElementById('dbTablesContent');
     const statusBadge = document.getElementById('dbTablesStatusBadge');
     
-    if (!data.tables || data.tables.length === 0) {
+    if (!filteredTables || filteredTables.length === 0) {
       currentPageDbTables = [];
       tablesDiv.innerHTML = `
         <div style="text-align: center; padding: 40px; color: #64748b;">
@@ -2620,12 +2631,17 @@ async function loadDbTables() {
                 <th>作成日時</th>
                 <th>最終更新</th>
                 <th>コメント</th>
+                <th style="width: 100px;">操作</th>
               </tr>
             </thead>
             <tbody>
-              ${data.tables.map(table => `
+              ${filteredTables.map(table => {
+                const isSelected = selectedTableForPreview === table.table_name;
+                // テーブル名をJavaScript文字列としてエスケープ（シングルクォート対応）
+                const escapedTableName = table.table_name.replace(/'/g, "\\'");
+                return `
                 <tr>
-                  <td><input type="checkbox" onchange="toggleDbTableSelection('${table.table_name}')" ${selectedDbTables.includes(table.table_name) ? 'checked' : ''} class="w-4 h-4 rounded" ${dbTablesBatchDeleteLoading ? 'disabled' : ''}></td>
+                  <td><input type="checkbox" onchange="toggleDbTableSelection('${escapedTableName}')" ${selectedDbTables.includes(table.table_name) ? 'checked' : ''} class="w-4 h-4 rounded" ${dbTablesBatchDeleteLoading ? 'disabled' : ''}></td>
                   <td style="font-weight: 500; font-family: monospace;">${table.table_name}</td>
                   <td>${table.num_rows !== null ? table.num_rows.toLocaleString() : '-'}</td>
                   <td>${table.created ? formatDateTime(table.created) : '-'}</td>
@@ -2633,8 +2649,16 @@ async function loadDbTables() {
                   <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                     ${table.comments || '-'}
                   </td>
+                  <td>
+                    <button 
+                      onclick="toggleTablePreview('${escapedTableName}')" 
+                      class="px-2 py-1 text-xs rounded ${isSelected ? 'bg-blue-500 text-white' : 'border border-blue-300 text-blue-600 hover:bg-blue-50'}" 
+                      ${dbTablesBatchDeleteLoading ? 'disabled' : ''}>
+                      ${isSelected ? '選択中' : '選択'}
+                    </button>
+                  </td>
                 </tr>
-              `).join('')}
+              `}).join('')}
             </tbody>
           </table>
         </div>
@@ -2644,6 +2668,341 @@ async function loadDbTables() {
   } catch (error) {
     hideLoading();
     showToast(`テーブル一覧取得エラー: ${error.message}`, 'error');
+  }
+}
+
+// テーブルプレビューのトグル
+async function toggleTablePreview(tableName) {
+  // スクロール位置を保存
+  const scrollableArea = document.querySelector('#dbTablesContent .table-wrapper-scrollable');
+  const scrollTop = scrollableArea ? scrollableArea.scrollTop : 0;
+  
+  if (selectedTableForPreview === tableName) {
+    // 選択解除
+    selectedTableForPreview = null;
+    hideTablePreview();
+    await loadDbTables();  // テーブル一覧を更新してボタン表示を切り替え
+  } else {
+    // 新しいテーブルを選択
+    selectedTableForPreview = tableName;
+    tableDataPage = 1;  // ページをリセット
+    await loadDbTables();  // テーブル一覧を更新してボタン表示を切り替え
+    await loadTableData(tableName);
+  }
+  
+  // スクロール位置を復元
+  const scrollableAreaAfter = document.querySelector('#dbTablesContent .table-wrapper-scrollable');
+  if (scrollableAreaAfter) {
+    requestAnimationFrame(() => {
+      scrollableAreaAfter.scrollTop = scrollTop;
+    });
+  }
+}
+
+// テーブルデータを読み込む
+async function loadTableData(tableName) {
+  try {
+    showLoading(`テーブル ${tableName} のデータを読み込み中...`);
+    
+    const data = await apiCall(`/api/database/tables/${encodeURIComponent(tableName)}/data?page=${tableDataPage}&page_size=${tableDataPageSize}`);
+    
+    hideLoading();
+    
+    if (!data.success) {
+      // エラーメッセージを明確に表示
+      showToast(data.message || 'データ取得に失敗しました', 'error');
+      showTablePreview(tableName, [], [], 0, data);
+      return;
+    }
+    
+    if (!data.rows || data.rows.length === 0) {
+      // データが空の場合
+      showTablePreview(tableName, [], [], 0, data);
+      return;
+    }
+    
+    tableDataTotalPages = data.total_pages || 1;
+    
+    showTablePreview(tableName, data.columns, data.rows, data.total, data);
+    
+  } catch (error) {
+    hideLoading();
+    showToast(`データ取得エラー: ${error.message}`, 'error');
+    // エラー時もプレビューを非表示にする
+    hideTablePreview();
+    selectedTableForPreview = null;
+    await loadDbTables();
+  }
+}
+
+// HTMLエスケープ関数
+function escapeHtml(text) {
+  if (text === null || text === undefined) return '-';
+  
+  let str = String(text);
+  
+  // BLOB/LOBデータの判定：配列形式、BLOBタグ、LOBタグ、または500文字以上の長いデータ
+  const isBlobLike = str.startsWith('array([') || 
+                     str.startsWith('array("[') ||
+                     str.startsWith('<BLOB:') || 
+                     str.startsWith('<LOB:') ||
+                     str.length > 500;
+  
+  if (isBlobLike) {
+    // BLOB/LOB類データは100文字に制限
+    if (str.length > 100) {
+      str = str.substring(0, 100) + '...';
+    }
+  }
+  
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// テーブルプレビューを表示
+function showTablePreview(tableName, columns, rows, total, paginationData) {
+  let previewDiv = document.getElementById('tableDataPreview');
+  
+  if (!previewDiv) {
+    console.error('tableDataPreview element not found');
+    return;
+  }
+  
+  // プレビューDivを表示
+  previewDiv.style.display = 'block';
+  
+  if (rows.length === 0) {
+    previewDiv.innerHTML = `
+      <div class="apex-region-header">
+        📋 ${escapeHtml(tableName)} - データプレビュー
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button class="apex-button-secondary apex-button-xs" onclick="refreshTableData()">
+            🔄 更新
+          </button>
+          <span class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">
+            0件
+          </span>
+        </div>
+      </div>
+      <div style="padding: 24px;">
+        <div style="text-align: center; padding: 40px; color: #64748b;">
+          <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
+          <div style="font-size: 16px; font-weight: 500;">データがありません</div>
+          <div style="font-size: 14px; margin-top: 8px;">テーブル ${escapeHtml(tableName)} にデータがありません</div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+  
+  // paginationDataのnullチェックとデフォルト値設定
+  const safePageData = paginationData || {
+    current_page: 1,
+    total_pages: 1,
+    total: total,
+    start_row: 1,
+    end_row: rows.length
+  };
+  
+  // 現在ページの行数を記録
+  currentPageTableDataRows = rows.map((_, index) => index);
+  
+  // ヘッダーチェックボックスの状態を判定
+  const allPageSelected = currentPageTableDataRows.length > 0 && 
+                          currentPageTableDataRows.every(i => selectedTableDataRows.includes(i));
+  
+  // 選択操作ボタンHTML（テーブル一覧と同じスタイル）
+  const selectionButtonsHtml = `
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex gap-2">
+        <button onclick="selectAllTableData()" class="px-2 py-1 border rounded text-xs hover:bg-gray-100">すべて選択</button>
+        <button onclick="clearAllTableData()" class="px-2 py-1 border rounded text-xs hover:bg-gray-100">すべて解除</button>
+        <button onclick="deleteSelectedTableData()" class="px-2 py-1 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50 ${selectedTableDataRows.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}" ${selectedTableDataRows.length === 0 ? 'disabled' : ''}>
+          削除 (${selectedTableDataRows.length})
+        </button>
+      </div>
+    </div>
+  `;
+  
+  // ページネーションUI生成
+  const paginationHtml = UIComponents.renderPagination({
+    currentPage: safePageData.current_page,
+    totalPages: safePageData.total_pages,
+    totalItems: safePageData.total,
+    startNum: safePageData.start_row,
+    endNum: safePageData.end_row,
+    onPrevClick: 'handleTableDataPrevPage()',
+    onNextClick: 'handleTableDataNextPage()',
+    onJumpClick: 'handleTableDataJumpPage',
+    inputId: 'tableDataPageInput'
+  });
+  
+  previewDiv.innerHTML = `
+    <div class="apex-region-header">
+      📋 ${escapeHtml(tableName)} - データプレビュー
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button class="apex-button-secondary apex-button-xs" onclick="refreshTableData()">
+          🔄 更新
+        </button>
+        <span class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #dcfce7; color: #166534;">
+          ${total}件
+        </span>
+      </div>
+    </div>
+    <div style="padding: 24px;">
+      ${selectionButtonsHtml}
+      ${paginationHtml}
+      <div class="table-wrapper-scrollable">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 40px;"><input type="checkbox" id="tableDataHeaderCheckbox" onchange="toggleSelectAllTableData(this.checked)" ${allPageSelected ? 'checked' : ''} class="w-4 h-4 rounded"></th>
+              ${columns.map(col => `<th>${escapeHtml(col)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row, index) => `
+              <tr>
+                <td><input type="checkbox" onchange="toggleTableDataRowSelection(${index})" ${selectedTableDataRows.includes(index) ? 'checked' : ''} class="w-4 h-4 rounded"></td>
+                ${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// テーブルプレビューを非表示
+function hideTablePreview() {
+  const previewDiv = document.getElementById('tableDataPreview');
+  if (previewDiv) {
+    previewDiv.style.display = 'none';
+    previewDiv.innerHTML = '';  // 内容もクリア
+  }
+  // 選択状態をクリア
+  selectedTableDataRows = [];
+  currentPageTableDataRows = [];
+}
+
+// テーブルデータを更新
+async function refreshTableData() {
+  if (selectedTableForPreview) {
+    tableDataPage = 1;
+    await loadTableData(selectedTableForPreview);
+  }
+}
+
+// テーブルデータページング - 前のページへ
+function handleTableDataPrevPage() {
+  if (tableDataPage > 1 && selectedTableForPreview) {
+    tableDataPage--;
+    loadTableData(selectedTableForPreview);
+  }
+}
+
+// テーブルデータページング - 次のページへ
+function handleTableDataNextPage() {
+  if (tableDataPage < tableDataTotalPages && selectedTableForPreview) {
+    tableDataPage++;
+    loadTableData(selectedTableForPreview);
+  }
+}
+
+// テーブルデータページング - ページジャンプ
+function handleTableDataJumpPage() {
+  const input = document.getElementById('tableDataPageInput');
+  if (!input) {
+    showToast('ページ入力エラー', 'error');
+    return;
+  }
+  
+  const page = parseInt(input.value, 10);
+  
+  // NaNチェックを追加
+  if (isNaN(page)) {
+    showToast('有効な数値を入力してください', 'error');
+    input.value = tableDataPage;
+    return;
+  }
+  
+  if (page >= 1 && page <= tableDataTotalPages && selectedTableForPreview) {
+    tableDataPage = page;
+    loadTableData(selectedTableForPreview);
+  } else {
+    showToast('無効なページ番号です', 'error');
+    input.value = tableDataPage;
+  }
+}
+
+// プレースホルダー関数（将来の機能拡張用）
+function selectAllTableData() {
+  toggleSelectAllTableData(true);
+  // ヘッダーチェックボックスを更新
+  const headerCheckbox = document.getElementById('tableDataHeaderCheckbox');
+  if (headerCheckbox) headerCheckbox.checked = true;
+}
+
+function clearAllTableData() {
+  selectedTableDataRows = [];
+  // ヘッダーチェックボックスを更新
+  const headerCheckbox = document.getElementById('tableDataHeaderCheckbox');
+  if (headerCheckbox) headerCheckbox.checked = false;
+  
+  // UIを更新
+  if (selectedTableForPreview) {
+    loadTableData(selectedTableForPreview);
+  }
+}
+
+function deleteSelectedTableData() {
+  if (selectedTableDataRows.length === 0) {
+    showToast('削除するデータを選択してください', 'warning');
+    return;
+  }
+  
+  showToast('この機能はまだ実装されていません', 'info');
+}
+
+// テーブルデータ - 個別チェックボックス切り替え
+function toggleTableDataRowSelection(rowIndex) {
+  const index = selectedTableDataRows.indexOf(rowIndex);
+  if (index > -1) {
+    selectedTableDataRows.splice(index, 1);
+  } else {
+    selectedTableDataRows.push(rowIndex);
+  }
+  
+  // UIを更新
+  if (selectedTableForPreview) {
+    loadTableData(selectedTableForPreview);
+  }
+}
+
+// テーブルデータ - ヘッダーチェックボックス切り替え（現在ページ全選択/解除）
+function toggleSelectAllTableData(checked) {
+  if (checked) {
+    // 現在ページのすべてを選択に追加
+    currentPageTableDataRows.forEach(rowIndex => {
+      if (!selectedTableDataRows.includes(rowIndex)) {
+        selectedTableDataRows.push(rowIndex);
+      }
+    });
+  } else {
+    // 現在ページのすべてを選択から除外
+    currentPageTableDataRows.forEach(rowIndex => {
+      const index = selectedTableDataRows.indexOf(rowIndex);
+      if (index > -1) {
+        selectedTableDataRows.splice(index, 1);
+      }
+    });
+  }
+  
+  // UIを更新
+  if (selectedTableForPreview) {
+    loadTableData(selectedTableForPreview);
   }
 }
 
@@ -2666,7 +3025,20 @@ function handleDbTablesNextPage() {
 // テーブル一覧ページング - ページジャンプ
 function handleDbTablesJumpPage() {
   const input = document.getElementById('dbTablesPageInput');
+  if (!input) {
+    showToast('ページ入力エラー', 'error');
+    return;
+  }
+  
   const page = parseInt(input.value, 10);
+  
+  // NaNチェックを追加
+  if (isNaN(page)) {
+    showToast('有効な数値を入力してください', 'error');
+    input.value = dbTablesPage;
+    return;
+  }
+  
   if (page >= 1 && page <= dbTablesTotalPages) {
     dbTablesPage = page;
     loadDbTables();
@@ -4005,6 +4377,18 @@ window.toggleSelectAllDbTables = toggleSelectAllDbTables;
 window.selectAllDbTables = selectAllDbTables;
 window.clearAllDbTables = clearAllDbTables;
 window.deleteSelectedDbTables = deleteSelectedDbTables;
+
+// テーブルプレビュー関連関数をグローバルスコープに公開
+window.toggleTablePreview = toggleTablePreview;
+window.loadTableData = loadTableData;
+window.refreshTableData = refreshTableData;
+window.handleTableDataPrevPage = handleTableDataPrevPage;
+window.handleTableDataNextPage = handleTableDataNextPage;
+window.handleTableDataJumpPage = handleTableDataJumpPage;
+window.selectAllTableData = selectAllTableData;
+window.clearAllTableData = clearAllTableData;
+window.deleteSelectedTableData = deleteSelectedTableData;
+window.escapeHtml = escapeHtml;
 
 // ========================================
 // 確認モーダル機能

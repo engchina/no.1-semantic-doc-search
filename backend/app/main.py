@@ -1318,6 +1318,58 @@ async def delete_database_tables(request: dict):
             message=str(e)
         )
 
+@app.get("/api/database/tables/{table_name}/data", response_model=None)
+async def get_table_data(
+    table_name: str,
+    page: int = Query(1, ge=1, description="ページ番号"),
+    page_size: int = Query(20, ge=1, le=100, description="1ページあたりの件数")
+):
+    """テーブルデータを取得（ページング対応）"""
+    from app.models.database import TableDataResponse
+    import math
+    try:
+        result = database_service.get_table_data(table_name=table_name, page=page, page_size=page_size)
+        
+        if not result.get("success", False):
+            return TableDataResponse(
+                success=False,
+                rows=[],
+                columns=[],
+                total=0,
+                message=result.get("message", "データ取得に失敗しました")
+            )
+        
+        total = result.get("total", 0)
+        rows = result.get("rows", [])
+        columns = result.get("columns", [])
+        
+        # ページング計算
+        total_pages = max(1, math.ceil(total / page_size)) if total > 0 else 1
+        start_row = (page - 1) * page_size + 1 if total > 0 else 0
+        end_row = min(page * page_size, total) if total > 0 else 0
+        
+        return TableDataResponse(
+            success=True,
+            rows=rows,
+            columns=columns,
+            total=total,
+            message=result.get("message", ""),
+            current_page=page,
+            total_pages=total_pages,
+            page_size=page_size,
+            start_row=start_row,
+            end_row=end_row
+        )
+    except Exception as e:
+        logger.error(f"テーブルデータ取得エラー: {e}")
+        return TableDataResponse(
+            success=False,
+            rows=[],
+            columns=[],
+            total=0,
+            message=str(e)
+        )
+
 @app.get("/api/database/storage", response_model=DatabaseStorageResponse)
 async def get_database_storage():
     """データベースストレージ情報を取得"""

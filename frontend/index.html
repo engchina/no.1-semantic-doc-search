@@ -643,7 +643,7 @@
       </div>
 
       <!-- テーブル一覧 -->
-      <div class="apex-region">
+      <div class="apex-region" style="margin-bottom: 20px;">
         <div class="apex-region-header">
           📋 テーブル一覧
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -676,10 +676,11 @@
             </div>
           </div>
         </div>
-        </div>
       </div>
+
+      <!-- テーブルデータプレビューエリア -->
+      <div id="tableDataPreview" class="apex-region" style="display: none;"></div>
     </div>
-  </div>
 
   <!-- Toast Container -->
   <div id="toastContainer" class="toast-container"></div>
@@ -809,9 +810,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Toast通知コンテナ -->
-  <div id="toastContainer" class="toast-container"></div>
 
   <!-- 確認モーダル -->
   <div id="confirmModal" class="confirm-modal" style="display: none;">

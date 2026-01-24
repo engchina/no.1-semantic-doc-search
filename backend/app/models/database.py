@@ -114,3 +114,18 @@ class TableBatchDeleteResponse(BaseModel):
     deleted_count: int = 0
     message: Optional[str] = None
     errors: List[str] = []
+
+
+class TableDataResponse(BaseModel):
+    """テーブルデータ取得レスポンス"""
+    success: bool
+    rows: List[List[Any]] = []
+    columns: List[str] = []
+    total: int = 0
+    message: Optional[str] = None
+    # ページネーション情報
+    current_page: int = 1
+    total_pages: int = 1
+    page_size: int = 20
+    start_row: int = 0
+    end_row: int = 0
