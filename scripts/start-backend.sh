@@ -8,8 +8,22 @@
 
 set -Eeuo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../" && pwd)"
 cd "$ROOT_DIR"
+
+# .envファイルから環境変数を読み込み
+if [ -f "$ROOT_DIR/.env" ]; then
+  export $(grep -v '^#' "$ROOT_DIR/.env" | xargs)
+fi
+
+# Oracle Client環境変数を設定
+if [ -n "${ORACLE_CLIENT_LIB_DIR:-}" ]; then
+  export TNS_ADMIN="${ORACLE_CLIENT_LIB_DIR}/network/admin"
+  export LD_LIBRARY_PATH="${ORACLE_CLIENT_LIB_DIR}:${LD_LIBRARY_PATH:-}"
+  echo "[バックエンド] Oracle Client設定:"
+  echo "  ORACLE_CLIENT_LIB_DIR: ${ORACLE_CLIENT_LIB_DIR}"
+  echo "  TNS_ADMIN: ${TNS_ADMIN}"
+fi
 
 PORT="${BACKEND_PORT:-8081}"
 

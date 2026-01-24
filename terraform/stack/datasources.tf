@@ -4,7 +4,7 @@ data "template_file" "cloud_init_file" {
   vars = {
     comp_id    = var.compartment_ocid
     bucket     = var.oci_bucket_name    
-    db_conn    = base64gzip("oml_user/${var.adb_password}@${lower(var.adb_name)}_high")
+    db_conn    = base64gzip("admin/${var.adb_password}@${lower(var.adb_name)}_high")
     db_pass    = var.adb_password
     db_dsn     = "${lower(var.adb_name)}_high"
     adb_name   = var.adb_name
