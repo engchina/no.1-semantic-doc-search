@@ -198,9 +198,21 @@ class ImageVectorizer:
     
     def generate_embedding(self, image_data: io.BytesIO, content_type: str = "image/png") -> Optional[np.ndarray]:
         """画像からembeddingベクトルを生成"""
+        # GenAIクライアントが初期化されていない場合、リトライして初期化を試みる
         if not self.genai_client:
-            logger.error("OCI Generative AIクライアントが初期化されていません")
-            return None
+            max_init_retries = 3
+            for retry in range(1, max_init_retries + 1):
+                logger.warning(f"OCI Generative AIクライアントが初期化されていません。再初期化を試みます（{retry}/{max_init_retries}回目）")
+                self._initialize_genai_only()
+                if self.genai_client:
+                    logger.info(f"OCI Generative AIクライアント再初期化成功（{retry}回目）")
+                    break
+                if retry < max_init_retries:
+                    time.sleep(1)  # 1秒待機してリトライ
+            
+            if not self.genai_client:
+                logger.error(f"OCI Generative AIクライアントの初期化に失敗しました（{max_init_retries}回リトライ）")
+                return None
         
         try:
             # 画像をbase64エンコード
@@ -250,9 +262,21 @@ class ImageVectorizer:
     
     def generate_text_embedding(self, text: str) -> Optional[np.ndarray]:
         """テキストからembeddingベクトルを生成（検索クエリ用）"""
+        # GenAIクライアントが初期化されていない場合、リトライして初期化を試みる
         if not self.genai_client:
-            logger.error("OCI Generative AIクライアントが初期化されていません")
-            return None
+            max_init_retries = 3
+            for retry in range(1, max_init_retries + 1):
+                logger.warning(f"OCI Generative AIクライアントが初期化されていません。再初期化を試みます（{retry}/{max_init_retries}回目）")
+                self._initialize_genai_only()
+                if self.genai_client:
+                    logger.info(f"OCI Generative AIクライアント再初期化成功（{retry}回目）")
+                    break
+                if retry < max_init_retries:
+                    time.sleep(1)  # 1秒待機してリトライ
+            
+            if not self.genai_client:
+                logger.error(f"OCI Generative AIクライアントの初期化に失敗しました（{max_init_retries}回リトライ）")
+                return None
         
         try:
             # Embedding生成リクエストを作成

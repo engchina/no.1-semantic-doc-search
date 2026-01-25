@@ -205,50 +205,71 @@ class AICopilotService:
         """
         logger.info("_oci_generate_text_with_images_streaming_sync開始")
         
-        config = None
-        signer = None
-        try:
-            config = oci.config.from_file(self.oci_config_file, self.oci_config_profile)
-            logger.info("OCI config読み込み成功")
-        except Exception as e:
-            logger.warning(f"OCI config読み込み失敗: {e}")
-            config = None
-
-        if config is None:
-            try:
-                signer = oci.auth.signers.get_resource_principals_signer()
-                logger.info("Resource Principal Signer取得成功")
-            except Exception as e:
-                logger.warning(f"Resource Principal Signer取得失敗: {e}")
-                signer = None
-            if signer is None:
-                try:
-                    signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
-                    logger.info("Instance Principal Signer取得成功")
-                except Exception as e:
-                    logger.warning(f"Instance Principal Signer取得失敗: {e}")
-                    signer = None
-
-        endpoint = f"https://inference.generativeai.{self.region}.oci.oraclecloud.com"
-        logger.info(f"エンドポイント: {endpoint}")
+        # クライアント作成を最大3回リトライ
+        max_init_retries = 3
+        client = None
         
-        if config is not None:
-            client = oci.generative_ai_inference.GenerativeAiInferenceClient(
-                config=config,
-                service_endpoint=endpoint,
-                retry_strategy=oci.retry.NoneRetryStrategy(),
-                timeout=(10, 240),
-            )
-            logger.info("Client作成成功 (config使用)")
-        else:
-            client = oci.generative_ai_inference.GenerativeAiInferenceClient(
-                config={},
-                signer=signer,
-                service_endpoint=endpoint,
-                retry_strategy=oci.retry.NoneRetryStrategy(),
-                timeout=(10, 240),
-            )
-            logger.info("Client作成成功 (signer使用)")
+        for retry in range(1, max_init_retries + 1):
+            try:
+                config = None
+                signer = None
+                try:
+                    config = oci.config.from_file(self.oci_config_file, self.oci_config_profile)
+                    logger.info("OCI config読み込み成功")
+                except Exception as e:
+                    logger.warning(f"OCI config読み込み失敗: {e}")
+                    config = None
+
+                if config is None:
+                    try:
+                        signer = oci.auth.signers.get_resource_principals_signer()
+                        logger.info("Resource Principal Signer取得成功")
+                    except Exception as e:
+                        logger.warning(f"Resource Principal Signer取得失敗: {e}")
+                        signer = None
+                    if signer is None:
+                        try:
+                            signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+                            logger.info("Instance Principal Signer取得成功")
+                        except Exception as e:
+                            logger.warning(f"Instance Principal Signer取得失敗: {e}")
+                            signer = None
+
+                endpoint = f"https://inference.generativeai.{self.region}.oci.oraclecloud.com"
+                logger.info(f"エンドポイント: {endpoint}")
+                
+                if config is not None:
+                    client = oci.generative_ai_inference.GenerativeAiInferenceClient(
+                        config=config,
+                        service_endpoint=endpoint,
+                        retry_strategy=oci.retry.NoneRetryStrategy(),
+                        timeout=(10, 240),
+                    )
+                    logger.info(f"Client作成成功 (config使用) - {retry}回目")
+                else:
+                    client = oci.generative_ai_inference.GenerativeAiInferenceClient(
+                        config={},
+                        signer=signer,
+                        service_endpoint=endpoint,
+                        retry_strategy=oci.retry.NoneRetryStrategy(),
+                        timeout=(10, 240),
+                    )
+                    logger.info(f"Client作成成功 (signer使用) - {retry}回目")
+                
+                # クライアント作成成功
+                break
+                
+            except Exception as e:
+                logger.warning(f"OCI Generative AIクライアント作成失敗（{retry}/{max_init_retries}回目）: {e}")
+                if retry < max_init_retries:
+                    import time
+                    time.sleep(1)  # 1秒待機してリトライ
+                else:
+                    logger.error(f"OCI Generative AIクライアント作成に失敗しました（{max_init_retries}回リトライ）")
+                    raise Exception("OCI Generative AIクライアントの初期化に失敗しました") from e
+        
+        if client is None:
+            raise Exception("OCI Generative AIクライアントの作成に失敗しました")
 
         contents: List[Any] = [oci.generative_ai_inference.models.TextContent(text=prompt)]
         valid_image_count = 0
@@ -306,40 +327,63 @@ class AICopilotService:
         return await asyncio.to_thread(self._oci_generate_text_with_images_sync, prompt, images)
 
     def _oci_generate_text_with_images_sync(self, prompt: str, images: List[Dict[str, Any]]) -> str:
-        config = None
-        signer = None
-        try:
-            config = oci.config.from_file(self.oci_config_file, self.oci_config_profile)
-        except Exception:
-            config = None
-
-        if config is None:
+        # クライアント作成を最大3回リトライ
+        max_init_retries = 3
+        client = None
+        
+        for retry in range(1, max_init_retries + 1):
             try:
-                signer = oci.auth.signers.get_resource_principals_signer()
-            except Exception:
+                config = None
                 signer = None
-            if signer is None:
                 try:
-                    signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+                    config = oci.config.from_file(self.oci_config_file, self.oci_config_profile)
                 except Exception:
-                    signer = None
+                    config = None
 
-        endpoint = f"https://inference.generativeai.{self.region}.oci.oraclecloud.com"
-        if config is not None:
-            client = oci.generative_ai_inference.GenerativeAiInferenceClient(
-                config=config,
-                service_endpoint=endpoint,
-                retry_strategy=oci.retry.NoneRetryStrategy(),
-                timeout=(10, 240),
-            )
-        else:
-            client = oci.generative_ai_inference.GenerativeAiInferenceClient(
-                config={},
-                signer=signer,
-                service_endpoint=endpoint,
-                retry_strategy=oci.retry.NoneRetryStrategy(),
-                timeout=(10, 240),
-            )
+                if config is None:
+                    try:
+                        signer = oci.auth.signers.get_resource_principals_signer()
+                    except Exception:
+                        signer = None
+                    if signer is None:
+                        try:
+                            signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+                        except Exception:
+                            signer = None
+
+                endpoint = f"https://inference.generativeai.{self.region}.oci.oraclecloud.com"
+                if config is not None:
+                    client = oci.generative_ai_inference.GenerativeAiInferenceClient(
+                        config=config,
+                        service_endpoint=endpoint,
+                        retry_strategy=oci.retry.NoneRetryStrategy(),
+                        timeout=(10, 240),
+                    )
+                    logger.info(f"Client作成成功 (config使用) - {retry}回目")
+                else:
+                    client = oci.generative_ai_inference.GenerativeAiInferenceClient(
+                        config={},
+                        signer=signer,
+                        service_endpoint=endpoint,
+                        retry_strategy=oci.retry.NoneRetryStrategy(),
+                        timeout=(10, 240),
+                    )
+                    logger.info(f"Client作成成功 (signer使用) - {retry}回目")
+                
+                # クライアント作成成功
+                break
+                
+            except Exception as e:
+                logger.warning(f"OCI Generative AIクライアント作成失敗（{retry}/{max_init_retries}回目）: {e}")
+                if retry < max_init_retries:
+                    import time
+                    time.sleep(1)  # 1秒待機してリトライ
+                else:
+                    logger.error(f"OCI Generative AIクライアント作成に失敗しました（{max_init_retries}回リトライ）")
+                    raise Exception("OCI Generative AIクライアントの初期化に失敗しました") from e
+        
+        if client is None:
+            raise Exception("OCI Generative AIクライアントの作成に失敗しました")
 
         contents: List[Any] = [oci.generative_ai_inference.models.TextContent(text=prompt)]
         valid_image_count = 0

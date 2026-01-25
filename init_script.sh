@@ -55,9 +55,15 @@ retry_command apt-get install -y \
     ca-certificates \
     gnupg \
     nginx \
+    libreoffice \
     fonts-ipafont-gothic \
     fonts-ipafont-mincho \
-    fonts-noto-cjk
+    fonts-noto-cjk \
+    fonts-noto-cjk-extra \
+    fonts-ipafont \
+    fonts-takao \
+    fonts-wqy-microhei \
+    fonts-wqy-zenhei
 
 # Install Node.js
 echo "Node.js $NODE_VERSION LTS をインストール中..."
