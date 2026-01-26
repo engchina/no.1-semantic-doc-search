@@ -48,13 +48,15 @@ export async function loadOciObjects() {
     const ociObjectsPrefix = appState.get('ociObjectsPrefix');
     const ociObjectsFilterPageImages = appState.get('ociObjectsFilterPageImages');
     const ociObjectsFilterEmbeddings = appState.get('ociObjectsFilterEmbeddings');
+    const ociObjectsDisplayType = appState.get('ociObjectsDisplayType');
     
     const params = new URLSearchParams({
       prefix: ociObjectsPrefix,
       page: ociObjectsPage.toString(),
       page_size: ociObjectsPageSize.toString(),
       filter_page_images: ociObjectsFilterPageImages,
-      filter_embeddings: ociObjectsFilterEmbeddings
+      filter_embeddings: ociObjectsFilterEmbeddings,
+      display_type: ociObjectsDisplayType
     });
     
     const data = await apiCall(`/api/oci/objects?${params}`);
@@ -108,6 +110,7 @@ export function displayOciObjectsList(data) {
   const ociObjectsBatchDeleteLoading = appState.get('ociObjectsBatchDeleteLoading');
   const ociObjectsFilterPageImages = appState.get('ociObjectsFilterPageImages');
   const ociObjectsFilterEmbeddings = appState.get('ociObjectsFilterEmbeddings');
+  const ociObjectsDisplayType = appState.get('ociObjectsDisplayType');
   
   // デバッグログ
   console.log('========== displayOciObjectsList ==========');
@@ -121,6 +124,24 @@ export function displayOciObjectsList(data) {
   // フィルターUI
   const filterHtml = `
     <div class="flex items-center gap-4 mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-medium text-gray-600">📁 表示タイプ:</span>
+        <div class="flex gap-1">
+          <button 
+            onclick="window.ociModule.setDisplayType('files_only')" 
+            class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsDisplayType === 'files_only' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
+          >
+            ファイルのみ
+          </button>
+          <button 
+            onclick="window.ociModule.setDisplayType('files_and_images')" 
+            class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsDisplayType === 'files_and_images' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
+          >
+            ファイル+ページ画像
+          </button>
+        </div>
+      </div>
+      <div class="w-px h-6 bg-gray-300"></div>
       <div class="flex items-center gap-2">
         <span class="text-xs font-medium text-gray-600">🖼️ ページ画像化:</span>
         <div class="flex gap-1">
@@ -506,6 +527,16 @@ export function setOciObjectsFilterEmbeddings(filter) {
 export function clearOciObjectsFilters() {
   appState.set('ociObjectsFilterPageImages', 'all');
   appState.set('ociObjectsFilterEmbeddings', 'all');
+  appState.set('ociObjectsPage', 1);
+  loadOciObjects();
+}
+
+/**
+ * 表示タイプフィルターを設定
+ * @param {string} displayType - 表示タイプ ('files_only' | 'files_and_images')
+ */
+export function setOciObjectsDisplayType(displayType) {
+  appState.set('ociObjectsDisplayType', displayType);
   appState.set('ociObjectsPage', 1);
   loadOciObjects();
 }
@@ -998,6 +1029,7 @@ window.ociModule = {
   setFilterPageImages: setOciObjectsFilterPageImages,
   setFilterEmbeddings: setOciObjectsFilterEmbeddings,
   clearFilters: clearOciObjectsFilters,
+  setDisplayType: setOciObjectsDisplayType,
   downloadSelected: downloadSelectedOciObjects,
   convertToImages: convertSelectedOciObjectsToImages,
   vectorizeSelected: vectorizeSelectedOciObjects,
@@ -1019,6 +1051,7 @@ export default {
   setOciObjectsFilterPageImages,
   setOciObjectsFilterEmbeddings,
   clearOciObjectsFilters,
+  setOciObjectsDisplayType,
   downloadSelectedOciObjects,
   convertSelectedOciObjectsToImages,
   vectorizeSelectedOciObjects,

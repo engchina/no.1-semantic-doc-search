@@ -162,6 +162,7 @@ export const appState = new StateManager({
   // フィルター状態
   ociObjectsFilterPageImages: 'all',
   ociObjectsFilterEmbeddings: 'all',
+  ociObjectsDisplayType: 'files_only', // 'files_only' | 'files_and_images'
 });
 
 // ========================================

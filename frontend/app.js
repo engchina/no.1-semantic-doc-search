@@ -54,65 +54,15 @@ let selectedTableDataRows = [];     // -> appState.get('selectedTableDataRows')
 let currentPageTableDataRows = [];  // -> appState.get('currentPageTableDataRows')
 
 // ========================================
-// ユーティリティ関数（モジュールからインポート）
+// ユーティリティ関数（モジュールから直接使用）
 // ========================================
-
-/**
- * APIコールヘルパー（認証トークン付き）
- * @deprecated auth.jsのapiCallを使用してください
- */
-async function apiCall(endpoint, options = {}) {
-  // モジュールの関数に委譲
-  return await authApiCall(endpoint, options);
-}
-
-/**
- * Toastメッセージを表示
- * @deprecated utils.jsのshowToastを使用してください
- */
-function showToast(message, type = 'info', duration = 4000) {
-  return utilsShowToast(message, type, duration);
-}
-
-/**
- * ローディングオーバーレイを表示
- * @deprecated utils.jsのshowLoadingを使用してください
- */
-function showLoading(message = '処理中...') {
-  return utilsShowLoading(message);
-}
-
-/**
- * ローディングオーバーレイを非表示
- * @deprecated utils.jsのhideLoadingを使用してください
- */
-function hideLoading() {
-  return utilsHideLoading();
-}
-
-/**
- * ファイルサイズを人間が読みやすい形式に変換
- * @deprecated utils.jsのformatFileSizeを使用してください
- */
-function formatFileSize(bytes) {
-  return utilsFormatFileSize(bytes);
-}
-
-/**
- * 日時フォーマット
- * @deprecated utils.jsのformatDateTimeを使用してください
- */
-function formatDateTime(isoString) {
-  return utilsFormatDateTime(isoString);
-}
-
-/**
- * 確認モーダルを表示
- * @deprecated utils.jsのshowConfirmModalを使用してください
- */
-function showConfirmModal(message, title = '確認') {
-  return utilsShowConfirmModal(message, title);
-}
+// 注: 非推奨ラッパー関数は削除済み。
+// 以下のインポートを直接使用:
+// - authApiCall: APIコール
+// - utilsShowToast: トースト通知
+// - utilsShowLoading/utilsHideLoading: ローディング
+// - utilsFormatFileSize/utilsFormatDateTime: フォーマット
+// - utilsShowConfirmModal: 確認モーダル
 
 /**
  * 認証トークン付きの画像URLを生成（referenceプロジェクトに準拠）
@@ -201,205 +151,10 @@ async function switchTab(tabName, event) {
 }
 
 // ========================================
-// 検索機能
+// 検索機能（search.jsモジュールを使用）
 // ========================================
-
-async function performSearch() {
-  const query = document.getElementById('searchQuery').value.trim();
-  const topK = parseInt(document.getElementById('topK').value) || 10;
-  const minScore = parseFloat(document.getElementById('minScore').value) || 0.7;
-  
-  if (!query) {
-    utilsShowToast('検索クエリを入力してください', 'warning');
-    return;
-  }
-  
-  try {
-    utilsShowLoading('検索中...');
-    
-    const data = await authApiCall('/api/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, top_k: topK, min_score: minScore })
-    });
-    
-    utilsHideLoading();
-    displaySearchResults(data);
-    
-  } catch (error) {
-    utilsHideLoading();
-    utilsShowToast(`検索エラー: ${error.message}`, 'error');
-  }
-}
-
-function displaySearchResults(data) {
-  const resultsDiv = document.getElementById('searchResults');
-  const summarySpan = document.getElementById('searchResultsSummary');
-  const listDiv = document.getElementById('searchResultsList');
-  
-  if (!data.results || data.results.length === 0) {
-    resultsDiv.style.display = 'block';
-    summarySpan.textContent = '検索結果なし';
-    listDiv.innerHTML = `
-      <div style="text-align: center; padding: 40px; color: #64748b;">
-        <div style="font-size: 48px; margin-bottom: 16px;">🔍</div>
-        <div style="font-size: 16px; font-weight: 500;">検索結果が見つかりませんでした</div>
-        <div style="font-size: 14px; margin-top: 8px;">別のキーワードで検索してみてください</div>
-      </div>
-    `;
-    return;
-  }
-  
-  resultsDiv.style.display = 'block';
-  summarySpan.textContent = `${data.total_files}ファイル (${data.total_images}画像, ${data.processing_time.toFixed(2)}秒)`;
-  
-  // ファイル単位で表示
-  listDiv.innerHTML = data.results.map((fileResult, fileIndex) => {
-    const distancePercent = (1 - fileResult.min_distance) * 100;
-    const originalFilename = fileResult.original_filename || fileResult.object_name.split('/').pop();
-    
-    // ファイル情報カード
-    const fileCardHtml = `
-      <div class="card" style="margin-bottom: 24px; border-left: 4px solid #667eea;">
-        <!-- ファイルヘッダー -->
-        <div class="card-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-            <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-              <span class="badge" style="background: rgba(255,255,255,0.3); color: white; font-size: 14px; padding: 6px 12px;">#${fileIndex + 1}</span>
-              <div>
-                <div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">📄 ${originalFilename}</div>
-                <div style="font-size: 12px; opacity: 0.9;">${fileResult.object_name}</div>
-              </div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <span class="badge" style="background: rgba(255,255,255,0.25); color: white; font-size: 13px; padding: 6px 12px;">
-                マッチ度: ${distancePercent.toFixed(1)}%
-              </span>
-              <span class="badge" style="background: rgba(255,255,255,0.25); color: white; font-size: 13px; padding: 6px 12px;">
-                ${fileResult.matched_images.length}ページ
-              </span>
-              <button 
-                onclick="downloadFile('${fileResult.bucket}', '${encodeURIComponent(fileResult.object_name)}')"
-                class="btn btn-sm"
-                style="background: white; color: #667eea; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;"
-                title="ファイルをダウンロード"
-              >
-                📥 ダウンロード
-              </button>
-            </div>
-          </div>
-        </div>
-        
-        <!-- ページ画像グリッド -->
-        <div class="card-body" style="padding: 20px;">
-          <div style="font-weight: 600; margin-bottom: 12px; color: #334155; font-size: 14px;">
-            🖼️ マッチしたページ画像（距離が小さい順）
-          </div>
-          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px;">
-            ${fileResult.matched_images.map((img, imgIndex) => {
-              const imgDistancePercent = (1 - img.vector_distance) * 100;
-              const imageUrl = getAuthenticatedImageUrl(img.bucket, img.object_name);
-              
-              return `
-                <div 
-                  class="image-card"
-                  style="
-                    border: 2px solid #e2e8f0; 
-                    border-radius: 8px; 
-                    overflow: hidden; 
-                    cursor: pointer; 
-                    transition: all 0.3s ease;
-                    background: white;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                  "
-                  onclick="showSearchImageModal('${imageUrl}', 'ページ ${img.page_number}', ${img.vector_distance})"
-                  onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 16px rgba(102, 126, 234, 0.3)'; this.style.borderColor='#667eea';"
-                  onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'; this.style.borderColor='#e2e8f0';"
-                >
-                  <!-- サムネイル画像 -->
-                  <div style="position: relative; width: 100%; padding-top: 141%; background: #f8fafc; overflow: hidden;">
-                    <img 
-                      src="${imageUrl}" 
-                      alt="ページ ${img.page_number}"
-                      style="
-                        position: absolute;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        object-fit: contain;
-                      "
-                      onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27200%27 height=%27200%27%3E%3Crect fill=%27%23f1f5f9%27 width=%27200%27 height=%27200%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 fill=%27%2394a3b8%27 font-size=%2724%27%3E画像エラー%3C/text%3E%3C/svg%3E'"
-                    />
-                    <!-- マッチ度バッジ -->
-                    <div style="
-                      position: absolute;
-                      top: 8px;
-                      right: 8px;
-                      background: rgba(102, 126, 234, 0.95);
-                      color: white;
-                      padding: 4px 8px;
-                      border-radius: 4px;
-                      font-size: 11px;
-                      font-weight: 600;
-                      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                    ">
-                      ${imgDistancePercent.toFixed(1)}%
-                    </div>
-                  </div>
-                  
-                  <!-- 画像情報 -->
-                  <div style="padding: 12px; background: white; border-top: 1px solid #e2e8f0;">
-                    <div style="font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 4px;">
-                      📄 ページ ${img.page_number}
-                    </div>
-                    <div style="font-size: 11px; color: #64748b;">
-                      距離: ${img.vector_distance.toFixed(4)}
-                    </div>
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-      </div>
-    `;
-    
-    return fileCardHtml;
-  }).join('');
-}
-
-/**
- * 検索結果用画像モーダルを表示（vectorDistance対応版）
- */
-function showSearchImageModal(imageUrl, title, vectorDistance) {
-  const matchPercent = (1 - vectorDistance) * 100;
-  const filename = `${title} - マッチ度: ${matchPercent.toFixed(1)}% | 距離: ${vectorDistance.toFixed(4)}`;
-  
-  // 共通のshowImageModal関数を呼び出す
-  showImageModal(imageUrl, filename);
-}
-
-/**
- * ファイルをダウンロード
- */
-async function downloadFile(bucket, encodedObjectName) {
-  try {
-    const imageUrl = getAuthenticatedImageUrl(bucket, decodeURIComponent(encodedObjectName));
-    
-    // 新しいタブで開く
-    window.open(imageUrl, '_blank');
-    
-    utilsShowToast('ファイルを開きました', 'success');
-  } catch (error) {
-    utilsShowToast(`ダウンロードエラー: ${error.message}`, 'error');
-  }
-}
-
-function clearSearchResults() {
-  document.getElementById('searchQuery').value = '';
-  document.getElementById('searchResults').style.display = 'none';
-}
+// 注: 検索機能はsrc/modules/search.jsに移行済み
+// window.searchModule.performSearch(), window.searchModule.clearSearchResults() を使用してください
 
 // ========================================
 // ページ画像化されたファイルの判定
@@ -765,6 +520,7 @@ let allOciObjects = []; // 全オブジェクトのキャッシュ（親子関�
 // フィルター状態
 let ociObjectsFilterPageImages = "all";  // all, done, not_done
 let ociObjectsFilterEmbeddings = "all";  // all, done, not_done
+let ociObjectsDisplayType = "files_only";  // files_only, files_and_images
 
 /**
  * 指定したフォルダの子オブジェクトをすべて取得
@@ -868,7 +624,8 @@ async function loadOciObjects() {
       page: ociObjectsPage.toString(),
       page_size: ociObjectsPageSize.toString(),
       filter_page_images: ociObjectsFilterPageImages,
-      filter_embeddings: ociObjectsFilterEmbeddings
+      filter_embeddings: ociObjectsFilterEmbeddings,
+      display_type: ociObjectsDisplayType
     });
     
     const data = await authApiCall(`/api/oci/objects?${params}`);
@@ -934,6 +691,24 @@ function displayOciObjectsList(data) {
   // フィルターUI HTML（常に表示）
   const filterHtml = `
     <div class="flex items-center gap-4 mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-medium text-gray-600">📁 表示タイプ:</span>
+        <div class="flex gap-1">
+          <button 
+            onclick="setOciObjectsDisplayType('files_only')" 
+            class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsDisplayType === 'files_only' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
+          >
+            ファイルのみ
+          </button>
+          <button 
+            onclick="setOciObjectsDisplayType('files_and_images')" 
+            class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsDisplayType === 'files_and_images' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
+          >
+            ファイル+ページ画像
+          </button>
+        </div>
+      </div>
+      <div class="w-px h-6 bg-gray-300"></div>
       <div class="flex items-center gap-2">
         <span class="text-xs font-medium text-gray-600">🖼️ ページ画像化:</span>
         <div class="flex gap-1">
@@ -1243,6 +1018,18 @@ window.clearOciObjectsFilters = function() {
   ociObjectsFilterEmbeddings = "all";
   ociObjectsPage = 1;
   selectedOciObjects = [];
+  loadOciObjects();
+}
+
+/**
+ * 表示タイプフィルターを設定
+ * @param {string} value - 表示タイプ ('files_only' | 'files_and_images')
+ */
+window.setOciObjectsDisplayType = function(value) {
+  if (ociObjectsBatchDeleteLoading) return;
+  ociObjectsDisplayType = value;
+  ociObjectsPage = 1;  // フィルター変更時は1ページ目に戻る
+  selectedOciObjects = [];  // 選択状態をクリア
   loadOciObjects();
 }
 
@@ -1669,6 +1456,9 @@ window.convertSelectedOciObjectsToImages = async function() {
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
     
+    // ジョブIDをヘッダーから取得
+    const jobId = response.headers.get('X-Job-ID');
+    
     let currentFileIndex = 0;
     let totalFiles = selectedOciObjects.length;
     let currentPageIndex = 0;
@@ -1676,6 +1466,7 @@ window.convertSelectedOciObjectsToImages = async function() {
     let results = [];
     let processedPages = 0; // 全体の処理済みページ数
     let totalPagesAllFiles = 0; // 全ファイルの総ページ数（動的に計算）
+    let totalWorkers = 1; // 並列ワーカー数
     
     while (true) {
       const { done, value } = await reader.read();
@@ -1689,7 +1480,7 @@ window.convertSelectedOciObjectsToImages = async function() {
       
       // 行ごとに処理
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // 最後の不完全な行をバッファに戸す
+      buffer = lines.pop(); // 最後の不完全な行をバッファに戻す
       
       for (const line of lines) {
         if (line.startsWith('data: ')) {
@@ -1701,7 +1492,20 @@ window.convertSelectedOciObjectsToImages = async function() {
             switch(data.type) {
               case 'start':
                 totalFiles = data.total_files;
-                updateLoadingMessage(`ファイルをページ画像化中... (0/${totalFiles})`, 0);
+                totalWorkers = data.total_workers || 1;
+                updateLoadingMessage(`ファイルをページ画像化中... (0/${totalFiles})\n並列ワーカー: ${totalWorkers}`, 0, jobId);
+                break;
+                
+              case 'file_queued':
+                // ファイルが待機中になった
+                updateLoadingMessage(`ファイル待機中: ${data.file_name}\nステータス: ⏳ ${data.status}`, 0, jobId);
+                break;
+                
+              case 'file_processing':
+                // ファイルが処理中になった
+                currentFileIndex = data.file_index;
+                const processingProgress = (currentFileIndex - 1) / totalFiles;
+                updateLoadingMessage(`ファイル ${data.file_index}/${totalFiles}\n${data.file_name}\nステータス: 🔄 ${data.status}`, processingProgress, jobId);
                 break;
                 
               case 'file_start':
@@ -1710,40 +1514,39 @@ window.convertSelectedOciObjectsToImages = async function() {
                 totalPages = 0;
                 currentPageIndex = 0;
                 const fileProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles} を処理中...\n${data.file_name}`, fileProgress);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles} を処理中...\n${data.file_name}`, fileProgress, jobId);
                 break;
                 
               case 'cleanup_start':
                 const cleanupStartProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files}\n${data.file_name}\n既存の画像ファイルを確認中...`, cleanupStartProgress);
+                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files}\n${data.file_name}\n既存の画像ファイルを確認中...`, cleanupStartProgress, jobId);
                 break;
                 
               case 'cleanup_progress':
                 const cleanupProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files}\n${data.file_name}\n既存画像 ${data.cleanup_count}件を削除中...`, cleanupProgress);
+                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files}\n${data.file_name}\n既存画像 ${data.cleanup_count}件を削除中...`, cleanupProgress, jobId);
                 break;
                 
               case 'cleanup_complete':
                 const cleanupCompleteProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files}\n${data.file_name}\n既存画像 ${data.deleted_count}件を削除完了`, cleanupCompleteProgress);
+                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files}\n${data.file_name}\n既存画像 ${data.deleted_count}件を削除完了`, cleanupCompleteProgress, jobId);
                 break;
                 
               case 'pages_count':
                 totalPages = data.total_pages;
                 totalPagesAllFiles += totalPages;
                 const pagesCountProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files} を処理中...\n${data.file_name}\n総ページ数: ${totalPages}`, pagesCountProgress);
+                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files} を処理中...\n${data.file_name}\n総ページ数: ${totalPages}`, pagesCountProgress, jobId);
                 break;
                 
               case 'page_progress':
                 currentPageIndex = data.page_index;
                 totalPages = data.total_pages;
                 
-                // 全体の進捗率を計算（処理中のページ / 現在までの総ページ数）
-                // 注: processedPagesはアップロード完了後にインクリメントするので、現在処理中のページを含める
-                const currentProgress = (processedPages + 1) / totalPagesAllFiles;
-                const overallProgress = totalPagesAllFiles > 0 ? Math.min(currentProgress, 1.0) : 0;
-                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files} を処理中...\n${data.file_name}\nページ ${currentPageIndex}/${totalPages} を画像化中...`, overallProgress);
+                // 全体の進捗率を計算
+                const currentProgress = totalPagesAllFiles > 0 ? (processedPages + 1) / totalPagesAllFiles : (currentFileIndex - 1) / totalFiles;
+                const overallProgress = Math.min(currentProgress, 1.0);
+                updateLoadingMessage(`ファイル ${data.file_index}/${totalFiles} を処理中...\n${data.file_name}\nページ ${currentPageIndex}/${totalPages} を画像化中...`, overallProgress, jobId);
                 
                 // ページ処理完了後にカウンタを増やす
                 processedPages++;
@@ -1751,14 +1554,27 @@ window.convertSelectedOciObjectsToImages = async function() {
                 
               case 'file_complete':
                 const completedFileProgress = currentFileIndex / totalFiles;
-                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files} 完了\n${data.file_name}\n${data.image_count}ページを画像化しました`, completedFileProgress);
+                updateLoadingMessage(`ファイル ${data.file_index}/${totalFiles} ✓ 完了\n${data.file_name}\n${data.image_count}ページを画像化しました`, completedFileProgress, jobId);
                 break;
                 
               case 'file_error':
-                console.error(`ファイル ${data.file_index}/${data.total_files} エラー: ${data.error}`);
-                // エラー時は現在の進捗率を保持
+                console.error(`ファイル ${data.file_index}/${totalFiles} エラー: ${data.error}`);
                 const errorProgress = currentFileIndex > 0 ? (currentFileIndex - 1) / totalFiles : 0;
-                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files} エラー\n${data.file_name}\n${data.error}`, errorProgress);
+                updateLoadingMessage(`ファイル ${data.file_index}/${totalFiles} ✗ エラー\n${data.file_name}\n${data.error}`, errorProgress, jobId);
+                break;
+                
+              case 'cancelled':
+                utilsHideLoading();
+                ociObjectsBatchDeleteLoading = false;
+                utilsShowToast(`処理がキャンセルされました\n${data.message}`, 'info');
+                selectedOciObjects = [];
+                await loadOciObjects();
+                break;
+                
+              case 'error':
+                utilsHideLoading();
+                ociObjectsBatchDeleteLoading = false;
+                utilsShowToast(`エラー: ${data.message}`, 'error');
                 break;
                 
               case 'complete':
@@ -1766,15 +1582,13 @@ window.convertSelectedOciObjectsToImages = async function() {
                 utilsHideLoading();
                 ociObjectsBatchDeleteLoading = false;
                 
-                // 結果表示
+                // 結果表示（経過時間を含む）
+                const elapsedTime = data.elapsed_time ? ` (${data.elapsed_time.toFixed(1)}秒)` : '';
                 if (data.success) {
-                  utilsShowToast(data.message, 'success');
+                  utilsShowToast(`${data.message}${elapsedTime}`, 'success');
                 } else {
-                  utilsShowToast(`${data.message}\n成功: ${data.success_count}件、失敗: ${data.failed_count}件`, 'warning');
+                  utilsShowToast(`${data.message}${elapsedTime}\n成功: ${data.success_count}件、失敗: ${data.failed_count}件`, 'warning');
                 }
-                
-                // 詳細結果をコンソールに出力
-                // console.log('ページ画像化結果:', data.results);
                 
                 // 選択をクリアして一覧を更新
                 selectedOciObjects = [];
@@ -1873,11 +1687,15 @@ window.vectorizeSelectedOciObjects = async function() {
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
     
+    // ジョブIDをヘッダーから取得
+    const jobId = response.headers.get('X-Job-ID');
+    
     let currentFileIndex = 0;
     let totalFiles = selectedOciObjects.length;
     let currentPageIndex = 0;
     let totalPages = 0;
     let results = [];
+    let totalWorkers = 1; // 並列ワーカー数
     
     while (true) {
       const { done, value } = await reader.read();
@@ -1903,7 +1721,20 @@ window.vectorizeSelectedOciObjects = async function() {
             switch(data.type) {
               case 'start':
                 totalFiles = data.total_files;
-                updateLoadingMessage(`ファイルをベクトル化中... (0/${totalFiles})`, 0);
+                totalWorkers = data.total_workers || 1;
+                updateLoadingMessage(`ファイルをベクトル化中... (0/${totalFiles})\n並列ワーカー: ${totalWorkers}`, 0, jobId);
+                break;
+                
+              case 'file_queued':
+                // ファイルが待機中になった
+                updateLoadingMessage(`ファイル待機中: ${data.file_name}\nステータス: ⏳ ${data.status}`, 0, jobId);
+                break;
+                
+              case 'file_processing':
+                // ファイルが処理中になった
+                currentFileIndex = data.file_index;
+                const processingProgress = (currentFileIndex - 1) / totalFiles;
+                updateLoadingMessage(`ファイル ${data.file_index}/${totalFiles}\n${data.file_name}\nステータス: 🔄 ${data.status}`, processingProgress, jobId);
                 break;
                 
               case 'file_start':
@@ -1912,33 +1743,33 @@ window.vectorizeSelectedOciObjects = async function() {
                 totalPages = 0;
                 currentPageIndex = 0;
                 const fileProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles} を処理中...\n${data.file_name}`, fileProgress);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles} を処理中...\n${data.file_name}`, fileProgress, jobId);
                 break;
                 
               case 'save_file_info':
                 const saveProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\nファイル情報を保存中...`, saveProgress);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\nファイル情報を保存中...`, saveProgress, jobId);
                 break;
                 
               case 'delete_existing':
                 const deleteProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n既存embeddingを削除中...`, deleteProgress);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n既存embeddingを削除中...`, deleteProgress, jobId);
                 break;
                 
               case 'auto_convert_start':
                 const convertProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n画像化を開始...`, convertProgress);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n画像化を開始...`, convertProgress, jobId);
                 break;
                 
               case 'auto_convert_complete':
                 const convertCompleteProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n画像化完了: ${data.image_count}ページ`, convertCompleteProgress);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n画像化完了: ${data.image_count}ページ`, convertCompleteProgress, jobId);
                 break;
                 
               case 'vectorize_start':
                 totalPages = data.total_pages;
                 const vectorizeProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\nベクトル化開始: ${totalPages}ページ`, vectorizeProgress);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\nベクトル化開始: ${totalPages}ページ`, vectorizeProgress, jobId);
                 break;
                 
               case 'page_progress':
@@ -1946,18 +1777,32 @@ window.vectorizeSelectedOciObjects = async function() {
                 totalPages = data.total_pages;
                 // file_indexを使用して正確な進捗率を計算
                 const pageProgress = (data.file_index - 1 + currentPageIndex / totalPages) / totalFiles;
-                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files}\nページ ${currentPageIndex}/${totalPages} をベクトル化中...`, pageProgress);
+                updateLoadingMessage(`ファイル ${data.file_index}/${totalFiles}\nページ ${currentPageIndex}/${totalPages} をベクトル化中...`, pageProgress, jobId);
                 break;
                 
               case 'file_complete':
                 const completedFileProgress = currentFileIndex / totalFiles;
-                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files} 完了\n${data.file_name}\n${data.embedding_count}ページをベクトル化しました`, completedFileProgress);
+                updateLoadingMessage(`ファイル ${data.file_index}/${totalFiles} ✓ 完了\n${data.file_name}\n${data.embedding_count}ページをベクトル化しました`, completedFileProgress, jobId);
                 break;
                 
               case 'file_error':
-                console.error(`ファイル ${data.file_index}/${data.total_files} エラー: ${data.error}`);
+                console.error(`ファイル ${data.file_index}/${totalFiles} エラー: ${data.error}`);
                 const errorProgress = currentFileIndex > 0 ? (currentFileIndex - 1) / totalFiles : 0;
-                updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files} エラー\n${data.file_name}\n${data.error}`, errorProgress);
+                updateLoadingMessage(`ファイル ${data.file_index}/${totalFiles} ✗ エラー\n${data.file_name}\n${data.error}`, errorProgress, jobId);
+                break;
+                
+              case 'cancelled':
+                utilsHideLoading();
+                ociObjectsBatchDeleteLoading = false;
+                utilsShowToast(`処理がキャンセルされました\n${data.message}`, 'info');
+                selectedOciObjects = [];
+                await loadOciObjects();
+                break;
+                
+              case 'error':
+                utilsHideLoading();
+                ociObjectsBatchDeleteLoading = false;
+                utilsShowToast(`エラー: ${data.message}`, 'error');
                 break;
                 
               case 'complete':
@@ -1965,15 +1810,13 @@ window.vectorizeSelectedOciObjects = async function() {
                 utilsHideLoading();
                 ociObjectsBatchDeleteLoading = false;
                 
-                // 結果表示
+                // 結果表示（経過時間を含む）
+                const elapsedTime = data.elapsed_time ? ` (${data.elapsed_time.toFixed(1)}秒)` : '';
                 if (data.success) {
-                  utilsShowToast(data.message, 'success');
+                  utilsShowToast(`${data.message}${elapsedTime}`, 'success');
                 } else {
-                  utilsShowToast(`${data.message}\n成功: ${data.success_count}件、失敗: ${data.failed_count}件`, 'warning');
+                  utilsShowToast(`${data.message}${elapsedTime}\n成功: ${data.success_count}件、失敗: ${data.failed_count}件`, 'warning');
                 }
-                
-                // 詳細結果をコンソールに出力
-                // console.log('ベクトル化結果:', data.results);
                 
                 // 選択をクリアして一覧を更新
                 selectedOciObjects = [];
@@ -2000,9 +1843,12 @@ window.vectorizeSelectedOciObjects = async function() {
 };
 
 /**
- * ローディングメッセージを更新（プログレスバー付き）
+ * ローディングメッセージを更新（プログレスバー付き、キャンセルボタン対応）
+ * @param {string} message - 表示するメッセージ
+ * @param {number|null} progress - 進捗率 (0-1)
+ * @param {string|null} jobId - ジョブID（キャンセル用）
  */
-function updateLoadingMessage(message, progress = null) {
+function updateLoadingMessage(message, progress = null, jobId = null) {
   const loadingOverlay = document.getElementById('loadingOverlay');
   if (loadingOverlay && loadingOverlay.style.display !== 'none') {
     const contentDiv = loadingOverlay.querySelector('.bg-white');
@@ -2026,14 +1872,73 @@ function updateLoadingMessage(message, progress = null) {
         `;
       }
       
+      // キャンセルボタン（jobIdがある場合のみ表示）
+      let cancelButtonHtml = '';
+      if (jobId) {
+        cancelButtonHtml = `
+          <div class="mt-4">
+            <button 
+              onclick="cancelCurrentJob('${jobId}')" 
+              class="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-md transition-colors"
+            >
+              キャンセル
+            </button>
+          </div>
+        `;
+      }
+      
       contentDiv.innerHTML = `
         <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto"></div>
         <p class="mt-4 text-gray-700">${message.replace(/\n/g, '<br>')}</p>
         ${progressHtml}
+        ${cancelButtonHtml}
       `;
     }
   }
 }
+
+/**
+ * 実行中のジョブをキャンセル
+ * @param {string} jobId - キャンセルするジョブのID
+ */
+window.cancelCurrentJob = async function(jobId) {
+  if (!jobId) {
+    console.error('ジョブIDが指定されていません');
+    return;
+  }
+  
+  const confirmed = await utilsShowConfirmModal(
+    'キャンセル確認',
+    '実行中の処理をキャンセルしますか？\n\n進行中のファイルは処理が完了してから停止します。'
+  );
+  
+  if (!confirmed) {
+    return;
+  }
+  
+  try {
+    const token = localStorage.getItem('loginToken');
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(`/api/jobs/${jobId}/cancel`, {
+      method: 'POST',
+      headers: headers
+    });
+    
+    if (response.ok) {
+      utilsShowToast('キャンセルリクエストを送信しました', 'info');
+    } else {
+      const errorData = await response.json();
+      utilsShowToast(`キャンセルに失敗しました: ${errorData.detail || 'エラー'}`, 'error');
+    }
+  } catch (error) {
+    console.error('キャンセルエラー:', error);
+    utilsShowToast(`キャンセルエラー: ${error.message}`, 'error');
+  }
+};
 
 function displayDocumentsList(documents) {
   const listDiv = document.getElementById('documentsList');
@@ -4915,13 +4820,13 @@ window.showImageModal = showImageModal;
 window.closeImageModal = closeImageModal;
 window.openCopilotImage = openCopilotImage;
 
-// 検索関連
-window.showSearchImageModal = showSearchImageModal;
-window.downloadFile = downloadFile;
+// 検索関連（削除済み - window.searchModuleを使用）
+// 注: showSearchImageModal, downloadFileはsearch.jsモジュールに移行済み
+// 下位互換性のため、ファイル末尾でwindow.searchModuleから再エクスポート
 
-// モーダル
-window.showConfirmModal = showConfirmModal;
-window.closeConfirmModal = closeConfirmModal;
+// モーダル（utils.jsからインポート済みの関数を再エクスポート）
+window.showConfirmModal = utilsShowConfirmModal;
+// 注: closeConfirmModalはutils.jsのshowConfirmModal内で内部的に処理されるため、外部公開不要
 
 // AI Assistantテキストエリアにペーストイベントリスナーを追加
 const copilotInput = document.getElementById('copilotInput');
@@ -4965,27 +4870,6 @@ window.escapeHtml = escapeHtml;
 // ========================================
 // 確認モーダル機能
 // ========================================
-// 注: この確認モーダル関数はutils.jsに移行済み
-// 下位互換性のために残しています（L113の委譲関数を参照）
-
-let confirmModalResolve = null;
-
-// 以下の関数定義は削除（L113に委譲関数が存在）
-
-/**
- * 確認モーダルを閉じる
- * @param {boolean} result - ユーザーの選択結果
- */
-function closeConfirmModal(result) {
-  const modal = document.getElementById('confirmModal');
-  modal.style.display = 'none';
-  
-  if (confirmModalResolve) {
-    confirmModalResolve(result);
-    confirmModalResolve = null;
-  }
-}
-
 // ========================================
 // Object Storage設定機能
 // ========================================
@@ -5257,6 +5141,27 @@ window.handleLogin = handleLogin;
 window.handleLogout = handleLogout;
 window.toggleLoginPassword = toggleLoginPassword;
 
-// 検索関連（TODO: window.searchModuleに移行済み、下位互換性のため残存）
-window.performSearch = performSearch;
-window.clearSearchResults = clearSearchResults;
+// 検索関連（window.searchModuleを使用）
+// 注: window.searchModule.performSearch(), window.searchModule.clearSearchResults() を使用してください
+// 下位互換性のために委譲関数を定義
+window.performSearch = function() {
+  if (window.searchModule?.performSearch) {
+    return window.searchModule.performSearch();
+  }
+  console.warn('searchModuleがまだ読み込まれていません');
+};
+window.clearSearchResults = function() {
+  if (window.searchModule?.clearSearchResults) {
+    return window.searchModule.clearSearchResults();
+  }
+};
+window.downloadFile = function(bucket, encodedObjectName) {
+  if (window.searchModule?.downloadFile) {
+    return window.searchModule.downloadFile(bucket, encodedObjectName);
+  }
+};
+window.showSearchImageModal = function(imageUrl, title, vectorDistance) {
+  if (window.searchModule?.showSearchImageModal) {
+    return window.searchModule.showSearchImageModal(imageUrl, title, vectorDistance);
+  }
+};

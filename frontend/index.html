@@ -153,7 +153,7 @@
               class="form-input" 
               placeholder="例: セマンティック検索について"
               rows="3"
-              onkeypress="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); performSearch(); }"
+              onkeypress="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); window.searchModule.performSearch(); }"
             ></textarea>
           </div>
           

@@ -452,3 +452,144 @@ button:focus-visible,a:focus-visible{outline:2px solid #667eea;outline-offset:2p
 .search-result-image-info{padding:12px;background:white;border-top:1px solid #e2e8f0}
 .search-result-image-title{font-size:13px;font-weight:600;color:#334155;margin-bottom:4px}
 .search-result-image-similarity{font-size:11px;color:#64748b}
+
+/* ========================================
+   ファイル状態バッジ（4段階）
+   ======================================== */
+
+/* 未処理（未実行） */
+.status-pending {
+  background-color: #e5e7eb;
+  color: #6b7280;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* キュー待ち（待機中） */
+.status-queued {
+  background-color: #fef3c7;
+  color: #92400e;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* 処理中（画像化中/ベクトル化中） */
+.status-processing {
+  background-color: #dbeafe;
+  color: #1e40af;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  animation: pulse 1.5s infinite;
+}
+
+/* 完了 */
+.status-completed {
+  background-color: #d1fae5;
+  color: #065f46;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* エラー */
+.status-error {
+  background-color: #fee2e2;
+  color: #991b1b;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* パルスアニメーション */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* 並列処理進捗表示用 */
+.parallel-progress-container {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.parallel-worker-item {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.parallel-worker-item[data-state="processing"] {
+  border-left: 4px solid #3b82f6;
+}
+
+.parallel-worker-item[data-state="complete"] {
+  border-left: 4px solid #10b981;
+}
+
+.parallel-worker-item[data-state="error"] {
+  border-left: 4px solid #ef4444;
+}
+
+.parallel-worker-item[data-state="queued"] {
+  border-left: 4px solid #f59e0b;
+}
+
+.parallel-worker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.parallel-worker-icon {
+  font-weight: 600;
+  color: #374151;
+  font-size: 14px;
+}
+
+.parallel-worker-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.parallel-worker-file {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-bar-mini {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.progress-fill-mini {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  transition: width 0.3s ease;
+}
+
+.parallel-worker-progress-text {
+  font-size: 11px;
+  color: #6b7280;
+}

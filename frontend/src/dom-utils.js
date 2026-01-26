@@ -4,6 +4,9 @@
  * 効率的なDOM更新とパフォーマンス最適化のためのヘルパー関数群
  */
 
+// 注: debounce, throttleはutils.jsに定義されているため、ここでは再エクスポートのみ
+import { debounce, throttle } from './modules/utils.js';
+
 /**
  * 要素の属性を効率的に更新
  * @param {HTMLElement} element - 対象要素
@@ -212,40 +215,7 @@ export function appendHTML(parentId, html, prepend = false) {
   }
 }
 
-/**
- * デバウンス処理
- * @param {Function} func - 実行する関数
- * @param {number} wait - 待機時間（ms）
- * @returns {Function} デバウンスされた関数
- */
-export function debounce(func, wait) {
-  let timeout;
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
-  };
-}
-
-/**
- * スロットル処理
- * @param {Function} func - 実行する関数
- * @param {number} limit - 実行間隔（ms）
- * @returns {Function} スロットルされた関数
- */
-export function throttle(func, limit) {
-  let inThrottle;
-  return function executedFunction(...args) {
-    if (!inThrottle) {
-      func(...args);
-      inThrottle = true;
-      setTimeout(() => inThrottle = false, limit);
-    }
-  };
-}
+// パフォーマンス測定はこのファイルで定義（DOM操作に関連するため）
 
 /**
  * パフォーマンス測定
@@ -287,6 +257,9 @@ export function calculateViewport(totalItems, itemHeight, containerHeight, scrol
 }
 
 // エクスポート
+// debounce, throttleはutils.jsから再エクスポート
+export { debounce, throttle };
+
 export default {
   updateAttributes,
   updateCheckbox,
