@@ -234,6 +234,14 @@ export function displayOciObjectsList(data) {
         すべて解除
       </button>
       <button 
+        class="px-3 py-1 text-xs rounded transition-colors ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600 text-white'}" 
+        onclick="window.ociModule.deleteSelected()" 
+        ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'disabled' : ''}
+        title="選択されたアイテム（フォルダ配下の子アイテムを含む）を削除: ${selectedOciObjects.length}件"
+      >
+        🗑️ 削除 (${selectedOciObjects.length}件)
+      </button>
+      <button 
         class="px-3 py-1 text-xs rounded transition-colors ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'bg-blue-300 text-white cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600 text-white'}" 
         onclick="window.ociModule.downloadSelected()" 
         ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'disabled' : ''}
@@ -256,14 +264,6 @@ export function displayOciObjectsList(data) {
         title="選択されたファイルの画像をベクトル化してDBに保存: ${selectedOciObjects.length}件"
       >
         🔢 ベクトル化 (${selectedOciObjects.length}件)
-      </button>
-      <button 
-        class="px-3 py-1 text-xs rounded transition-colors ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600 text-white'}" 
-        onclick="window.ociModule.deleteSelected()" 
-        ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'disabled' : ''}
-        title="選択されたアイテム（フォルダ配下の子アイテムを含む）を削除: ${selectedOciObjects.length}件"
-      >
-        🗑️ 削除 (${selectedOciObjects.length}件)
       </button>
     </div>
   `;
