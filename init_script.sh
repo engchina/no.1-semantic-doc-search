@@ -6,6 +6,15 @@ exec > >(tee -a /var/log/init_script.log) 2>&1
 
 echo "アプリケーションのセットアップを初期化中..."
 
+# Read configuration flags
+ENABLE_DIFY="false"
+
+if [ -f "${INSTALL_DIR}/props/enable_dify.txt" ]; then
+    ENABLE_DIFY=$(cat "${INSTALL_DIR}/props/enable_dify.txt")
+fi
+
+echo "Difyインストール有効: $ENABLE_DIFY"
+
 # Configuration
 INSTALL_DIR="/u01/aipoc"
 NODE_VERSION="20.x"
@@ -417,5 +426,264 @@ CRON_CMD="@reboot ${INSTALL_DIR}/start_semantic_doc_search_services.sh"
 # Start services
 echo "セマンティック文書検索サービスを起動中..."
 "${INSTALL_DIR}/start_semantic_doc_search_services.sh"
+
+# Install Dify if enabled
+if [ "$ENABLE_DIFY" = "true" ]; then
+    echo "Difyインストールを開始します..."
+    
+    # Verify required configuration files
+    REQUIRED_FILES=(
+        "${INSTALL_DIR}/props/dify_branch.txt"
+        "${INSTALL_DIR}/props/db.env"
+        "${INSTALL_DIR}/props/adb_dsn.txt"
+        "${INSTALL_DIR}/props/adb_password.txt"
+        "${INSTALL_DIR}/props/bucket_namespace.txt"
+        "${INSTALL_DIR}/props/dify_bucket.txt"
+        "${INSTALL_DIR}/props/bucket_region.txt"
+        "${INSTALL_DIR}/props/oci_access_key.txt"
+        "${INSTALL_DIR}/props/oci_secret_key.txt"
+    )
+    
+    for file in "${REQUIRED_FILES[@]}"; do
+        if [ ! -f "$file" ]; then
+            echo "エラー: 必要な設定ファイルが見つかりません: $file"
+            echo "Difyインストールをスキップします"
+            ENABLE_DIFY="false"
+            break
+        fi
+    done
+    
+    if [ "$ENABLE_DIFY" = "true" ]; then
+        # Read configuration
+        DIFY_BRANCH=$(cat "${INSTALL_DIR}/props/dify_branch.txt")
+        ORACLE_PASSWORD=$(cat "${INSTALL_DIR}/props/adb_password.txt")
+        ORACLE_DSN=$(cat "${INSTALL_DIR}/props/adb_dsn.txt")
+        ORACLE_WALLET_PASSWORD=$(cat "${INSTALL_DIR}/props/adb_password.txt")
+        BUCKET_NAMESPACE=$(cat "${INSTALL_DIR}/props/bucket_namespace.txt")
+        BUCKET_NAME=$(cat "${INSTALL_DIR}/props/dify_bucket.txt")
+        BUCKET_REGION=$(cat "${INSTALL_DIR}/props/bucket_region.txt")
+        OCI_ACCESS_KEY=$(cat "${INSTALL_DIR}/props/oci_access_key.txt")
+        OCI_SECRET_KEY=$(cat "${INSTALL_DIR}/props/oci_secret_key.txt")
+        
+        echo "Difyブランチ: $DIFY_BRANCHを使用します"
+        
+        # Install Docker if not already installed
+        if ! command -v docker >/dev/null 2>&1; then
+            echo "Dockerをインストール中..."
+            
+            # Check if install_docker.sh exists
+            if [ -f "${PROJECT_DIR}/install_docker.sh" ]; then
+                echo "install_docker.shを使用してDockerをインストールします..."
+                chmod +x "${PROJECT_DIR}/install_docker.sh"
+                
+                if bash "${PROJECT_DIR}/install_docker.sh"; then
+                    echo "Dockerインストールに成功しました"
+                else
+                    echo "警告: install_docker.shが失敗しました。フォールバックメソッドを使用します..."
+                    retry_command curl -fsSL https://get.docker.com -o get-docker.sh
+                    sh get-docker.sh
+                    rm get-docker.sh
+                fi
+            else
+                echo "install_docker.shが見つかりません。Docker公式スクリプトを使用します..."
+                retry_command curl -fsSL https://get.docker.com -o get-docker.sh
+                sh get-docker.sh
+                rm get-docker.sh
+            fi
+            
+            # Start Docker service
+            echo "Dockerサービスを起動中..."
+            if systemctl start docker; then
+                echo "Dockerサービスの起動に成功しました"
+            else
+                echo "エラー: Dockerサービスの起動に失敗しました"
+                echo "Difyインストールをスキップします"
+                ENABLE_DIFY="false"
+            fi
+            
+            # Enable Docker service
+            echo "Docker自動起動を有効化中..."
+            systemctl enable docker
+        else
+            echo "Dockerは既にインストールされています"
+            
+            # Ensure Docker service is running even if already installed
+            if ! systemctl is-active --quiet docker; then
+                echo "Dockerサービスが停止しています。起動中..."
+                systemctl start docker
+            fi
+        fi
+        
+        # Verify Docker status
+        if systemctl is-active --quiet docker; then
+            echo "Dockerサービスが正常に動作しています"
+            
+            # Verify Docker Compose plugin
+            if docker compose version >/dev/null 2>&1; then
+                echo "Docker Composeプラグインが利用可能です"
+            else
+                echo "警告: Docker Composeプラグインが見つかりません"
+            fi
+        else
+            echo "エラー: Dockerサービスが正常に動作していません"
+            echo "Difyインストールをスキップします"
+            ENABLE_DIFY="false"
+        fi
+    fi
+    
+    if [ "$ENABLE_DIFY" = "true" ]; then
+        # Clone Dify repository
+        cd "${INSTALL_DIR}"
+        echo "Difyリポジトリをクローン中..."
+        if [ -d "dify" ]; then
+            echo "Difyディレクトリが既に存在します。スキップします。"
+        else
+            retry_command git clone -b "${DIFY_BRANCH}" https://github.com/langgenius/dify.git
+        fi
+        
+        cd dify/docker
+        
+        # Get external IP
+        EXTERNAL_IP=$(curl -s -m 10 http://whatismyip.akamai.com/ || echo "localhost")
+        if [ "$EXTERNAL_IP" = "localhost" ]; then
+            echo "警告: 外部IPを取得できません。localhostを使用します。"
+        else
+            echo "外部IP: $EXTERNAL_IP"
+        fi
+        
+        # Configure Dify environment
+        echo "Dify環境ファイルを設定中..."
+        cp -f .env.example .env
+        
+        # Basic port configuration
+        sed -i "s|EXPOSE_NGINX_PORT=80|EXPOSE_NGINX_PORT=8080|g" .env
+        
+        # Configure Oracle ADB as vector store
+        echo "Oracle ADBをベクトルストアとして設定中..."
+        sed -i "s|VECTOR_STORE=.*|VECTOR_STORE=oracle|g" .env
+        sed -i "s|ORACLE_USER=.*|ORACLE_USER=admin|g" .env
+        sed -i "s|ORACLE_PASSWORD=.*|ORACLE_PASSWORD=${ORACLE_PASSWORD}|g" .env
+        sed -i "s|ORACLE_DSN=.*|ORACLE_DSN=${ORACLE_DSN}|g" .env
+        sed -i "s|ORACLE_WALLET_PASSWORD=.*|ORACLE_WALLET_PASSWORD=${ORACLE_WALLET_PASSWORD}|g" .env
+        sed -i "s|ORACLE_IS_AUTONOMOUS=.*|ORACLE_IS_AUTONOMOUS=true|g" .env
+        
+        # Modify docker-compose.yaml to skip Oracle container
+        sed -i "s|      - oracle|      - oracle-skip|g" docker-compose.yaml
+        
+        # Configure OCI object storage
+        echo "OCI Object Storageを設定中..."
+        sed -i "s|STORAGE_TYPE=opendal|STORAGE_TYPE=oci-storage|g" .env
+        
+        # Configure OCI object storage environment variables
+        OCI_ENDPOINT="https://${BUCKET_NAMESPACE}.compat.objectstorage.${BUCKET_REGION}.oraclecloud.com"
+        OCI_BUCKET_NAME=${BUCKET_NAME}
+        OCI_REGION=${BUCKET_REGION}
+        
+        echo "OCIエンドポイント: $OCI_ENDPOINT"
+        echo "OCIバケット: $OCI_BUCKET_NAME"
+        echo "OCIリージョン: $OCI_REGION"
+        
+        sed -i "s|OCI_ENDPOINT=.*|OCI_ENDPOINT=${OCI_ENDPOINT}|g" .env
+        sed -i "s|OCI_BUCKET_NAME=.*|OCI_BUCKET_NAME=${OCI_BUCKET_NAME}|g" .env
+        sed -i "s|OCI_ACCESS_KEY=.*|OCI_ACCESS_KEY=${OCI_ACCESS_KEY}|g" .env
+        sed -i "s|OCI_SECRET_KEY=.*|OCI_SECRET_KEY=${OCI_SECRET_KEY}|g" .env
+        sed -i "s|OCI_REGION=.*|OCI_REGION=${OCI_REGION}|g" .env
+        
+        # Update URL configuration
+        echo "URL設定を更新中..."
+        sed -i "s|^CONSOLE_API_URL=.*|CONSOLE_API_URL=http://${EXTERNAL_IP}:8080|" .env
+        sed -i "s|^CONSOLE_WEB_URL=.*|CONSOLE_WEB_URL=http://${EXTERNAL_IP}:8080|" .env
+        sed -i "s|^SERVICE_API_URL=.*|SERVICE_API_URL=http://${EXTERNAL_IP}:8080|" .env
+        sed -i "s|^APP_API_URL=.*|APP_API_URL=http://${EXTERNAL_IP}:8080|" .env
+        sed -i "s|^APP_WEB_URL=.*|APP_WEB_URL=http://${EXTERNAL_IP}:8080|" .env
+        sed -i "s|^FILES_URL=.*|FILES_URL=http://${EXTERNAL_IP}:5001|" .env
+        sed -i "s|^UPLOAD_FILE_SIZE_LIMIT=15|UPLOAD_FILE_SIZE_LIMIT=100|g" .env
+        sed -i "s|^CODE_MAX_STRING_ARRAY_LENGTH=30|CODE_MAX_STRING_ARRAY_LENGTH=1000|g" .env
+        sed -i "s|^CODE_MAX_OBJECT_ARRAY_LENGTH=30|CODE_MAX_OBJECT_ARRAY_LENGTH=1000|g" .env
+        sed -i "s|^HTTP_REQUEST_NODE_MAX_BINARY_SIZE=10485760|HTTP_REQUEST_NODE_MAX_BINARY_SIZE=104857600|g" .env
+        
+        # Create docker-compose.override.yaml for port configuration
+        echo "Docker Compose override設定を作成中..."
+        cat > docker-compose.override.yaml << 'EOL'
+services:
+  api:
+    ports:
+      - '${DIFY_PORT:-5001}:${DIFY_PORT:-5001}'
+EOL
+        
+        # Set permissions for storage directories
+        echo "ストレージディレクトリの権限を設定中..."
+        mkdir -p volumes/app/storage
+        chown -R 1001:1001 volumes/app/storage
+        
+        # Start Docker Compose
+        echo "Difyサービスを起動中..."
+        docker compose up -d
+        
+        # Wait for containers to start
+        echo "コンテナが起動するのを待機中..."
+        sleep 45
+        
+        # Configure wallet files to containers
+        echo "Difyコンテナにwalletファイルを設定中..."
+        if [ -d "${WALLET_DIR}" ]; then
+            sed -i 's|DIRECTORY="?\+/network/admin" *|DIRECTORY="/u01/aipoc/props/wallet"|g' "${WALLET_DIR}/sqlnet.ora"
+            
+            # Copy wallet to Dify containers
+            WORKER_CONTAINER=$(docker ps --filter "name=worker" --format "{{.Names}}" | head -n 1)
+            if [ -n "$WORKER_CONTAINER" ]; then
+                echo "walletを${WORKER_CONTAINER}にコピー中..."
+                docker cp "${WALLET_DIR}" "${WORKER_CONTAINER}:/app/api/storage/wallet"
+                
+                # Fix wallet permissions
+                chown -R 1001:1001 volumes/app/storage/wallet 2>/dev/null || true
+            fi
+            
+            # Fix NLTK download issues
+            echo "NLTKダウンロード問題を修正中..."
+            API_CONTAINER=$(docker ps --filter "name=api" --format "{{.Names}}" | head -n 1)
+            if [ -n "$API_CONTAINER" ]; then
+                docker exec "$API_CONTAINER" python -c 'import nltk; nltk.download("punkt", quiet=True); nltk.download("punkt_tab", quiet=True)' || true
+            fi
+            
+            if [ -n "$WORKER_CONTAINER" ]; then
+                docker exec "$WORKER_CONTAINER" python -c 'import nltk; nltk.download("punkt", quiet=True); nltk.download("punkt_tab", quiet=True)' || true
+            fi
+            
+            # Restart containers to apply configuration
+            echo "設定を適用するためにコンテナを再起動中..."
+            docker restart "$WORKER_CONTAINER" "$API_CONTAINER" || true
+            
+            # Wait and verify containers are running
+            sleep 30
+        fi
+        
+        # Final service verification
+        echo "サービスの最終検証を実施中..."
+        max_attempts=12
+        wait_time=30
+        
+        for attempt in $(seq 1 $max_attempts); do
+            echo "サービスの可用性を検証中 (attempt $attempt/$max_attempts)..."
+            
+            if curl -s -f "http://${EXTERNAL_IP}:8080" >/dev/null 2>&1; then
+                echo "Difyサービスの検証に成功しました"
+                break
+            fi
+            
+            if [ $attempt -lt $max_attempts ]; then
+                echo "サービスがまだ準備できていません。${wait_time}秒待機してから再試行します..."
+                sleep $wait_time
+            else
+                echo "サービスの検証が$max_attempts回の試行後に失敗しました"
+                echo "http://${EXTERNAL_IP}:8080 を手動でアクセスして確認してください"
+            fi
+        done
+        
+        echo "Difyが準備完了しました。アクセスURL: http://${EXTERNAL_IP}:8080"
+    fi
+else
+    echo "Difyインストールが無効になっています。スキップします。"
+fi
 
 echo "初期化が完了しました。"

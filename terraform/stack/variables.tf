@@ -1,5 +1,5 @@
 variable "availability_domain" {
-  default = "bxtG:AP-TOKYO-1-AD-1"
+  default = "bxtG:AP-OSAKA-1-AD-1"
 }
 
 variable "compartment_ocid" {
@@ -43,7 +43,7 @@ variable "instance_boot_volume_vpus" {
 }
 
 variable "instance_image_source_id" {
-  default = "ocid1.image.oc1.ap-tokyo-1.aaaaaaaaoiusqhftxmiyjlulnxx5mdnqfv6pjx4hdcoks3exn7gsrcwpkpdq"
+  default = "ocid1.image.oc1.ap-osaka-1.aaaaaaaa7sbmd5q54w466eojxqwqfvvp554awzjpt2behuwsiefrxnwomq5a"
 }
 
 variable "subnet_ai_subnet_id" {
@@ -55,6 +55,44 @@ variable "ssh_authorized_keys" {
 }
 
 variable "oci_bucket_name" {
-  default = "semantic-doc-search"
+  default     = "semantic-doc-search"
   description = "OCI Object Storage bucket name for document storage"
+}
+
+variable "enable_dify" {
+  description = "Difyのインストールを有効化"
+  type        = bool
+  default     = false
+}
+
+variable "dify_bucket_name" {
+  description = "Dify専用のOCI Object Storageバケット名"
+  type        = string
+  default     = "dify-bucket"
+}
+
+variable "dify_branch" {
+  description = "Difyリポジトリのブランチまたはタグ名"
+  type        = string
+  default     = "1.11.4"
+}
+
+variable "bucket_region" {
+  description = "Object Storageバケットのリージョン"
+  type        = string
+  default     = "ap-osaka-1"
+}
+
+variable "oci_access_key" {
+  description = "OCI Object Storage Access Key (S3互換性用)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "oci_secret_key" {
+  description = "OCI Object Storage Secret Key (S3互換性用)"
+  type        = string
+  default     = ""
+  sensitive   = true
 }

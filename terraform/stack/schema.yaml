@@ -26,10 +26,22 @@ variableGroups:
       - adb_password
       - license_model
       - instance_display_name
+      - instance_image_source_id
+      - instance_shape
       - vcn_ai_vcn_id
       - subnet_ai_subnet_id
       - ssh_authorized_keys
       - oci_bucket_name
+      - enable_dify
+
+  - title: Dify Configuration
+    visible: ${enable_dify}
+    variables:
+      - dify_branch
+      - dify_bucket_name
+      - bucket_region
+      - oci_access_key
+      - oci_secret_key
 
 variables:
   region:
@@ -119,14 +131,66 @@ variables:
     visible: true
     default: "semantic-doc-search"
 
+  enable_dify:
+    type: boolean
+    required: true
+    visible: true
+    title: "Enable Dify Deployment"
+    description: "Enable Dify (Open-source LLM Platform) installation"
+    default: false
+
+  dify_branch:
+    type: string
+    required: ${enable_dify}
+    visible: ${enable_dify}
+    title: "Dify Branch/Tag"
+    description: "Branch or tag name to clone from Dify repository"
+    default: "1.11.4"
+
+  dify_bucket_name:
+    type: string
+    required: ${enable_dify}
+    visible: ${enable_dify}
+    title: "Dify Bucket Name"
+    description: "Object Storage bucket name for Dify"
+    default: "dify-bucket"
+
+  bucket_region:
+    type: enum
+    required: ${enable_dify}
+    visible: ${enable_dify}
+    title: "Object Storage Region"
+    description: "Select region for Object Storage bucket"
+    enum:
+      - "ap-osaka-1"
+      - "ap-tokyo-1"
+      - "us-chicago-1"
+    default: "ap-osaka-1"
+
+  oci_access_key:
+    type: string
+    required: ${enable_dify}
+    visible: ${enable_dify}
+    title: "OCI Access Key"
+    description: "OCI Object Storage Access Key (S3 compatibility)"
+
+  oci_secret_key:
+    type: password
+    required: ${enable_dify}
+    visible: ${enable_dify}
+    title: "OCI Secret Key"
+    description: "OCI Object Storage Secret Key (S3 compatibility)"
+    confirmation: false
+
   instance_image_source_id:
     type: enum
     required: true
     visible: true
-    title: "Choose the image according to your region."
+    title: "Operating System Image"
+    description: "Select the OS image according to your region"
     enum:
-      - "ocid1.image.oc1.ap-tokyo-1.aaaaaaaaoiusqhftxmiyjlulnxx5mdnqfv6pjx4hdcoks3exn7gsrcwpkpdq"
       - "ocid1.image.oc1.ap-osaka-1.aaaaaaaa7sbmd5q54w466eojxqwqfvvp554awzjpt2behuwsiefrxnwomq5a"
+      - "ocid1.image.oc1.ap-tokyo-1.aaaaaaaaoiusqhftxmiyjlulnxx5mdnqfv6pjx4hdcoks3exn7gsrcwpkpdq"
       - "ocid1.image.oc1.us-chicago-1.aaaaaaaal25tbfrlwhh27tzgiatqr3oq5y3qzz7wgpezjouvjk2cdfdr4mnq"
     default: "ocid1.image.oc1.ap-osaka-1.aaaaaaaa7sbmd5q54w466eojxqwqfvvp554awzjpt2behuwsiefrxnwomq5a"
 
@@ -134,7 +198,8 @@ variables:
     type: enum
     required: true
     visible: true
-    title: "Choose the shape."
+    title: "Compute Instance Shape"
+    description: "Select the shape for compute instance"
     enum:
       - "VM.Standard.E4.Flex"
       - "VM.Standard.E5.Flex"
@@ -158,14 +223,32 @@ outputs:
     visible: true
 
   ssh_to_instance:
-    title: "Convenient command to ssh to the instance"
+    title: "SSH Command to Instance"
     displayText: "Convenient command to ssh to the instance"
     type: copyableString
     visible: true
 
   application_url:
     title: "Application URL"
-    displayText: "Application URL"
+    displayText: "Semantic Document Search Application URL"
+    type: copyableString
+    visible: true
+
+  document_bucket_name:
+    title: "Document Storage Bucket"
+    displayText: "Object Storage bucket name for documents"
+    type: copyableString
+    visible: true
+
+  dify_url:
+    title: "Dify URL"
+    displayText: "Dify Platform URL (if enabled)"
+    type: copyableString
+    visible: true
+
+  dify_bucket_name:
+    title: "Dify Storage Bucket"
+    displayText: "Object Storage bucket name for Dify (if enabled)"
     type: copyableString
     visible: true
 

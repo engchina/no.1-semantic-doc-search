@@ -31,9 +31,39 @@ write_files:
   - path: "/u01/aipoc/props/oci_bucket.txt"
     permissions: "0644"
     content: ${bucket}
+  - path: "/u01/aipoc/props/dify_bucket.txt"
+    permissions: "0644"
+    content: ${dify_bucket}
   - path: "/u01/aipoc/props/adb_ocid.txt"
     permissions: "0644"
     content: ${adb_ocid}
+  - path: "/u01/aipoc/props/enable_dify.txt"
+    permissions: "0644"
+    content: |
+      ${enable_dify}
+  - path: "/u01/aipoc/props/dify_branch.txt"
+    permissions: "0644"
+    content: |
+      ${dify_branch}
+  - path: "/u01/aipoc/props/bucket_region.txt"
+    permissions: "0644"
+    content: |
+      ${bucket_region}
+  - path: "/u01/aipoc/props/bucket_namespace.txt"
+    permissions: "0644"
+    content: |
+      ${bucket_namespace}
+  - path: "/u01/aipoc/props/oci_access_key.txt"
+    permissions: "0644"
+    content: |
+      ${oci_access_key}
+  - path: "/u01/aipoc/props/oci_secret_key.txt"
+    permissions: "0644"
+    content: |
+      ${oci_secret_key}
+  - path: "/u01/aipoc/props/adb_password.txt"
+    permissions: "0644"
+    content: ${adb_pass}
   - path: "/u01/aipoc/wallet.zip"
     permissions: "0644"
     encoding: base64
@@ -42,6 +72,8 @@ write_files:
 runcmd:
   - apt install -y git unzip poppler-utils nginx netfilter-persistent
   - iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+  - iptables -I INPUT 7 -m state --state NEW -p tcp --dport 8080 -j ACCEPT
+  - iptables -I INPUT 8 -m state --state NEW -p tcp --dport 5001 -j ACCEPT
   - netfilter-persistent save
   - systemctl enable nginx
   - systemctl start nginx

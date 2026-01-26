@@ -17,11 +17,23 @@ if [ -f "$ROOT_DIR/.env" ]; then
 fi
 
 # Oracle Client環境変数を設定
+# 優先順位: 環境変数 TNS_ADMIN > /u01/aipoc/props/wallet > ORACLE_CLIENT_LIB_DIR/network/admin
+if [ -z "${TNS_ADMIN:-}" ]; then
+  # TNS_ADMINが未設定の場合
+  if [ -d "/u01/aipoc/props/wallet" ]; then
+    export TNS_ADMIN="/u01/aipoc/props/wallet"
+  elif [ -n "${ORACLE_CLIENT_LIB_DIR:-}" ]; then
+    export TNS_ADMIN="${ORACLE_CLIENT_LIB_DIR}/network/admin"
+  fi
+fi
+
 if [ -n "${ORACLE_CLIENT_LIB_DIR:-}" ]; then
-  export TNS_ADMIN="${ORACLE_CLIENT_LIB_DIR}/network/admin"
   export LD_LIBRARY_PATH="${ORACLE_CLIENT_LIB_DIR}:${LD_LIBRARY_PATH:-}"
+fi
+
+if [ -n "${TNS_ADMIN:-}" ]; then
   echo "[バックエンド] Oracle Client設定:"
-  echo "  ORACLE_CLIENT_LIB_DIR: ${ORACLE_CLIENT_LIB_DIR}"
+  echo "  ORACLE_CLIENT_LIB_DIR: ${ORACLE_CLIENT_LIB_DIR:-未設定}"
   echo "  TNS_ADMIN: ${TNS_ADMIN}"
 fi
 
