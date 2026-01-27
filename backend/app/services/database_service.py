@@ -20,6 +20,9 @@ def setup_tns_admin() -> str:
     """
     Setup TNS_ADMIN environment variable if not already set
     
+    TNS_ADMINはinit_script.shでも設定されますが、
+    Python側でも明示的に設定することで再起動後の一貫性を保証します。
+    
     Returns:
         str: TNS_ADMIN path
     """
@@ -221,7 +224,7 @@ def _execute_db_operation(func_name: str, **kwargs) -> Dict[str, Any]:
                     user=username,
                     password=password,
                     dsn=dsn,
-                    tcp_connect_timeout=30  # 30秒でタイムアウト
+                    tcp_connect_timeout=10  # 10秒でタイムアウト（推奨値）
                 )
                 
                 elapsed = time.time() - start_time
@@ -1019,7 +1022,8 @@ class DatabaseService:
                 connection = oracledb.connect(
                     user=username,
                     password=password,
-                    dsn=dsn
+                    dsn=dsn,
+                    tcp_connect_timeout=10  # 10秒でタイムアウト（推奨値）
                 )
                 
                 elapsed = time.time() - start_time

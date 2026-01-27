@@ -628,7 +628,7 @@ class ImageVectorizer:
         """
         非同期バージョン: 類似画像を検索（イベントループをブロックしない）
         
-        oracledb.connect_async()を使用して、イベントループをブロックしない真の非同期接続を実現
+        Thick modeでは asyncio.to_thread() でラップした同期接続を使用
         
         Args:
             query_embedding: 検索用のembeddingベクトル
