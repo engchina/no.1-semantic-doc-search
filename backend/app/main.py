@@ -2399,14 +2399,21 @@ async def vectorize_documents(request: VectorizeRequest):
     
     async def generate_progress():
         """進捗状況をSSE形式でストリーミング"""
+        event_count = 0
         try:
+            logger.info(f"ベクトル化SSEストリーム開始: job_id={job_id}")
             async for event in parallel_processor.process_vectorization(
                 object_names=object_names,
                 oci_service=oci_service,
                 image_vectorizer=image_vectorizer,
                 job_id=job_id
             ):
+                event_count += 1
+                # 心拍以外のイベントのみログ出力
+                if event.get('type') != 'heartbeat':
+                    logger.debug(f"SSEイベント送信 #{event_count}: type={event.get('type')}, job_id={job_id}")
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            logger.info(f"ベクトル化SSEストリーム完了: job_id={job_id}, total_events={event_count}")
         except Exception as e:
             logger.error(f"ベクトル化エラー: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
@@ -2437,13 +2444,20 @@ async def convert_documents_to_images(request: DocumentConvertRequest):
     
     async def generate_progress():
         """進捗状況をSSE形式でストリーミング"""
+        event_count = 0
         try:
+            logger.info(f"ページ画像化SSEストリーム開始: job_id={job_id}")
             async for event in parallel_processor.process_image_conversion(
                 object_names=object_names,
                 oci_service=oci_service,
                 job_id=job_id
             ):
+                event_count += 1
+                # 心拍以外のイベントのみログ出力
+                if event.get('type') != 'heartbeat':
+                    logger.debug(f"SSEイベント送信 #{event_count}: type={event.get('type')}, job_id={job_id}")
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            logger.info(f"ページ画像化SSEストリーム完了: job_id={job_id}, total_events={event_count}")
         except Exception as e:
             logger.error(f"ページ画像化エラー: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"

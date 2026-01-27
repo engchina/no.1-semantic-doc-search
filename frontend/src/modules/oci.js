@@ -672,7 +672,7 @@ export async function convertSelectedOciObjectsToImages() {
   
   try {
     appState.set('ociObjectsBatchDeleteLoading', true);
-    showLoading('ページ画像化を開始しています...');
+    showLoading('ページ画像化を準備中...\nサーバーに接続しています');
     
     // リクエストヘッダーを構築
     const headers = {
@@ -763,7 +763,7 @@ export async function vectorizeSelectedOciObjects() {
   
   try {
     appState.set('ociObjectsBatchDeleteLoading', true);
-    showLoading('ベクトル化を開始しています...');
+    showLoading('ベクトル化を準備中...\nサーバーに接続しています');
     
     // リクエストヘッダーを構築
     const headers = {
@@ -875,11 +875,15 @@ async function processStreamingResponse(response, totalFiles, operationType) {
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
   
+  // ジョブIDをヘッダーから取得
+  const jobId = response.headers.get('X-Job-ID');
+  
   let currentFileIndex = 0;
   let currentPageIndex = 0;
   let totalPages = 0;
   let processedPages = 0;
   let totalPagesAllFiles = 0;
+  let totalWorkers = 1; // 並列ワーカー数
   
   while (true) {
     const { done, value } = await reader.read();
@@ -905,16 +909,34 @@ async function processStreamingResponse(response, totalFiles, operationType) {
           switch(data.type) {
             case 'start':
               totalFiles = data.total_files;
+              totalWorkers = data.total_workers || 1;
               updateLoadingMessage(operationType === 'convert' ? 
-                `ファイルをページ画像化中... (0/${totalFiles})` :
-                `ファイルをベクトル化中... (0/${totalFiles})`, 0);
+                `ファイルをページ画像化中... (0/${totalFiles})\n並列ワーカー: ${totalWorkers}` :
+                `ファイルをベクトル化中... (0/${totalFiles})\n並列ワーカー: ${totalWorkers}`, 0, jobId);
+              break;
+              
+            case 'heartbeat':
+              // ハートビートは接続維持のため、UIは更新せず接続続行を示す
+              console.log('ハートビート受信:', data.timestamp);
+              break;
+              
+            case 'file_queued':
+              // ファイルが待機中になった
+              updateLoadingMessage(`ファイル待機中: ${data.file_name}\nステータス: ⏳ ${data.status}`, 0, jobId);
+              break;
+              
+            case 'file_processing':
+              // ファイルが処理中になった
+              currentFileIndex = data.file_index;
+              const processingProgress = (currentFileIndex - 1) / totalFiles;
+              updateLoadingMessage(`ファイル ${data.file_index}/${totalFiles}\n${data.file_name}\nステータス: 🔄 ${data.status}`, processingProgress, jobId);
               break;
               
             case 'file_start':
               currentFileIndex = data.file_index;
               totalFiles = data.total_files;
               const fileProgress = (currentFileIndex - 1) / totalFiles;
-              updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles} を処理中...\n${data.file_name}`, fileProgress);
+              updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles} を処理中...\n${data.file_name}`, fileProgress, jobId);
               break;
               
             case 'page_progress':
@@ -923,7 +945,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               const pageProgress = operationType === 'convert' ?
                 (processedPages + 1) / (totalPagesAllFiles || 1) :
                 (data.file_index - 1 + currentPageIndex / totalPages) / totalFiles;
-              updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files}\nページ ${currentPageIndex}/${totalPages} を${operationType === 'convert' ? '画像化' : 'ベクトル化'}中...`, pageProgress);
+              updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files}\nページ ${currentPageIndex}/${totalPages} を${operationType === 'convert' ? '画像化' : 'ベクトル化'}中...`, pageProgress, jobId);
               processedPages++;
               break;
               
@@ -934,11 +956,27 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               
             case 'file_complete':
               const completedFileProgress = currentFileIndex / totalFiles;
-              updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files} 完了\n${data.file_name}`, completedFileProgress);
+              updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files} ✓ 完了\n${data.file_name}`, completedFileProgress, jobId);
               break;
               
             case 'file_error':
               console.error(`ファイル ${data.file_index}/${data.total_files} エラー: ${data.error}`);
+              const errorProgress = currentFileIndex > 0 ? (currentFileIndex - 1) / totalFiles : 0;
+              updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files} ✗ エラー\n${data.file_name}\n${data.error}`, errorProgress, jobId);
+              break;
+              
+            case 'cancelled':
+              hideLoading();
+              appState.set('ociObjectsBatchDeleteLoading', false);
+              showToast(`処理がキャンセルされました\n${data.message}`, 'info');
+              appState.set('selectedOciObjects', []);
+              await loadOciObjects();
+              break;
+              
+            case 'error':
+              hideLoading();
+              appState.set('ociObjectsBatchDeleteLoading', false);
+              showToast(`エラー: ${data.message}`, 'error');
               break;
               
             case 'complete':
@@ -967,45 +1005,60 @@ async function processStreamingResponse(response, totalFiles, operationType) {
 }
 
 /**
- * ローディングメッセージを更新（プログレスバー付き）
+ * ローディングメッセージを更新（プログレスバー付き、キャンセルボタン対応）
  * @private
+ * @param {string} message - 表示するメッセージ
+ * @param {number|null} progress - 進捗率 (0-1)
+ * @param {string|null} jobId - ジョブID（キャンセル用）
  */
-function updateLoadingMessage(message, progress = null) {
+function updateLoadingMessage(message, progress = null, jobId = null) {
   const loadingOverlay = document.getElementById('loadingOverlay');
-  if (loadingOverlay) {
-    const textDiv = loadingOverlay.querySelector('.loading-overlay-text');
-    if (textDiv) {
-      textDiv.innerHTML = message.replace(/\n/g, '<br>');
-    }
-    
-    // プログレスバーがあれば更新
+  if (!loadingOverlay) return;
+  
+  // メッセージを更新
+  const textDiv = loadingOverlay.querySelector('.loading-overlay-text');
+  if (textDiv) {
+    textDiv.innerHTML = message.replace(/\n/g, '<br>');
+  }
+  
+  // プログレスバーを更新（utils.jsのshowLoadingで作成済みの要素を使用）
+  const progressContainer = loadingOverlay.querySelector('.loading-progress-container');
+  if (progressContainer) {
     if (progress !== null) {
-      let progressDiv = loadingOverlay.querySelector('.loading-progress');
-      if (!progressDiv) {
-        progressDiv = document.createElement('div');
-        progressDiv.className = 'loading-progress';
-        progressDiv.style.cssText = 'width: 100%; margin-top: 16px;';
-        progressDiv.innerHTML = `
-          <div style="display: flex; justify-between; margin-bottom: 4px;">
-            <span style="font-size: 12px; color: #64748b;">進捗状況</span>
-            <span style="font-size: 12px; color: #667eea; font-weight: 600;" class="loading-progress-percent">0%</span>
-          </div>
-          <div style="width: 100%; background: #e2e8f0; border-radius: 9999px; height: 8px; overflow: hidden;">
-            <div class="loading-progress-bar" style="height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); border-radius: 9999px; transition: width 0.3s ease; width: 0%;"></div>
-          </div>
-        `;
-        const contentDiv = loadingOverlay.querySelector('.loading-overlay-content');
-        if (contentDiv) {
-          contentDiv.appendChild(progressDiv);
-        }
-      }
-      
+      progressContainer.classList.remove('hidden');
       const clampedProgress = Math.max(0, Math.min(1, progress));
       const percentage = Math.round(clampedProgress * 100);
-      const percentSpan = progressDiv.querySelector('.loading-progress-percent');
-      const progressBar = progressDiv.querySelector('.loading-progress-bar');
-      if (percentSpan) percentSpan.textContent = `${percentage}%`;
-      if (progressBar) progressBar.style.width = `${percentage}%`;
+      
+      const progressBar = progressContainer.querySelector('.loading-progress-bar');
+      const progressPercent = progressContainer.querySelector('.loading-progress-percent');
+      
+      if (progressBar) {
+        progressBar.style.width = `${percentage}%`;
+      }
+      if (progressPercent) {
+        progressPercent.textContent = `${percentage}%`;
+      }
+    } else {
+      progressContainer.classList.add('hidden');
+    }
+  }
+  
+  // キャンセルボタンを更新（utils.jsのshowLoadingで作成済みの要素を使用）
+  const cancelContainer = loadingOverlay.querySelector('.loading-cancel-container');
+  if (cancelContainer) {
+    if (jobId) {
+      cancelContainer.classList.remove('hidden');
+      cancelContainer.innerHTML = `
+        <button 
+          onclick="window.cancelCurrentJob && window.cancelCurrentJob('${jobId}')" 
+          class="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-md transition-colors"
+        >
+          キャンセル
+        </button>
+      `;
+    } else {
+      cancelContainer.classList.add('hidden');
+      cancelContainer.innerHTML = '';
     }
   }
 }

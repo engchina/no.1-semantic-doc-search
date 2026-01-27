@@ -34,30 +34,49 @@ export function formatDateTime(isoString) {
 }
 
 /**
- * ローディングオーバーレイを表示
+ * ローディングオーバーレイを表示（プログレスバー対応版）
  * @param {string} message - 表示メッセージ
  */
 export function showLoading(message = '処理中...') {
   const existing = document.getElementById('loadingOverlay');
-  if (existing) return;
+  if (existing) {
+    // 既存のオーバーレイがある場合はメッセージのみ更新
+    const textEl = existing.querySelector('.loading-overlay-text');
+    if (textEl) {
+      textEl.innerHTML = message.replace(/\n/g, '<br>');
+    }
+    return;
+  }
   
   const overlay = document.createElement('div');
   overlay.id = 'loadingOverlay';
   overlay.className = 'loading-overlay';
   overlay.innerHTML = `
-    <div class="loading-overlay-content">
-      <div class="loading-spinner">
-        <svg class="loading-spinner-svg" viewBox="0 0 50 50">
-          <defs>
-            <linearGradient id="spinner-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
-              <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
-            </linearGradient>
-          </defs>
-          <circle class="loading-spinner-circle" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
-        </svg>
+    <div class="loading-overlay-content bg-white rounded-lg p-6 shadow-xl max-w-md w-full mx-4">
+      <div class="flex flex-col items-center">
+        <div class="loading-spinner">
+          <svg class="loading-spinner-svg" viewBox="0 0 50 50">
+            <defs>
+              <linearGradient id="spinner-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+                <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+              </linearGradient>
+            </defs>
+            <circle class="loading-spinner-circle" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
+          </svg>
+        </div>
+        <div class="loading-overlay-text mt-4 text-gray-700 text-center">${message.replace(/\n/g, '<br>')}</div>
+        <div class="loading-progress-container hidden w-full mt-4">
+          <div class="flex justify-between mb-1">
+            <span class="text-sm font-medium text-gray-700">進捗状況</span>
+            <span class="loading-progress-percent text-sm font-medium text-purple-600">0%</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-2.5">
+            <div class="loading-progress-bar bg-purple-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="loading-cancel-container hidden mt-4"></div>
       </div>
-      <div class="loading-overlay-text">${message}</div>
     </div>
   `;
   document.body.appendChild(overlay);

@@ -1467,7 +1467,7 @@ window.convertSelectedOciObjectsToImages = async function() {
   
   try {
     ociObjectsBatchDeleteLoading = true;
-    utilsShowLoading('ページ画像化を開始しています...');
+    utilsShowLoading('ページ画像化を準備中...\nサーバーに接続しています');
     
     // リクエストヘッダーを構築
     const headers = {
@@ -1543,6 +1543,12 @@ window.convertSelectedOciObjectsToImages = async function() {
                 totalFiles = data.total_files;
                 totalWorkers = data.total_workers || 1;
                 updateLoadingMessage(`ファイルをページ画像化中... (0/${totalFiles})\n並列ワーカー: ${totalWorkers}`, 0, jobId);
+                break;
+                
+              case 'heartbeat':
+                // ハートビートは接続維持のため、現在のメッセージに「処理中...」の波アニメーションを追加
+                // UIは更新せず、接続が続いていることを示す
+                console.log('ハートビート受信:', data.timestamp);
                 break;
                 
               case 'file_queued':
@@ -1698,7 +1704,7 @@ window.vectorizeSelectedOciObjects = async function() {
   
   try {
     ociObjectsBatchDeleteLoading = true;
-    utilsShowLoading('ベクトル化を開始しています...');
+    utilsShowLoading('ベクトル化を準備中...\nサーバーに接続しています');
     
     // リクエストヘッダーを構築
     const headers = {
@@ -1772,6 +1778,11 @@ window.vectorizeSelectedOciObjects = async function() {
                 totalFiles = data.total_files;
                 totalWorkers = data.total_workers || 1;
                 updateLoadingMessage(`ファイルをベクトル化中... (0/${totalFiles})\n並列ワーカー: ${totalWorkers}`, 0, jobId);
+                break;
+                
+              case 'heartbeat':
+                // ハートビートは接続維持のため、UIは更新せず接続続行を示す
+                console.log('ハートビート受信:', data.timestamp);
                 break;
                 
               case 'file_queued':
@@ -1924,49 +1935,52 @@ window.vectorizeSelectedOciObjects = async function() {
  */
 function updateLoadingMessage(message, progress = null, jobId = null) {
   const loadingOverlay = document.getElementById('loadingOverlay');
-  if (loadingOverlay && loadingOverlay.style.display !== 'none') {
-    const contentDiv = loadingOverlay.querySelector('.bg-white');
-    if (contentDiv) {
-      // プログレスバー付きUI
-      let progressHtml = '';
-      if (progress !== null) {
-        // 進捗率を0-1の範囲に制限
-        const clampedProgress = Math.max(0, Math.min(1, progress));
-        const percentage = Math.round(clampedProgress * 100);
-        progressHtml = `
-          <div class="w-full mt-4">
-            <div class="flex justify-between mb-1">
-              <span class="text-sm font-medium text-gray-700">進捗状況</span>
-              <span class="text-sm font-medium text-purple-600">${percentage}%</span>
-            </div>
-            <div class="w-full bg-gray-200 rounded-full h-2.5">
-              <div class="bg-purple-600 h-2.5 rounded-full transition-all duration-300" style="width: ${percentage}%"></div>
-            </div>
-          </div>
-        `;
-      }
+  if (!loadingOverlay) return;
+  
+  // メッセージを更新
+  const textEl = loadingOverlay.querySelector('.loading-overlay-text');
+  if (textEl) {
+    textEl.innerHTML = message.replace(/\n/g, '<br>');
+  }
+  
+  // プログレスバーを更新
+  const progressContainer = loadingOverlay.querySelector('.loading-progress-container');
+  if (progressContainer) {
+    if (progress !== null) {
+      progressContainer.classList.remove('hidden');
+      const clampedProgress = Math.max(0, Math.min(1, progress));
+      const percentage = Math.round(clampedProgress * 100);
       
-      // キャンセルボタン（jobIdがある場合のみ表示）
-      let cancelButtonHtml = '';
-      if (jobId) {
-        cancelButtonHtml = `
-          <div class="mt-4">
-            <button 
-              onclick="cancelCurrentJob('${jobId}')" 
-              class="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-md transition-colors"
-            >
-              キャンセル
-            </button>
-          </div>
-        `;
-      }
+      const progressBar = progressContainer.querySelector('.loading-progress-bar');
+      const progressPercent = progressContainer.querySelector('.loading-progress-percent');
       
-      contentDiv.innerHTML = `
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto"></div>
-        <p class="mt-4 text-gray-700">${message.replace(/\n/g, '<br>')}</p>
-        ${progressHtml}
-        ${cancelButtonHtml}
+      if (progressBar) {
+        progressBar.style.width = `${percentage}%`;
+      }
+      if (progressPercent) {
+        progressPercent.textContent = `${percentage}%`;
+      }
+    } else {
+      progressContainer.classList.add('hidden');
+    }
+  }
+  
+  // キャンセルボタンを更新
+  const cancelContainer = loadingOverlay.querySelector('.loading-cancel-container');
+  if (cancelContainer) {
+    if (jobId) {
+      cancelContainer.classList.remove('hidden');
+      cancelContainer.innerHTML = `
+        <button 
+          onclick="cancelCurrentJob('${jobId}')" 
+          class="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-md transition-colors"
+        >
+          キャンセル
+        </button>
       `;
+    } else {
+      cancelContainer.classList.add('hidden');
+      cancelContainer.innerHTML = '';
     }
   }
 }

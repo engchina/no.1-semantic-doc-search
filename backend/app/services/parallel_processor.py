@@ -339,6 +339,9 @@ class ParallelProcessor:
         failed_count = 0
         completed_count = 0
         
+        # 完了シグナル用のイベント
+        all_tasks_done = asyncio.Event()
+        
         async def process_single_file(file_idx: int, obj_name: str):
             """単一ファイルを処理（非同期）"""
             nonlocal success_count, failed_count, completed_count
@@ -386,14 +389,18 @@ class ParallelProcessor:
                     'status': '画像化中'
                 })
                 
-                # ProcessPoolで変換（非同期で待機）
-                future = pool.submit(
-                    _convert_file_to_images_worker,
-                    file_content,
-                    file_ext,
-                    obj_name
-                )
-                success, page_images, error_msg = await loop.run_in_executor(None, future.result)
+                # ProcessPoolで変換（run_in_executorを直接使用）
+                try:
+                    success, page_images, error_msg = await loop.run_in_executor(
+                        pool,
+                        _convert_file_to_images_worker,
+                        file_content,
+                        file_ext,
+                        obj_name
+                    )
+                except Exception as conv_error:
+                    logger.error(f"画像変換実行エラー ({obj_name}): {conv_error}")
+                    success, page_images, error_msg = False, [], str(conv_error)
                 
                 if JobManager.is_cancelled(job_id):
                     return
@@ -536,6 +543,8 @@ class ParallelProcessor:
             finally:
                 async with results_lock:
                     completed_count += 1
+                    if completed_count >= total_files:
+                        all_tasks_done.set()
         
         # 並列タスクを作成・実行
         tasks = [
@@ -543,32 +552,45 @@ class ParallelProcessor:
             for file_idx, obj_name in enumerate(object_names, start=1)
         ]
         
-        # イベント収集タスク
+        # イベント収集とタスク完了を同時に処理
         async def collect_events():
-            """タスク完了までイベントを収集"""
-            while True:
-                # すべてのタスクが完了したかチェック
-                async with results_lock:
-                    if completed_count >= total_files:
-                        break
-                
+            """タスク完了までイベントを収集（ハートビート付き）"""
+            heartbeat_interval = 2.0  # ハートビート間隔（秒）
+            last_heartbeat = time.time()
+            event_timeout = 0.5  # イベント待機タイムアウト（秒）
+            
+            while not all_tasks_done.is_set():
                 try:
                     # タイムアウト付きでイベントを待機
-                    event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                    event = await asyncio.wait_for(event_queue.get(), timeout=event_timeout)
                     yield event
+                    last_heartbeat = time.time()  # イベント送信後にリセット
                 except asyncio.TimeoutError:
+                    # ハートビートを定期的に送信（接続維持のため）
+                    current_time = time.time()
+                    if current_time - last_heartbeat >= heartbeat_interval:
+                        yield {
+                            'type': 'heartbeat',
+                            'timestamp': current_time,
+                            'status': 'processing'
+                        }
+                        last_heartbeat = current_time
                     continue
             
             # 残りのイベントをすべて取得
             while not event_queue.empty():
-                event = await event_queue.get()
-                yield event
+                try:
+                    event = event_queue.get_nowait()
+                    yield event
+                except Exception:
+                    # QueueEmptyを含む例外をキャッチ
+                    break
         
         # イベントをyield
         async for event in collect_events():
             yield event
         
-        # すべてのタスクの完了を待機
+        # すべてのタスクの完了を待機（確実に完了させる）
         await asyncio.gather(*tasks, return_exceptions=True)
         
         # 完了処理
@@ -598,6 +620,9 @@ class ParallelProcessor:
                 'elapsed_time': elapsed_time,
                 'results': results
             }
+            
+            # クライアントが最後のイベントを確実に受信できるように短時間待機
+            await asyncio.sleep(0.1)
     
     async def process_vectorization(
         self,
@@ -672,6 +697,9 @@ class ParallelProcessor:
         success_count = 0
         failed_count = 0
         completed_count = 0
+        
+        # 完了シグナル用のイベント
+        all_tasks_done = asyncio.Event()
         
         async def process_single_file(file_idx: int, obj_name: str):
             """単一ファイルを処理（非同期・並列）"""
@@ -828,6 +856,63 @@ class ParallelProcessor:
                 max_vectorize_retries = 3
                 embedding_count = 0
                 failed_pages = []
+                embedding_count_lock = asyncio.Lock()
+                
+                # ページベクトル化関数（ループの外で定義）
+                async def vectorize_page(page_idx: int, page_image_name: str) -> bool:
+                    """単一ページをベクトル化（セマフォ付き）"""
+                    nonlocal embedding_count
+                    
+                    async with semaphore:
+                        if JobManager.is_cancelled(job_id):
+                            return False
+                        
+                        try:
+                            # 画像をダウンロード（非同期化）
+                            image_content = await asyncio.to_thread(
+                                oci_service.download_object, page_image_name
+                            )
+                            if not image_content:
+                                logger.warning(f"画像が見つかりません: {page_image_name}")
+                                return False
+                            
+                            image_bytes = io.BytesIO(image_content)
+                            
+                            # リトライ付きでEmbedding生成（BytesIOの位置をリセットするためlambda内でseek）
+                            def generate_embedding_with_seek():
+                                image_bytes.seek(0)
+                                return image_vectorizer.generate_embedding(image_bytes, "image/png")
+                            
+                            embedding = await self._retry_with_backoff(generate_embedding_with_seek)
+                            
+                            if embedding is None:
+                                logger.warning(f"Embedding生成失敗: {page_image_name}")
+                                return False
+                            
+                            # DBに保存（非同期化）
+                            embedding_id = await asyncio.to_thread(
+                                image_vectorizer.save_image_embedding,
+                                file_id=file_id,
+                                bucket=bucket_name,
+                                object_name=page_image_name,
+                                page_number=page_idx,
+                                content_type="image/png",
+                                file_size=len(image_content),
+                                embedding=embedding
+                            )
+                            
+                            if embedding_id:
+                                async with embedding_count_lock:
+                                    embedding_count += 1
+                                return True
+                            return False
+                            
+                        except Exception as e:
+                            logger.error(f"ページベクトル化エラー ({page_image_name}): {e}")
+                            return False
+                
+                # 初回は全ページを処理対象に
+                pages_to_process = list(enumerate(page_images, start=1))
                 
                 for vectorize_attempt in range(max_vectorize_retries):
                     if JobManager.is_cancelled(job_id):
@@ -849,71 +934,18 @@ class ParallelProcessor:
                         })
                         # リトライ前に待機
                         await asyncio.sleep(2.0)
-                        pages_to_process = failed_pages
-                    else:
-                        pages_to_process = list(enumerate(page_images, start=1))
+                        pages_to_process = failed_pages.copy()
                     
                     # 各試行で失敗ページをリセット
                     failed_pages = []
-                    embedding_count_lock = asyncio.Lock()
                     
-                    async def vectorize_page(page_idx: int, page_image_name: str) -> bool:
-                        """単一ページをベクトル化（セマフォ付き）"""
-                        nonlocal embedding_count
-                        
-                        async with semaphore:
-                            if JobManager.is_cancelled(job_id):
-                                return False
-                            
-                            try:
-                                # 画像をダウンロード（非同期化）
-                                image_content = await asyncio.to_thread(
-                                    oci_service.download_object, page_image_name
-                                )
-                                if not image_content:
-                                    logger.warning(f"画像が見つかりません: {page_image_name}")
-                                    return False
-                                
-                                image_bytes = io.BytesIO(image_content)
-                                
-                                # リトライ付きでEmbedding生成
-                                embedding = await self._retry_with_backoff(
-                                    lambda: image_vectorizer.generate_embedding(image_bytes, "image/png")
-                                )
-                                
-                                if embedding is None:
-                                    logger.warning(f"Embedding生成失敗: {page_image_name}")
-                                    return False
-                                
-                                # DBに保存（非同期化）
-                                embedding_id = await asyncio.to_thread(
-                                    image_vectorizer.save_image_embedding,
-                                    file_id=file_id,
-                                    bucket=bucket_name,
-                                    object_name=page_image_name,
-                                    page_number=page_idx,
-                                    content_type="image/png",
-                                    file_size=len(image_content),
-                                    embedding=embedding
-                                )
-                                
-                                if embedding_id:
-                                    async with embedding_count_lock:
-                                        embedding_count += 1
-                                    return True
-                                return False
-                                
-                            except Exception as e:
-                                logger.error(f"ページベクトル化エラー ({page_image_name}): {e}")
-                                return False
+                    # 並列でページをベクトル化（asyncio.gatherで真の並列実行）
+                    page_tasks = [
+                        (page_idx, page_image_name, asyncio.create_task(vectorize_page(page_idx, page_image_name)))
+                        for page_idx, page_image_name in pages_to_process
+                    ]
                     
-                    # 並列でページをベクトル化
-                    page_tasks = []
-                    for page_idx, page_image_name in pages_to_process:
-                        task = asyncio.create_task(vectorize_page(page_idx, page_image_name))
-                        page_tasks.append((page_idx, page_image_name, task))
-                    
-                    # ページ処理を待機し、失敗したページを記録
+                    # ページ処理を並列で待機し、失敗したページを記録
                     for page_idx, page_image_name, task in page_tasks:
                         if JobManager.is_cancelled(job_id):
                             task.cancel()
@@ -1013,6 +1045,8 @@ class ParallelProcessor:
             finally:
                 async with results_lock:
                     completed_count += 1
+                    if completed_count >= total_files:
+                        all_tasks_done.set()
         
         # 並列タスクを作成・実行
         tasks = [
@@ -1020,32 +1054,45 @@ class ParallelProcessor:
             for file_idx, obj_name in enumerate(object_names, start=1)
         ]
         
-        # イベント収集タスク
+        # イベント収集とタスク完了を同時に処理
         async def collect_events():
-            """タスク完了までイベントを収集"""
-            while True:
-                # すべてのタスクが完了したかチェック
-                async with results_lock:
-                    if completed_count >= total_files:
-                        break
-                
+            """タスク完了までイベントを収集（ハートビート付き）"""
+            heartbeat_interval = 2.0  # ハートビート間隔（秒）
+            last_heartbeat = time.time()
+            event_timeout = 0.5  # イベント待機タイムアウト（秒）
+            
+            while not all_tasks_done.is_set():
                 try:
                     # タイムアウト付きでイベントを待機
-                    event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                    event = await asyncio.wait_for(event_queue.get(), timeout=event_timeout)
                     yield event
+                    last_heartbeat = time.time()  # イベント送信後にリセット
                 except asyncio.TimeoutError:
+                    # ハートビートを定期的に送信（接続維持のため）
+                    current_time = time.time()
+                    if current_time - last_heartbeat >= heartbeat_interval:
+                        yield {
+                            'type': 'heartbeat',
+                            'timestamp': current_time,
+                            'status': 'processing'
+                        }
+                        last_heartbeat = current_time
                     continue
             
             # 残りのイベントをすべて取得
             while not event_queue.empty():
-                event = await event_queue.get()
-                yield event
+                try:
+                    event = event_queue.get_nowait()
+                    yield event
+                except Exception:
+                    # QueueEmptyを含む例外をキャッチ
+                    break
         
         # イベントをyield
         async for event in collect_events():
             yield event
         
-        # すべてのタスクの完了を待機
+        # すべてのタスクの完了を待機（確実に完了させる）
         await asyncio.gather(*tasks, return_exceptions=True)
         
         # 完了処理
@@ -1075,6 +1122,9 @@ class ParallelProcessor:
                 'elapsed_time': elapsed_time,
                 'results': results
             }
+            
+            # クライアントが最後のイベントを確実に受信できるように短時間待機
+            await asyncio.sleep(0.1)
     
     async def _retry_with_backoff(
         self,
