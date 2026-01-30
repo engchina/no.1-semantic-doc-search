@@ -1370,7 +1370,10 @@ async def search_documents(query: SearchQuery, request: Request):
         # X-Forwarded-* ヘッダーを優先(nginxプロキシ対応)
         scheme = request.headers.get('X-Forwarded-Proto', request.url.scheme)
         host = request.headers.get('X-Forwarded-Host', request.headers.get('Host', request.url.netloc))
-        base_url = f"{scheme}://{host}"
+        
+        # APIベースパスを環境変数から取得(デフォルト: /ai/api)
+        api_base_path = os.getenv('API_BASE_PATH', '/ai/api')
+        base_url = f"{scheme}://{host}{api_base_path}"
         
         # 絶対URL生成用のヘルパー関数
         def build_absolute_url(bucket: str, object_name: str) -> str:

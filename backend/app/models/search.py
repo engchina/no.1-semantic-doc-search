@@ -37,6 +37,8 @@ class FileSearchResult(BaseModel):
 
 class SearchResponse(BaseModel):
     """検索レスポンス"""
+    model_config = ConfigDict(from_attributes=True)
+    
     success: bool
     query: str
     results: List[FileSearchResult]  # ファイル単位の結果
