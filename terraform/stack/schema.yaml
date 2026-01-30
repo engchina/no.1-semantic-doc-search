@@ -32,6 +32,7 @@ variableGroups:
       - subnet_ai_subnet_id
       - ssh_authorized_keys
       - oci_bucket_name
+      - external_api_keys
       - enable_dify
 
   - title: Dify Configuration
@@ -130,6 +131,15 @@ variables:
     required: true
     visible: true
     default: "semantic-doc-search"
+
+  external_api_keys:
+    type: password
+    title: "External API Keys"
+    description: "外部APIアクセス用のAPIキー（カンマ区切りで複数指定可能、例: secred-key-1,secred-key-2,secred-key-3）"
+    required: false
+    visible: true
+    confirmation: false
+    default: ""
 
   enable_dify:
     type: boolean
@@ -252,6 +262,12 @@ outputs:
   dify_bucket_name:
     title: "Dify Storage Bucket"
     displayText: "Object Storage bucket name for Dify (if enabled)"
+    type: copyableString
+    visible: true
+
+  external_api_keys:
+    title: "External API Keys"
+    displayText: "Configured External API Keys for external access"
     type: copyableString
     visible: true
 

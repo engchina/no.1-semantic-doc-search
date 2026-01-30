@@ -23,6 +23,7 @@ data "template_file" "cloud_init_file" {
     bucket_namespace = data.oci_objectstorage_namespace.tenant_namespace.namespace
     oci_access_key   = var.oci_access_key
     oci_secret_key   = var.oci_secret_key
+    external_api_keys = var.external_api_keys
   }
 }
 

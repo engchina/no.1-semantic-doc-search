@@ -34,8 +34,18 @@ class OCIService:
 
     def get_settings(self) -> OCISettings:
         """保存された設定を読み込む"""
+        # 環境変数から基本設定を取得
+        bucket_name = os.environ.get("OCI_BUCKET")
+        namespace = os.environ.get("OCI_NAMESPACE", "")  # 空でもOK
+        region = os.environ.get("OCI_REGION")
+        
+        # Configファイルがない場合、環境変数のみで返す
         if not os.path.exists(self.config_file) or not os.path.exists(self.key_file):
-            return OCISettings()
+            return OCISettings(
+                region=region,
+                bucket_name=bucket_name,
+                namespace=namespace
+            )
         
         try:
             # Configファイルを読み込む
@@ -43,7 +53,11 @@ class OCIService:
             config.read(self.config_file)
             
             if 'DEFAULT' not in config:
-                return OCISettings()
+                return OCISettings(
+                    region=region,
+                    bucket_name=bucket_name,
+                    namespace=namespace
+                )
                 
             defaults = config['DEFAULT']
             
@@ -55,22 +69,26 @@ class OCIService:
             with open(self.key_file, 'r') as f:
                 key_content = f.read()
             
-            # Object Storage設定を環境変数から取得
-            bucket_name = os.environ.get("OCI_BUCKET")
-            namespace = os.environ.get("OCI_NAMESPACE", "")  # 空でもOK
+            # Regionは環境変数を優先、なければconfigファイルから取得
+            if not region:
+                region = defaults.get('region')
                 
             return OCISettings(
                 user_ocid=defaults.get('user'),
                 tenancy_ocid=defaults.get('tenancy'),
                 fingerprint=defaults.get('fingerprint'),
-                region=defaults.get('region'),
+                region=region,
                 key_content=key_content,
                 bucket_name=bucket_name,
                 namespace=namespace
             )
         except Exception as e:
             logger.error(f"設定ファイルの読み込みエラー: {e}")
-            return OCISettings()
+            return OCISettings(
+                region=region,
+                bucket_name=bucket_name,
+                namespace=namespace
+            )
 
     def save_settings(self, settings: OCISettings) -> bool:
         """設定を保存する"""
@@ -86,13 +104,14 @@ class OCIService:
                 with open(self.key_file, 'w') as f:
                     f.write(settings.key_content)
                 os.chmod(self.key_file, 0o600)
+                logger.info("Private Keyを保存しました")
             elif not os.path.exists(self.key_file):
                 # キーファイルが存在せず、新しいキーも提供されていない場合はエラー
                 logger.error("Private Keyが必要です")
                 return False
             # else: 既存のキーファイルをそのまま使用
             
-            # Configファイルを保存
+            # Configファイルを保存（Regionを含む）
             config = configparser.ConfigParser()
             config['DEFAULT'] = {
                 'user': settings.user_ocid,
@@ -107,6 +126,8 @@ class OCIService:
             
             # Configファイルのパーミッションも600に設定
             os.chmod(self.config_file, 0o600)
+            
+            logger.info(f"OCI設定を保存しました: config={self.config_file}, region={settings.region}")
                 
             return True
         except Exception as e:

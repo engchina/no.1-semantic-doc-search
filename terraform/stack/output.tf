@@ -27,13 +27,18 @@ output "ssh_to_instance" {
 }
 
 output "application_url" {
-  description = "convenient url to access the application"
-  value       = "http://${oci_core_instance.generated_oci_core_instance.public_ip}"
+  description = "URL to access the application"
+  value       = "http://${oci_core_instance.generated_oci_core_instance.public_ip}/ai"
+}
+
+output "api_url" {
+  description = "URL to access the API"
+  value       = "http://${oci_core_instance.generated_oci_core_instance.public_ip}/ai/api"
 }
 
 output "dify_url" {
   description = "URL to access Dify (if enabled)"
-  value       = var.enable_dify ? "http://${oci_core_instance.generated_oci_core_instance.public_ip}:8080" : "Dify is not enabled"
+  value       = var.enable_dify ? "http://${oci_core_instance.generated_oci_core_instance.public_ip}/" : "Dify is not enabled"
 }
 
 output "dify_bucket_name" {
@@ -44,4 +49,9 @@ output "dify_bucket_name" {
 output "document_bucket_name" {
   description = "Document storage bucket name"
   value       = var.oci_bucket_name
+}
+
+output "external_api_keys" {
+  description = "External API Keys for external access (masked)"
+  value       = var.external_api_keys != "" ? "Configured (${length(split(",", var.external_api_keys))} keys)" : "Not configured"
 }

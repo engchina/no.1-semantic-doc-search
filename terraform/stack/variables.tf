@@ -96,3 +96,10 @@ variable "oci_secret_key" {
   default     = ""
   sensitive   = true
 }
+
+variable "external_api_keys" {
+  description = "外部APIアクセス用のAPIキー（カンマ区切りで複数指定可能）"
+  type        = string
+  default     = ""
+  sensitive   = true
+}

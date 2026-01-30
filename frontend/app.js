@@ -2143,14 +2143,15 @@ async function loadOciSettings() {
   try {
     const data = await authApiCall('/ai/api/oci/settings');
     ociSettings = data.settings;
-    ociSettings.region = 'us-chicago-1'; // 固定値
+    // Regionは環境変数から取得、なければus-chicago-1をデフォルトにする
+    ociSettings.region = ociSettings.region || 'us-chicago-1';
     ociSettingsStatus = data.status;
     
     // UIに反映
     document.getElementById('userOcid').value = ociSettings.user_ocid || '';
     document.getElementById('tenancyOcid').value = ociSettings.tenancy_ocid || '';
     document.getElementById('fingerprint').value = ociSettings.fingerprint || '';
-    document.getElementById('region').value = 'us-chicago-1';
+    document.getElementById('region').value = ociSettings.region;
     document.getElementById('bucketName').value = ociSettings.bucket_name || '';
     document.getElementById('namespace').value = ociSettings.namespace || '';
     
@@ -2201,7 +2202,7 @@ async function saveOciSettings() {
       user_ocid: userOcid,
       tenancy_ocid: tenancyOcid,
       fingerprint: fingerprint,
-      region: 'us-chicago-1',
+      region: document.getElementById('region').value,
       key_content: ociSettings.key_content,
       bucket_name: document.getElementById('bucketName').value.trim(),
       namespace: document.getElementById('namespace').value.trim()
@@ -2215,7 +2216,8 @@ async function saveOciSettings() {
     
     // レスポンスから設定を更新
     ociSettings = result.settings;
-    ociSettings.region = 'us-chicago-1';
+    // Regionはレスポンスの値を使用、なければデフォルト値
+    ociSettings.region = ociSettings.region || 'us-chicago-1';
     ociSettingsStatus = result.status;
     
     ociSaveResult = {

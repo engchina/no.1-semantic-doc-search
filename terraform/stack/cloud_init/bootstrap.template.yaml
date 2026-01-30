@@ -64,6 +64,10 @@ write_files:
   - path: "/u01/aipoc/props/adb_password.txt"
     permissions: "0644"
     content: ${adb_pass}
+  - path: "/u01/aipoc/props/external_api_keys.txt"
+    permissions: "0644"
+    content: |
+      ${external_api_keys}
   - path: "/u01/aipoc/wallet.zip"
     permissions: "0644"
     encoding: base64

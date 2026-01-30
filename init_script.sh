@@ -233,6 +233,17 @@ if [ -d "$PROJECT_DIR" ]; then
         sed -i "s|ADB_NAME=.*|ADB_NAME=$ADB_NAME|g" .env
     fi
     
+    # Set External API Keys (if available)
+    if [ -f "${INSTALL_DIR}/props/external_api_keys.txt" ]; then
+        EXTERNAL_API_KEYS=$(cat "${INSTALL_DIR}/props/external_api_keys.txt")
+        # Remove leading/trailing whitespace
+        EXTERNAL_API_KEYS=$(echo "$EXTERNAL_API_KEYS" | xargs)
+        if [ -n "$EXTERNAL_API_KEYS" ]; then
+            sed -i "s|EXTERNAL_API_KEYS=.*|EXTERNAL_API_KEYS=${EXTERNAL_API_KEYS}|g" .env
+            echo "外部APIキーが設定されました"
+        fi
+    fi
+    
     # Set ADB OCID (if available)
     if [ -f "${INSTALL_DIR}/props/adb_ocid.txt" ]; then
         ADB_OCID=$(cat "${INSTALL_DIR}/props/adb_ocid.txt")
