@@ -688,6 +688,9 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         echo "Docker Compose override設定を作成中..."
         cat > docker-compose.override.yaml << EOL
 services:
+  nginx:
+    # Dify内部Nginxは外部に公開しない（外部Nginxが直接web/apiにプロキシ）
+    ports: []
   web:
     ports:
       - '127.0.0.1:3000:3000'
