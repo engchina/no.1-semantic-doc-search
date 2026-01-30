@@ -360,6 +360,21 @@ server {
         proxy_set_header Host $host;
         access_log off;
     }
+
+    # Difyリバースプロキシ（/difyパス）
+    location /dify/ {
+        proxy_pass http://127.0.0.1:8080/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix /dify;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_buffering off;
+        rewrite ^/dify/(.*)$ /$1 break;
+    }
 }
 NGINX_EOF
 
@@ -555,7 +570,7 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         echo "Dify環境ファイルを設定中..."
         cp -f .env.example .env
         
-        # Basic port configuration
+        # Basic port configuration (8080内部ポートのみ使用、外部公開なし)
         sed -i "s|EXPOSE_NGINX_PORT=80|EXPOSE_NGINX_PORT=8080|g" .env
         
         # Configure Oracle ADB as vector store
@@ -589,26 +604,29 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         sed -i "s|OCI_SECRET_KEY=.*|OCI_SECRET_KEY=${OCI_SECRET_KEY}|g" .env
         sed -i "s|OCI_REGION=.*|OCI_REGION=${OCI_REGION}|g" .env
         
-        # Update URL configuration
+        # Update URL configuration (Nginxリバースプロキシ経由 /dify パス)
         echo "URL設定を更新中..."
-        sed -i "s|^CONSOLE_API_URL=.*|CONSOLE_API_URL=http://${EXTERNAL_IP}:8080|" .env
-        sed -i "s|^CONSOLE_WEB_URL=.*|CONSOLE_WEB_URL=http://${EXTERNAL_IP}:8080|" .env
-        sed -i "s|^SERVICE_API_URL=.*|SERVICE_API_URL=http://${EXTERNAL_IP}:8080|" .env
-        sed -i "s|^APP_API_URL=.*|APP_API_URL=http://${EXTERNAL_IP}:8080|" .env
-        sed -i "s|^APP_WEB_URL=.*|APP_WEB_URL=http://${EXTERNAL_IP}:8080|" .env
-        sed -i "s|^FILES_URL=.*|FILES_URL=http://${EXTERNAL_IP}:5001|" .env
+        sed -i "s|^CONSOLE_API_URL=.*|CONSOLE_API_URL=http://${EXTERNAL_IP}/dify/console/api|" .env
+        sed -i "s|^CONSOLE_WEB_URL=.*|CONSOLE_WEB_URL=http://${EXTERNAL_IP}/dify|" .env
+        sed -i "s|^SERVICE_API_URL=.*|SERVICE_API_URL=http://${EXTERNAL_IP}/dify/api|" .env
+        sed -i "s|^APP_API_URL=.*|APP_API_URL=http://${EXTERNAL_IP}/dify/api|" .env
+        sed -i "s|^APP_WEB_URL=.*|APP_WEB_URL=http://${EXTERNAL_IP}/dify|" .env
+        sed -i "s|^FILES_URL=.*|FILES_URL=http://${EXTERNAL_IP}/dify/files|" .env
         sed -i "s|^UPLOAD_FILE_SIZE_LIMIT=15|UPLOAD_FILE_SIZE_LIMIT=100|g" .env
         sed -i "s|^CODE_MAX_STRING_ARRAY_LENGTH=30|CODE_MAX_STRING_ARRAY_LENGTH=1000|g" .env
         sed -i "s|^CODE_MAX_OBJECT_ARRAY_LENGTH=30|CODE_MAX_OBJECT_ARRAY_LENGTH=1000|g" .env
         sed -i "s|^HTTP_REQUEST_NODE_MAX_BINARY_SIZE=10485760|HTTP_REQUEST_NODE_MAX_BINARY_SIZE=104857600|g" .env
         
-        # Create docker-compose.override.yaml for port configuration
+        # Create docker-compose.override.yaml for internal port configuration
         echo "Docker Compose override設定を作成中..."
         cat > docker-compose.override.yaml << 'EOL'
 services:
+  nginx:
+    ports:
+      - '127.0.0.1:8080:80'
   api:
     ports:
-      - '${DIFY_PORT:-5001}:${DIFY_PORT:-5001}'
+      - '127.0.0.1:5001:5001'
     environment:
       - NLTK_DATA=/tmp/nltk_data
     volumes:
@@ -680,7 +698,7 @@ EOL
         for attempt in $(seq 1 $max_attempts); do
             echo "サービスの可用性を検証中 (attempt $attempt/$max_attempts)..."
             
-            if curl -s -f "http://${EXTERNAL_IP}:8080" >/dev/null 2>&1; then
+            if curl -s -f "http://127.0.0.1:8080" >/dev/null 2>&1; then
                 echo "Difyサービスの検証に成功しました"
                 break
             fi
@@ -690,11 +708,11 @@ EOL
                 sleep $wait_time
             else
                 echo "サービスの検証が$max_attempts回の試行後に失敗しました"
-                echo "http://${EXTERNAL_IP}:8080 を手動でアクセスして確認してください"
+                echo "http://${EXTERNAL_IP}/dify を手動でアクセスして確認してください"
             fi
         done
         
-        echo "Difyが準備完了しました。アクセスURL: http://${EXTERNAL_IP}:8080"
+        echo "Difyが準備完了しました。アクセスURL: http://${EXTERNAL_IP}/dify"
     fi
 else
     echo "Difyインストールが無効になっています。スキップします。"
