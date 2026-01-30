@@ -17,6 +17,10 @@ class ImageSearchResult(BaseModel):
     content_type: Optional[str] = None
     file_size: Optional[int] = None
     url: Optional[str] = None  # 絶対URL(外部システム統合用)
+    
+    class Config:
+        # None値のフィールドもJSONレスポンスに含める
+        exclude_none = False
 
 class FileSearchResult(BaseModel):
     """ファイル検索結果(ファイル単位)"""
@@ -30,6 +34,10 @@ class FileSearchResult(BaseModel):
     min_distance: float  # このファイル内の最小距離
     matched_images: List[ImageSearchResult]  # マッチした画像のリスト
     url: Optional[str] = None  # 絶対URL(外部システム統合用)
+    
+    class Config:
+        # None値のフィールドもJSONレスポンスに含める
+        exclude_none = False
 
 class SearchResponse(BaseModel):
     """検索レスポンス"""
