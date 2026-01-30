@@ -721,6 +721,11 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         sed -i "s|^CODE_MAX_OBJECT_ARRAY_LENGTH=30|CODE_MAX_OBJECT_ARRAY_LENGTH=1000|g" .env
         sed -i "s|^HTTP_REQUEST_NODE_MAX_BINARY_SIZE=10485760|HTTP_REQUEST_NODE_MAX_BINARY_SIZE=104857600|g" .env
         
+        # Change nginx port binding via environment variable (fix "address already in use" error)
+        # External nginx (host) uses port 80, Dify internal nginx uses 8080
+        echo "EXPOSE_NGINX_PORT=127.0.0.1:8080" >> .env
+        echo "EXPOSE_NGINX_SSL_PORT=127.0.0.1:8443" >> .env
+        
         # Create custom nginx config with DNS resolver (fix "host not found in upstream" error)
         echo "カスタムnginx設定を作成中 (DNSリゾルバ付き)..."
         mkdir -p nginx-custom
@@ -765,21 +770,13 @@ server {
 NGINX_CONF_EOF
         
         # Create docker-compose.override.yaml
-        # Dify内部Nginxを8080ポートで公開（外部Nginxからプロキシ）
+        # NLTK設定とカスタムnginx設定のみ（ポートは.envで制御）
         echo "Docker Compose override設定を作成中..."
         cat > docker-compose.override.yaml << 'EOL'
 services:
   nginx:
-    ports:
-      - '127.0.0.1:8080:80'
     volumes:
       - ./nginx-custom/default.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      api:
-        condition: service_started
-      web:
-        condition: service_started
-    restart: on-failure
   api:
     environment:
       - NLTK_DATA=/tmp/nltk_data
