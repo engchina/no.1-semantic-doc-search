@@ -65,18 +65,35 @@ let currentPageTableDataRows = [];  // -> appState.get('currentPageTableDataRows
 // - utilsShowConfirmModal: 確認モーダル
 
 /**
- * 認証トークン付きの画像URLを生成（referenceプロジェクトに準拠）
- * @param {string} bucket - バケット名
- * @param {string} objectName - オブジェクト名
- * @returns {string} トークン付きの画像URL
+ * 認証トークン付きのURLを生成
+ * @param {string} url - ベースURL(検索APIから返却されたURLまたはバケット/オブジェクト名)
+ * @param {string} bucket - バケット名(オプション、旧形式互換用)
+ * @param {string} objectName - オブジェクト名(オプション、旧形式互換用)
+ * @returns {string} トークン付きのURL
  */
-function getAuthenticatedImageUrl(bucket, objectName) {
-  const baseUrl = `/ai/api/oci/image/${bucket}/${encodeURIComponent(objectName)}`;
+function getAuthenticatedImageUrl(urlOrBucket, objectName) {
   const token = localStorage.getItem('loginToken');
-  if (token) {
-    return `${baseUrl}?token=${encodeURIComponent(token)}`;
+  
+  // 既に完全なURLが渡された場合(検索APIのurlフィールド)
+  if (urlOrBucket && (urlOrBucket.startsWith('http://') || urlOrBucket.startsWith('https://') || urlOrBucket.startsWith('/'))) {
+    const url = urlOrBucket;
+    if (token) {
+      const separator = url.includes('?') ? '&' : '?';
+      return `${url}${separator}token=${encodeURIComponent(token)}`;
+    }
+    return url;
   }
-  return baseUrl;
+  
+  // 旧形式互換: bucket + objectName が渡された場合
+  if (urlOrBucket && objectName) {
+    const baseUrl = `/ai/api/object/${urlOrBucket}/${encodeURIComponent(objectName)}`;
+    if (token) {
+      return `${baseUrl}?token=${encodeURIComponent(token)}`;
+    }
+    return baseUrl;
+  }
+  
+  return urlOrBucket || '';
 }
 
 // ========================================

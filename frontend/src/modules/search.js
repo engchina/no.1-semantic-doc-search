@@ -8,18 +8,35 @@ import { apiCall } from './auth.js';
 import { showLoading, hideLoading, showToast, showImageModal } from './utils.js';
 
 /**
- * 認証トークン付きの画像URLを生成（referenceプロジェクトに準拠）
- * @param {string} bucket - バケット名
- * @param {string} objectName - オブジェクト名
- * @returns {string} トークン付きの画像URL
+ * 認証トークン付きのURLを生成
+ * @param {string} url - ベースURL(検索APIから返却されたURLまたはバケット/オブジェクト名)
+ * @param {string} bucket - バケット名(オプション、旧形式互換用)
+ * @param {string} objectName - オブジェクト名(オプション、旧形式互換用)
+ * @returns {string} トークン付きのURL
  */
-function getAuthenticatedImageUrl(bucket, objectName) {
-  const baseUrl = `/ai/api/oci/image/${bucket}/${encodeURIComponent(objectName)}`;
+function getAuthenticatedImageUrl(urlOrBucket, objectName) {
   const token = localStorage.getItem('loginToken');
-  if (token) {
-    return `${baseUrl}?token=${encodeURIComponent(token)}`;
+  
+  // 既に完全なURLが渡された場合(検索APIのurlフィールド)
+  if (urlOrBucket && (urlOrBucket.startsWith('http://') || urlOrBucket.startsWith('https://') || urlOrBucket.startsWith('/'))) {
+    const url = urlOrBucket;
+    if (token) {
+      const separator = url.includes('?') ? '&' : '?';
+      return `${url}${separator}token=${encodeURIComponent(token)}`;
+    }
+    return url;
   }
-  return baseUrl;
+  
+  // 旧形式互換: bucket + objectName が渡された場合
+  if (urlOrBucket && objectName) {
+    const baseUrl = `/ai/api/object/${urlOrBucket}/${encodeURIComponent(objectName)}`;
+    if (token) {
+      return `${baseUrl}?token=${encodeURIComponent(token)}`;
+    }
+    return baseUrl;
+  }
+  
+  return urlOrBucket || '';
 }
 
 /**
@@ -122,7 +139,8 @@ export function displaySearchResults(data) {
           <div class="search-result-images-grid">
             ${fileResult.matched_images.map((img, imgIndex) => {
               const imgDistancePercent = (1 - img.vector_distance) * 100;
-              const imageUrl = getAuthenticatedImageUrl(img.bucket, img.object_name);
+              // img.url(APIから返却された絶対URL)を優先、なければbucket+object_nameから生成
+              const imageUrl = img.url ? getAuthenticatedImageUrl(img.url) : getAuthenticatedImageUrl(img.bucket, img.object_name);
               
               return `
                 <div 
@@ -214,10 +232,16 @@ export function showSearchImageModal(imageUrl, title, vectorDistance) {
  */
 export async function downloadFile(bucket, encodedObjectName) {
   try {
-    const imageUrl = getAuthenticatedImageUrl(bucket, decodeURIComponent(encodedObjectName));
+    // bucket が既に完全なURLの場合(検索結果のurl)と、bucket+objectNameの場合の両対応
+    let fileUrl;
+    if (bucket && (bucket.startsWith('http://') || bucket.startsWith('https://') || bucket.startsWith('/'))) {
+      fileUrl = getAuthenticatedImageUrl(bucket);
+    } else {
+      fileUrl = getAuthenticatedImageUrl(bucket, decodeURIComponent(encodedObjectName));
+    }
     
     // 新しいタブで開く
-    window.open(imageUrl, '_blank');
+    window.open(fileUrl, '_blank');
     
     showToast('ファイルを開きました', 'success');
   } catch (error) {

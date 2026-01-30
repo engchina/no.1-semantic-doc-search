@@ -105,6 +105,56 @@ SESSION_TIMEOUT_SECONDS = 86400  # 24時間
 # APIキーは環境変数 EXTERNAL_API_KEYS から取得（カンマ区切り）
 EXTERNAL_API_KEYS = set(os.getenv("EXTERNAL_API_KEYS", "").split(",")) if os.getenv("EXTERNAL_API_KEYS") else set()
 
+# 一時トークン管理（検索結果URL用、短寿命）
+# temp_token -> {expires_at: datetime, source: str}
+TEMP_TOKENS: Dict[str, Dict[str, Any]] = {}
+TEMP_TOKEN_TIMEOUT_SECONDS = int(os.getenv("TEMP_TOKEN_TIMEOUT_SECONDS", "300"))  # デフォルト5分
+
+def generate_temp_token(source: str = "search") -> str:
+    """
+    短寿命の一時トークンを生成
+    
+    Args:
+        source: トークンの発行元（ログ用）
+    
+    Returns:
+        生成された一時トークン
+    """
+    temp_token = secrets.token_urlsafe(32)  # URL安全な44文字のトークン
+    expires_at = datetime.now() + timedelta(seconds=TEMP_TOKEN_TIMEOUT_SECONDS)
+    TEMP_TOKENS[temp_token] = {
+        "expires_at": expires_at,
+        "source": source
+    }
+    
+    # 期限切れトークンのクリーンアップ（メモリ節約）
+    current_time = datetime.now()
+    expired_tokens = [t for t, data in TEMP_TOKENS.items() if data["expires_at"] < current_time]
+    for t in expired_tokens:
+        del TEMP_TOKENS[t]
+    
+    return temp_token
+
+def validate_temp_token(temp_token: str) -> bool:
+    """
+    一時トークンを検証
+    
+    Args:
+        temp_token: 検証するトークン
+    
+    Returns:
+        有効な場合True
+    """
+    if temp_token not in TEMP_TOKENS:
+        return False
+    
+    token_data = TEMP_TOKENS[temp_token]
+    if token_data["expires_at"] < datetime.now():
+        del TEMP_TOKENS[temp_token]
+        return False
+    
+    return True
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -172,7 +222,7 @@ async def health_check():
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    """認証チェックミドルウェア（セッショントークンまたはAPIキーに対応）"""
+    """認証チェックミドルウェア（セッショントークン、APIキー、一時トークンに対応）"""
     # 除外パス（nginxプロキシ経由を想定: /api/* -> /*）
     path = request.url.path
     excluded_paths = [
@@ -213,10 +263,16 @@ async def auth_middleware(request: Request, call_next):
     if not token:
         token = request.query_params.get("token")
     
-    # APIキーをクエリパラメータからも取得
+    # APIキーをクエリパラメータからも取得（互換性のため残すが非推奨）
     api_key_query = request.query_params.get("api_key")
     if api_key_query and api_key_query in EXTERNAL_API_KEYS:
         logger.info(f"外部APIキー認証成功（クエリパラメータ）: path={path}")
+        return await call_next(request)
+    
+    # 一時トークン検証（検索結果URL用、短寿命）
+    temp_token = request.query_params.get("t")
+    if temp_token and validate_temp_token(temp_token):
+        logger.debug(f"一時トークン認証成功: path={path}")
         return await call_next(request)
     
     if not token:
@@ -1320,6 +1376,7 @@ async def search_documents(query: SearchQuery, request: Request):
     セマンティック検索を実行(Oracle Database 26aiのベクトル検索を使用)
     
     レスポンスにはファイルと画像の絶対URLを含む(外部システム統合対応)
+    URLには認証情報(APIキーまたはセッショントークン)が付与される
     """
     try:
         start_time = time.time()
@@ -1371,32 +1428,22 @@ async def search_documents(query: SearchQuery, request: Request):
         scheme = request.headers.get('X-Forwarded-Proto', request.url.scheme)
         host = request.headers.get('X-Forwarded-Host', request.headers.get('Host', request.url.netloc))
         
-        # APIベースパスを環境変数から取得(デフォルト: /ai/api)
-        api_base_path = os.getenv('API_BASE_PATH', '/ai/api')
-        base_url = f"{scheme}://{host}{api_base_path}"
+        # ベースURLを構築(外部APIはバックエンドに直接アクセスするため/ai/apiプレフィックス不要)
+        base_url = f"{scheme}://{host}"
         
-        # 現在のユーザーのトークンを取得
-        user_token = None
-        if not debug_mode:
-            auth_header = request.headers.get("Authorization")
-            if auth_header and auth_header.startswith("Bearer "):
-                user_token = auth_header.split(" ")[1]
-            elif auth_header and auth_header.startswith("ApiKey "):
-                # APIキー認証の場合はトークンなし(APIキー認証で直接アクセス可能)
-                user_token = None
-            else:
-                # クエリパラメータからトークンを取得
-                user_token = request.query_params.get("token")
+        # 一時トークンを生成（短寿命、安全）
+        # 元の認証情報(APIキーやセッショントークン)はURLに露出させない
+        temp_token = generate_temp_token(source="search")
+        auth_query_param = f"?t={temp_token}"
         
-        # 絶対URL生成用のヘルパー関数
+        logger.debug(f"一時トークン生成: 有効期限={TEMP_TOKEN_TIMEOUT_SECONDS}秒")
+        
+        # 絶対URL生成用のヘルパー関数(認証情報付き)
         def build_absolute_url(bucket: str, object_name: str) -> str:
-            """ファイル/画像の絶対URLを生成（トークン付き）"""
-            encoded_name = quote(object_name, safe='')
-            url = f"{base_url}/object/{bucket}/{encoded_name}"
-            # トークンを追加（デバッグモードではトークン不要）
-            if user_token:
-                url += f"?token={quote(user_token, safe='')}"
-            return url
+            """ファイル/画像の絶対URLを生成(認証情報付き)"""
+            # safe='/' でスラッシュはエンコードしない(パス構造を維持)
+            encoded_name = quote(object_name, safe='/')
+            return f"{base_url}/object/{bucket}/{encoded_name}{auth_query_param}"
         
         files_dict = defaultdict(lambda: {
             'file_id': None,
