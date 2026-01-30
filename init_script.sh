@@ -315,9 +315,89 @@ if [ -d "$PROJECT_DIR" ]; then
     echo "本番用フロントエンドをビルド中..."
     npm run build
     
-    # Configure nginx (Difyなし版)
-    echo "nginxを設定中 (Difyなし)..."
-    cat > /etc/nginx/sites-available/app << 'NGINX_EOF'
+    # Configure nginx based on ENABLE_DIFY
+    if [ "$ENABLE_DIFY" = "true" ]; then
+        # Configure nginx (Difyあり版)
+        echo "nginxを設定中 (Difyあり)..."
+        cat > /etc/nginx/sites-available/app << 'NGINX_DIFY_EOF'
+server {
+    listen 80;
+    server_name _;
+
+    # ログ設定
+    access_log /var/log/nginx/app.log;
+    error_log /var/log/nginx/app-error.log warn;
+
+    # クライアント最大ボディサイズ（アップロード用）
+    client_max_body_size 100M;
+
+    # 本アプリのAPI (/ai/api と /ai/api/)
+    location /ai/api/ {
+        proxy_pass http://127.0.0.1:8081/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # /ai/api を /ai/api/ にリダイレクト
+    location = /ai/api {
+        return 301 /ai/api/;
+    }
+
+    # 本アプリのヘルスチェック
+    location /ai/health {
+        proxy_pass http://127.0.0.1:8081/health;
+        proxy_set_header Host $host;
+        access_log off;
+    }
+
+    # 本アプリのフロントエンド (/ai/ と /ai/xxx)
+    location /ai/ {
+        proxy_pass http://127.0.0.1:5175/ai/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # /ai を /ai/ にリダイレクト
+    location = /ai {
+        return 301 /ai/;
+    }
+
+    # Dify (ルートパス / と /xxx)
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocketサポート
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        proxy_connect_timeout 300s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_buffering off;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+NGINX_DIFY_EOF
+    else
+        # Configure nginx (Difyなし版)
+        echo "nginxを設定中 (Difyなし)..."
+        cat > /etc/nginx/sites-available/app << 'NGINX_EOF'
 server {
     listen 80;
     server_name _;
@@ -382,6 +462,7 @@ server {
     }
 }
 NGINX_EOF
+    fi
 
     # サイトを有効化
     ln -sf /etc/nginx/sites-available/app /etc/nginx/sites-enabled/
@@ -402,14 +483,23 @@ NGINX_EOF
     echo "nginx自動起動を有効化中..."
     systemctl enable nginx
     
-    # Difyなしの場合の完了メッセージ
+    # 完了メッセージ
     EXTERNAL_IP=$(curl -s -m 10 http://whatismyip.akamai.com/ || echo "localhost")
-    echo "========================================"
-    echo "初期化が完了しました。"
-    echo "  本アプリ: http://${EXTERNAL_IP}/ai"
-    echo "  API:      http://${EXTERNAL_IP}/ai/api/"
-    echo "  (ルート'/'は/aiにリダイレクトされます)"
-    echo "========================================"
+    if [ "$ENABLE_DIFY" = "true" ]; then
+        echo "========================================"
+        echo "nginx設定が完了しました (Difyあり)。"
+        echo "  Dify:       http://${EXTERNAL_IP}/"
+        echo "  本アプリ:   http://${EXTERNAL_IP}/ai"
+        echo "  API:        http://${EXTERNAL_IP}/ai/api"
+        echo "========================================"
+    else
+        echo "========================================"
+        echo "初期化が完了しました。"
+        echo "  本アプリ: http://${EXTERNAL_IP}/ai"
+        echo "  API:      http://${EXTERNAL_IP}/ai/api"
+        echo "  (ルート'/'は/aiにリダイレクトされます)"
+        echo "========================================"
+    fi
 fi
 
 # Create startup script
@@ -696,89 +786,7 @@ EOL
             sleep 30
         fi
         
-        # Update Nginx configuration for Dify (Difyあり版)
-        echo "Nginx設定を更新中 (Difyあり)..."
-        cat > /etc/nginx/sites-available/app << 'NGINX_DIFY_EOF'
-server {
-    listen 80;
-    server_name _;
-
-    # ログ設定
-    access_log /var/log/nginx/app.log;
-    error_log /var/log/nginx/app-error.log warn;
-
-    # クライアント最大ボディサイズ（アップロード用）
-    client_max_body_size 100M;
-
-    # 本アプリのAPI (/ai/api と /ai/api/)
-    location /ai/api/ {
-        proxy_pass http://127.0.0.1:8081/;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-    }
-
-    # /ai/api を /ai/api/ にリダイレクト
-    location = /ai/api {
-        return 301 /ai/api/;
-    }
-
-    # 本アプリのヘルスチェック
-    location /ai/health {
-        proxy_pass http://127.0.0.1:8081/health;
-        proxy_set_header Host $host;
-        access_log off;
-    }
-
-    # 本アプリのフロントエンド (/ai/ と /ai/xxx)
-    location /ai/ {
-        proxy_pass http://127.0.0.1:5175/ai/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # /ai を /ai/ にリダイレクト
-    location = /ai {
-        return 301 /ai/;
-    }
-
-    # Dify (ルートパス / と /xxx)
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # WebSocketサポート
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        
-        proxy_connect_timeout 300s;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_buffering off;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-NGINX_DIFY_EOF
-
-        # Reload Nginx
-        echo "Nginxをリロード中..."
-        nginx -t && systemctl reload nginx
-        
-        # Final service verification
+        # Final service verification (nginxは既に設定済み)
         echo "サービスの最終検証を実施中..."
         max_attempts=12
         wait_time=30
@@ -804,7 +812,7 @@ NGINX_DIFY_EOF
         echo "Difyが準備完了しました。"
         echo "  Dify:       http://${EXTERNAL_IP}/"
         echo "  本アプリ:   http://${EXTERNAL_IP}/ai"
-        echo "  API:        http://${EXTERNAL_IP}/ai/api/"
+        echo "  API:        http://${EXTERNAL_IP}/ai/api"
         echo "========================================"
     fi
 else
