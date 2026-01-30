@@ -1372,15 +1372,11 @@ async def search_documents(query: SearchQuery, request: Request):
         host = request.headers.get('X-Forwarded-Host', request.headers.get('Host', request.url.netloc))
         base_url = f"{scheme}://{host}"
         
-        logger.info(f"[DEBUG] Base URL: {base_url}, scheme={scheme}, host={host}")
-        
         # 絶対URL生成用のヘルパー関数
         def build_absolute_url(bucket: str, object_name: str) -> str:
             """ファイル/画像の絶対URLを生成"""
             encoded_name = quote(object_name, safe='')
-            full_url = f"{base_url}/object/{bucket}/{encoded_name}"
-            logger.info(f"[DEBUG] Generated URL: {full_url}")
-            return full_url
+            return f"{base_url}/object/{bucket}/{encoded_name}"
         
         files_dict = defaultdict(lambda: {
             'file_id': None,
