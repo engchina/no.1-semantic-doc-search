@@ -329,7 +329,7 @@ server {
     # クライアント最大ボディサイズ（アップロード用）
     client_max_body_size 100M;
 
-    # 本アプリのAPI (/ai/api)
+    # 本アプリのAPI (/ai/api と /ai/api/)
     location /ai/api/ {
         proxy_pass http://127.0.0.1:8081/;
         proxy_http_version 1.1;
@@ -341,6 +341,11 @@ server {
         proxy_send_timeout 300s;
     }
 
+    # /ai/api を /ai/api/ にリダイレクト
+    location = /ai/api {
+        return 301 /ai/api/;
+    }
+
     # 本アプリのヘルスチェック
     location /ai/health {
         proxy_pass http://127.0.0.1:8081/health;
@@ -348,9 +353,9 @@ server {
         access_log off;
     }
 
-    # 本アプリのフロントエンド (/ai)
-    location /ai {
-        proxy_pass http://127.0.0.1:5175;
+    # 本アプリのフロントエンド (/ai/ と /ai/xxx)
+    location /ai/ {
+        proxy_pass http://127.0.0.1:5175/ai/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -361,9 +366,19 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    # ルートパスは/aiにリダイレクト (Difyがない場合)
+    # /ai を /ai/ にリダイレクト
+    location = /ai {
+        return 301 /ai/;
+    }
+
+    # ルートパスは/ai/にリダイレクト (Difyがない場合)
+    location = / {
+        return 302 /ai/;
+    }
+
+    # その他のルートパスも/ai/にリダイレクト
     location / {
-        return 302 /ai;
+        return 302 /ai/;
     }
 }
 NGINX_EOF
@@ -371,8 +386,9 @@ NGINX_EOF
     # サイトを有効化
     ln -sf /etc/nginx/sites-available/app /etc/nginx/sites-enabled/
     
-    # デフォルトサイトを無効化
+    # デフォルトサイトを無効化・削除
     rm -f /etc/nginx/sites-enabled/default
+    rm -f /etc/nginx/sites-available/default
     
     # nginx設定をテスト
     echo "nginx設定をテスト中..."
@@ -694,7 +710,7 @@ server {
     # クライアント最大ボディサイズ（アップロード用）
     client_max_body_size 100M;
 
-    # 本アプリのAPI (/ai/api)
+    # 本アプリのAPI (/ai/api と /ai/api/)
     location /ai/api/ {
         proxy_pass http://127.0.0.1:8081/;
         proxy_http_version 1.1;
@@ -706,6 +722,11 @@ server {
         proxy_send_timeout 300s;
     }
 
+    # /ai/api を /ai/api/ にリダイレクト
+    location = /ai/api {
+        return 301 /ai/api/;
+    }
+
     # 本アプリのヘルスチェック
     location /ai/health {
         proxy_pass http://127.0.0.1:8081/health;
@@ -713,9 +734,9 @@ server {
         access_log off;
     }
 
-    # 本アプリのフロントエンド (/ai)
-    location /ai {
-        proxy_pass http://127.0.0.1:5175;
+    # 本アプリのフロントエンド (/ai/ と /ai/xxx)
+    location /ai/ {
+        proxy_pass http://127.0.0.1:5175/ai/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -726,7 +747,12 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    # Dify (ルートパス)
+    # /ai を /ai/ にリダイレクト
+    location = /ai {
+        return 301 /ai/;
+    }
+
+    # Dify (ルートパス / と /xxx)
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
