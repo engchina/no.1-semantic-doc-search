@@ -54,4 +54,5 @@ output "document_bucket_name" {
 output "external_api_keys" {
   description = "External API Keys for external access (masked)"
   value       = var.external_api_keys != "" ? "Configured (${length(split(",", var.external_api_keys))} keys)" : "Not configured"
+  sensitive   = true
 }

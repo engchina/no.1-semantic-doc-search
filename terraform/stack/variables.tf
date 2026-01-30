@@ -2,6 +2,12 @@ variable "availability_domain" {
   default = "bxtG:AP-OSAKA-1-AD-1"
 }
 
+variable "region" {
+  description = "OCI Region (Resource Managerが自動設定)"
+  type        = string
+  default     = "ap-osaka-1"
+}
+
 variable "compartment_ocid" {
   default = ""
 }
@@ -75,12 +81,6 @@ variable "dify_branch" {
   description = "Difyリポジトリのブランチまたはタグ名"
   type        = string
   default     = "1.11.4"
-}
-
-variable "bucket_region" {
-  description = "Object Storageバケットのリージョン"
-  type        = string
-  default     = "ap-osaka-1"
 }
 
 variable "oci_access_key" {

@@ -1315,8 +1315,12 @@ async def delete_document(document_id: str):
 # ========================================
 
 @app.post("/search", response_model=SearchResponse)
-async def search_documents(query: SearchQuery):
-    """セマンティック検索を実行（Oracle Database 23aiのベクトル検索を使用）"""
+async def search_documents(query: SearchQuery, request: Request):
+    """
+    セマンティック検索を実行(Oracle Database 26aiのベクトル検索を使用)
+    
+    レスポンスにはファイルと画像の絶対URLを含む(外部システム統合対応)
+    """
     try:
         start_time = time.time()
         
@@ -1337,11 +1341,10 @@ async def search_documents(query: SearchQuery):
         
         logger.info(f"Query embedding生成完了: shape={query_embedding.shape}")
         
-        # 2. ベクトル検索を実行（2テーブルJOIN）
-        # 非同期版を使用してイベントループをブロックしない
+        # 2. ベクトル検索を実行(2テーブルJOIN)
         search_results = await image_vectorizer.search_similar_images_async(
             query_embedding=query_embedding,
-            limit=query.top_k,  # 指定された件数の画像を取得
+            limit=query.top_k,
             threshold=query.min_score
         )
         
@@ -1361,6 +1364,19 @@ async def search_documents(query: SearchQuery):
         # 3. 結果をファイル単位で集約
         from collections import defaultdict
         from app.models.search import FileSearchResult, ImageSearchResult
+        from urllib.parse import quote
+        
+        # ベースURLをリクエストから取得(絶対URL生成用)
+        # X-Forwarded-* ヘッダーを優先(nginxプロキシ対応)
+        scheme = request.headers.get('X-Forwarded-Proto', request.url.scheme)
+        host = request.headers.get('X-Forwarded-Host', request.headers.get('Host', request.url.netloc))
+        base_url = f"{scheme}://{host}"
+        
+        # 絶対URL生成用のヘルパー関数
+        def build_absolute_url(bucket: str, object_name: str) -> str:
+            """ファイル/画像の絶対URLを生成"""
+            encoded_name = quote(object_name, safe='')
+            return f"{base_url}/object/{bucket}/{encoded_name}"
         
         files_dict = defaultdict(lambda: {
             'file_id': None,
@@ -1400,7 +1416,8 @@ async def search_documents(query: SearchQuery):
                 page_number=result['page_number'],
                 vector_distance=distance,
                 content_type=result.get('content_type'),
-                file_size=result.get('img_file_size')
+                file_size=result.get('img_file_size'),
+                url=build_absolute_url(result['bucket'], result['object_name'])
             )
             files_dict[file_id]['images'].append(image_result)
         
@@ -1408,12 +1425,11 @@ async def search_documents(query: SearchQuery):
         sorted_files = sorted(files_dict.values(), key=lambda x: x['min_distance'])
         
         # 5. ファイル単位で結果を構築
-        # 注：search_resultsは既にtop_k件に制限されているため、全て含める
         results = []
         total_images = len(search_results)
         
         for file_data in sorted_files:
-            # 画像を距離でソート（距離が小さいものが前）
+            # 画像を距離でソート
             sorted_images = sorted(file_data['images'], key=lambda x: x.vector_distance)
             
             file_result = FileSearchResult(
@@ -1425,11 +1441,10 @@ async def search_documents(query: SearchQuery):
                 content_type=file_data['content_type'],
                 uploaded_at=file_data['uploaded_at'],
                 min_distance=file_data['min_distance'],
-                matched_images=sorted_images
+                matched_images=sorted_images,
+                url=build_absolute_url(file_data['bucket'], file_data['object_name'])
             )
             results.append(file_result)
-        
-        # 6. ログ出力（total_imagesは既に計算済み）
         
         processing_time = time.time() - start_time
         
@@ -1448,25 +1463,30 @@ async def search_documents(query: SearchQuery):
         logger.error(f"検索エラー: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/oci/image/{bucket}/{object_name:path}")
-async def get_oci_image(bucket: str, object_name: str):
+
+@app.get("/object/{bucket}/{object_name:path}")
+async def get_object_proxy(bucket: str, object_name: str):
     """
-    OCI Object Storageから画像を取得
+    OCI Object Storageプロキシエンドポイント
+    
+    URL形式: /object/{bucket}/{object_name}
+    対応ファイル: PDF, PPT, PPTX, PNG, JPG, JPEG等
+    日本語ファイル名やスペースをURLエンコードでサポート
     
     Args:
         bucket: バケット名
         object_name: オブジェクト名(URLエンコード済み)
         
     Returns:
-        画像データまたはエラーレスポンス
+        ファイル/画像データ
     """
     try:
         from urllib.parse import unquote, quote
         
-        # URLデコード（日本語ファイル名対応）
+        # URLデコード(日本語ファイル名対応)
         decoded_object_name = unquote(object_name)
         
-        logger.info(f"画像取得開始: bucket={bucket}, object={decoded_object_name}")
+        logger.info(f"ファイル取得開始: bucket={bucket}, object={decoded_object_name}")
         
         # Namespaceを取得
         namespace_result = oci_service.get_namespace()
@@ -1475,7 +1495,7 @@ async def get_oci_image(bucket: str, object_name: str):
         
         namespace = namespace_result.get("namespace")
         
-        # OCI Object Storageから画像を取得
+        # OCI Object Storageからファイルを取得
         client = oci_service.get_object_storage_client()
         if not client:
             raise HTTPException(status_code=500, detail="Object Storage Clientの取得に失敗しました")
@@ -1487,25 +1507,22 @@ async def get_oci_image(bucket: str, object_name: str):
         )
         
         # Content-Typeを取得
-        content_type = get_obj_response.headers.get('Content-Type', 'image/png')
+        content_type = get_obj_response.headers.get('Content-Type', 'application/octet-stream')
         
         # ファイル名を取得
         original_filename = decoded_object_name.split("/")[-1]
         
-        # Content-Dispositionヘッダーを生成（RFC 5987準拠、日本語対応）
-        # ASCIIファイル名とnon-ASCIIファイル名の両方に対応
+        # Content-Dispositionヘッダーを生成(RFC 5987準拠、日本語対応)
         try:
-            # ASCIIエンコード可能かチェック
             original_filename.encode('ascii')
             content_disposition = f'inline; filename="{original_filename}"'
         except UnicodeEncodeError:
-            # ASCIIエンコード不可の場合はRFC 5987形式を使用
             filename_encoded = quote(original_filename)
             content_disposition = f"inline; filename*=UTF-8''{filename_encoded}"
         
-        logger.info(f"画像取得成功: object={decoded_object_name}, content_type={content_type}")
+        logger.info(f"ファイル取得成功: object={decoded_object_name}, content_type={content_type}")
         
-        # 画像データを返す
+        # ファイルデータを返す
         return StreamingResponse(
             io.BytesIO(get_obj_response.data.content),
             media_type=content_type,
@@ -1516,10 +1533,44 @@ async def get_oci_image(bucket: str, object_name: str):
         )
         
     except Exception as e:
-        logger.error(f"画像取得エラー: {e}", exc_info=True)
+        logger.error(f"ファイル取得エラー: {e}", exc_info=True)
         if "404" in str(e) or "NotFound" in str(e):
-            raise HTTPException(status_code=404, detail="画像が見つかりません")
+            raise HTTPException(status_code=404, detail="ファイルが見つかりません")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/oci/image/{bucket}/{object_name:path}")
+async def get_oci_image(bucket: str, object_name: str):
+    """
+    後方互換性のため/object/へリダイレクト
+    
+    新しいURL形式: /object/{bucket}/{object_name}
+    """
+    from urllib.parse import quote
+    from fastapi.responses import RedirectResponse
+    
+    # 新しいエンドポイントにリダイレクト(307 Temporary Redirect)
+    encoded_name = quote(object_name, safe='/')
+    return RedirectResponse(
+        url=f"/object/{bucket}/{encoded_name}",
+        status_code=307
+    )
+
+@app.get("/img/{bucket}/{object_name:path}")
+async def get_img_redirect(bucket: str, object_name: str):
+    """
+    後方互換性のため/object/へリダイレクト
+    
+    新しいURL形式: /object/{bucket}/{object_name}
+    """
+    from urllib.parse import quote
+    from fastapi.responses import RedirectResponse
+    
+    # 新しいエンドポイントにリダイレクト(307 Temporary Redirect)
+    encoded_name = quote(object_name, safe='/')
+    return RedirectResponse(
+        url=f"/object/{bucket}/{encoded_name}",
+        status_code=307
+    )
 
 # ========================================
 # アプリケーション起動

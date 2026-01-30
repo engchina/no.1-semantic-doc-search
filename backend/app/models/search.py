@@ -8,7 +8,7 @@ class SearchQuery(BaseModel):
     min_score: Optional[float] = 0.7  # デフォルトを0.7に設定
 
 class ImageSearchResult(BaseModel):
-    """画像検索結果（個別のページ画像）"""
+    """画像検索結果(個別のページ画像)"""
     embed_id: int
     bucket: str
     object_name: str
@@ -16,9 +16,10 @@ class ImageSearchResult(BaseModel):
     vector_distance: float
     content_type: Optional[str] = None
     file_size: Optional[int] = None
+    url: Optional[str] = None  # 絶対URL(外部システム統合用)
 
 class FileSearchResult(BaseModel):
-    """ファイル検索結果（ファイル単位）"""
+    """ファイル検索結果(ファイル単位)"""
     file_id: int
     bucket: str
     object_name: str
@@ -28,6 +29,7 @@ class FileSearchResult(BaseModel):
     uploaded_at: Optional[str] = None
     min_distance: float  # このファイル内の最小距離
     matched_images: List[ImageSearchResult]  # マッチした画像のリスト
+    url: Optional[str] = None  # 絶対URL(外部システム統合用)
 
 class SearchResponse(BaseModel):
     """検索レスポンス"""

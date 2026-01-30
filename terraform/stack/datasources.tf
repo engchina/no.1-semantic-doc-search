@@ -19,7 +19,7 @@ data "template_file" "cloud_init_file" {
     wallet           = data.external.wallet_files.result.wallet_content
     enable_dify      = var.enable_dify
     dify_branch      = var.dify_branch
-    bucket_region    = var.bucket_region
+    bucket_region    = var.region
     bucket_namespace = data.oci_objectstorage_namespace.tenant_namespace.namespace
     oci_access_key   = var.oci_access_key
     oci_secret_key   = var.oci_secret_key

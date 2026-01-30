@@ -1,1 +1,3 @@
-provider "oci" {}
+provider "oci" {
+  region = var.region
+}

@@ -114,19 +114,25 @@ async function switchTab(tabName, event) {
     }
   });
   
-  // タブに応じた初期化処理（バックエンドAPI呼び出し時はオーバーレイ表示）
-  // 注: 文書管理タブの自動刷新は無効（🔄 更新ボタンで手動刷新）
+  // タブに応じた初期化処理(バックエンドAPI呼び出し時はオーバーレイ表示)
+  // 注: 文書管理タブの自動刷新は無効(🔄 更新ボタンで手動刷新)
   try {
     if (tabName === 'settings') {
       console.log('Loading OCI settings...');
       utilsShowLoading('OCI設定を読み込み中...');
       await loadOciSettings();
-      await loadObjectStorageSettings();
       utilsHideLoading();
       console.log('OCI settings loaded');
     } else if (tabName === 'database') {
       console.log('Loading DB connection settings, ADB OCID, and connection info from .env...');
       utilsShowLoading('データベース設定を読み込み中...');
+      
+      // 既存の警告メッセージをクリア（重複防止）
+      const dbContent = document.getElementById('tab-database');
+      if (dbContent) {
+        const existingWarnings = dbContent.querySelectorAll('.bg-yellow-50.border-yellow-400');
+        existingWarnings.forEach(warning => warning.remove());
+      }
       
       try {
         await loadDbConnectionSettings();
@@ -134,10 +140,8 @@ async function switchTab(tabName, event) {
         // タイムアウトエラーの場合は特別な処理
         if (error.message.includes('タイムアウト')) {
           utilsHideLoading();
-          utilsShowToast('データベース設定の読み込みがタイムアウトしました。データベースが起動していない可能性があります。', 'error');
           
-          // リトライボタンを表示
-          const dbContent = document.getElementById('tab-database');
+          // リトライボタンを表示（トーストは表示しない - 画面内の警告のみ）
           if (dbContent) {
             const retryHtml = `
               <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4" role="alert">
@@ -193,6 +197,10 @@ async function switchTab(tabName, event) {
       console.log('DB connection settings, ADB OCID, and connection info loaded');
     }
   } catch (error) {
+    // データベースタブの場合は既にエラー処理済みなのでスキップ
+    if (tabName === 'database') {
+      return;
+    }
     console.error('Tab initialization error:', error);
     utilsHideLoading();
     utilsShowToast(`設定読み込みエラー: ${error.message}`, 'error');
@@ -2155,11 +2163,49 @@ async function loadOciSettings() {
     document.getElementById('bucketName').value = ociSettings.bucket_name || '';
     document.getElementById('namespace').value = ociSettings.namespace || '';
     
+    // Namespaceの自動取得処理
+    const namespaceInput = document.getElementById('namespace');
+    const namespaceStatus = document.getElementById('namespaceStatus');
+    
+    if (ociSettings.namespace) {
+      // .envから取得できた場合
+      namespaceStatus.textContent = '環境変数から読み込み済み';
+      namespaceStatus.className = 'text-xs text-green-600';
+    } else {
+      // 空の場合、APIで取得を試みる（エラーは表示せず静かに失敗）
+      namespaceStatus.textContent = 'Namespaceを取得中...';
+      namespaceStatus.className = 'text-xs text-blue-600';
+      
+      try {
+        const namespaceData = await authApiCall('/ai/api/oci/namespace');
+        if (namespaceData.success) {
+          namespaceInput.value = namespaceData.namespace;
+          ociSettings.namespace = namespaceData.namespace;
+          namespaceStatus.textContent = `OCI APIから自動取得済み`;
+          namespaceStatus.className = 'text-xs text-green-600';
+        } else {
+          // エラーメッセージを表示せず、空白のまま
+          namespaceStatus.textContent = '環境変数から読み込み中...';
+          namespaceStatus.className = 'text-xs text-gray-500';
+        }
+      } catch (namespaceError) {
+        // API Key未設定などのエラーは表示せず、空白のまま
+        namespaceStatus.textContent = '環境変数から読み込み中...';
+        namespaceStatus.className = 'text-xs text-gray-500';
+      }
+    }
+    
     // Private Key の状態を表示
     updatePrivateKeyStatus();
     
     // ステータスバッジを更新
     updateOciStatusBadge();
+    
+    // Object Storageステータスバッジを更新
+    updateObjectStorageStatusBadge(
+      ociSettings.bucket_name,
+      namespaceInput?.value
+    );
     
   } catch (error) {
     // 初回ロード時はエラーでも表示しない（未設定扱い）
@@ -5059,67 +5105,104 @@ function updateObjectStorageStatusBadge(bucketName, namespace) {
 /**
  * Object Storage設定を更新（更新ボタン用）
  * .envからBucket NameとNamespaceを取得し、入力欄に反映
+ * OCI SDK経由でNamespaceを取得した場合、環境変数に保存
  */
 async function refreshObjectStorageSettings() {
   try {
     utilsShowLoading('.envからObject Storage設定を再取得中...');
     
     // OCI設定を取得
-    const settingsData = await authApiCall('/ai/api/oci/settings');
+    const data = await authApiCall('/ai/api/oci/settings');
+    const settings = data.settings;
+    
+    // ociSettingsとociSettingsStatusを更新
+    ociSettings = settings;
+    ociSettings.region = ociSettings.region || 'us-chicago-1';
+    ociSettingsStatus = data.status;
+    
+    // OCI APIキー設定をUIに反映
+    document.getElementById('userOcid').value = ociSettings.user_ocid || '';
+    document.getElementById('tenancyOcid').value = ociSettings.tenancy_ocid || '';
+    document.getElementById('fingerprint').value = ociSettings.fingerprint || '';
+    document.getElementById('region').value = ociSettings.region;
     
     // Bucket Nameを設定
     const bucketNameInput = document.getElementById('bucketName');
+    if (bucketNameInput) {
+      bucketNameInput.value = settings.bucket_name || '';
+    }
+    
+    // Namespaceの処理
     const namespaceInput = document.getElementById('namespace');
     const namespaceStatus = document.getElementById('namespaceStatus');
-    
     let toastMessage = '';
     let toastType = 'success';
     
-    if (bucketNameInput && settingsData.settings.bucket_name) {
-      bucketNameInput.value = settingsData.settings.bucket_name;
-      toastMessage = 'Bucket Nameを再取得しました';
-    } else {
-      toastMessage = 'Bucket Nameが.envに設定されていません';
-      toastType = 'warning';
-    }
-    
-    // Namespaceを取得（.env優先、空ならAPI）
-    if (settingsData.settings.namespace) {
+    if (settings.namespace) {
       // .envから取得できた場合
-      namespaceInput.value = settingsData.settings.namespace;
+      namespaceInput.value = settings.namespace;
       namespaceStatus.textContent = '環境変数から読み込み済み';
       namespaceStatus.className = 'text-xs text-green-600';
-      if (toastMessage && bucketNameInput && settingsData.settings.bucket_name) {
-        toastMessage = 'Bucket NameとNamespaceを再取得しました';
-      }
+      toastMessage = 'Bucket NameとNamespaceを再取得しました';
     } else {
-      // 空の場合、APIで取得を試みる
+      // 空の場合、OCI SDK経由で取得を試みる
       namespaceStatus.textContent = 'Namespaceを取得中...';
       namespaceStatus.className = 'text-xs text-blue-600';
       
       try {
         const namespaceData = await authApiCall('/ai/api/oci/namespace');
-        if (namespaceData.success) {
+        if (namespaceData.success && namespaceData.namespace) {
           namespaceInput.value = namespaceData.namespace;
-          namespaceStatus.textContent = `OCI APIから自動取得済み`;
-          namespaceStatus.className = 'text-xs text-green-600';
-          toastMessage = 'NamespaceをAPIから再取得しました';
+          ociSettings.namespace = namespaceData.namespace;
+          
+          // OCI SDK経由で取得した場合、環境変数に保存
+          try {
+            const saveResponse = await authApiCall('/ai/api/oci/object-storage/save', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                bucket_name: settings.bucket_name || '',
+                namespace: namespaceData.namespace
+              })
+            });
+            
+            if (saveResponse.success) {
+              namespaceStatus.textContent = 'OCI APIから自動取得し、環境変数に保存済み';
+              namespaceStatus.className = 'text-xs text-green-600';
+              toastMessage = 'NamespaceをOCI APIから取得し、環境変数に保存しました';
+            } else {
+              namespaceStatus.textContent = 'OCI APIから自動取得済み（環境変数保存失敗）';
+              namespaceStatus.className = 'text-xs text-yellow-600';
+              toastMessage = 'Namespaceを取得しましたが、環境変数への保存に失敗しました';
+              toastType = 'warning';
+            }
+          } catch (saveError) {
+            namespaceStatus.textContent = 'OCI APIから自動取得済み（環境変数保存エラー）';
+            namespaceStatus.className = 'text-xs text-yellow-600';
+            toastMessage = 'Namespaceを取得しましたが、環境変数への保存に失敗しました';
+            toastType = 'warning';
+          }
         } else {
-          namespaceStatus.textContent = '⚠️ Namespaceの取得に失敗しました';
-          namespaceStatus.className = 'text-xs text-red-600';
-          toastMessage = namespaceData.message || 'Namespaceの取得に失敗しました';
-          toastType = 'error';
+          // API Key未設定などの場合はエラーを表示せず空白のまま
+          namespaceStatus.textContent = '環境変数から読み込み中...';
+          namespaceStatus.className = 'text-xs text-gray-500';
+          toastMessage = bucketNameInput?.value ? 'Bucket Nameを再取得しました' : 'Bucket Nameが.envに設定されていません';
+          toastType = bucketNameInput?.value ? 'success' : 'warning';
         }
       } catch (namespaceError) {
-        // console.error('Namespace取得エラー:', namespaceError);
-        namespaceStatus.textContent = `⚠️ 取得エラー: ${namespaceError.message}`;
-        namespaceStatus.className = 'text-xs text-red-600';
-        toastMessage = `Namespace取得エラー: ${namespaceError.message}`;
-        toastType = 'error';
+        // API Key未設定などのエラーは表示せず空白のまま
+        namespaceStatus.textContent = '環境変数から読み込み中...';
+        namespaceStatus.className = 'text-xs text-gray-500';
+        toastMessage = bucketNameInput?.value ? 'Bucket Nameを再取得しました' : 'Bucket Nameが.envに設定されていません';
+        toastType = bucketNameInput?.value ? 'success' : 'warning';
       }
     }
     
+    // Private Keyの状態を表示
+    updatePrivateKeyStatus();
+    
     // ステータスバッジを更新
+    updateOciStatusBadge();
     updateObjectStorageStatusBadge(
       bucketNameInput?.value,
       namespaceInput?.value
@@ -5127,7 +5210,7 @@ async function refreshObjectStorageSettings() {
     
     utilsHideLoading();
     
-    // オーバーレイが非表示になった後にトーストを表示
+    // トーストメッセージを表示
     if (toastMessage) {
       utilsShowToast(toastMessage, toastType);
     }
@@ -5136,110 +5219,6 @@ async function refreshObjectStorageSettings() {
     // console.error('Object Storage設定再取得エラー:', error);
     utilsHideLoading();
     utilsShowToast(`設定再取得エラー: ${error.message}`, 'error');
-  }
-}
-
-/**
- * Object Storage設定を読み込む
- */
-async function loadObjectStorageSettings() {
-  try {
-    // OCI設定を取得
-    const settingsData = await authApiCall('/ai/api/oci/settings');
-    
-    // Bucket Nameを設定
-    const bucketNameInput = document.getElementById('bucketName');
-    if (bucketNameInput && settingsData.settings.bucket_name) {
-      bucketNameInput.value = settingsData.settings.bucket_name;
-    }
-    
-    // Namespaceを取得（.env優先、空ならAPI）
-    const namespaceInput = document.getElementById('namespace');
-    const namespaceStatus = document.getElementById('namespaceStatus');
-    
-    if (settingsData.settings.namespace) {
-      // .envから取得できた場合
-      namespaceInput.value = settingsData.settings.namespace;
-      namespaceStatus.textContent = '環境変数から読み込み済み';
-      namespaceStatus.className = 'text-xs text-green-600';
-    } else {
-      // 空の場合、APIで取得を試みる
-      namespaceStatus.textContent = 'Namespaceを取得中...';
-      namespaceStatus.className = 'text-xs text-blue-600';
-      
-      try {
-        const namespaceData = await authApiCall('/ai/api/oci/namespace');
-        if (namespaceData.success) {
-          namespaceInput.value = namespaceData.namespace;
-          namespaceStatus.textContent = `OCI APIから自動取得済み`;
-          namespaceStatus.className = 'text-xs text-green-600';
-        } else {
-          namespaceStatus.textContent = '⚠️ Namespaceの取得に失敗しました';
-          namespaceStatus.className = 'text-xs text-red-600';
-        }
-      } catch (namespaceError) {
-        // console.error('Namespace取得エラー:', namespaceError);
-        namespaceStatus.textContent = `⚠️ 取得エラー: ${namespaceError.message}`;
-        namespaceStatus.className = 'text-xs text-red-600';
-      }
-    }
-    
-    // ステータスバッジを更新
-    updateObjectStorageStatusBadge(
-      bucketNameInput?.value,
-      namespaceInput?.value
-    );
-    
-  } catch (error) {
-    // console.error('Object Storage設定読み込みエラー:', error);
-    utilsShowToast('Object Storage設定の読み込みに失敗しました', 'error');
-  }
-}
-
-/**
- * Object Storage設定を保存
- */
-async function saveObjectStorageSettings() {
-  try {
-    const bucketName = document.getElementById('bucketName').value.trim();
-    const namespace = document.getElementById('namespace').value.trim();
-    
-    if (!bucketName) {
-      utilsShowToast('Bucket Nameを入力してください', 'warning');
-      return;
-    }
-    
-    if (!namespace) {
-      utilsShowToast('Namespaceが取得されていません', 'warning');
-      return;
-    }
-    
-    utilsShowLoading('Object Storage設定を保存中...');
-    
-    const response = await authApiCall('/ai/api/oci/object-storage/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bucket_name: bucketName,
-        namespace: namespace
-      })
-    });
-    
-    if (response.success) {
-      utilsShowToast('Object Storage設定を保存しました', 'success');
-      // ステータスバッジを更新
-      updateObjectStorageStatusBadge(bucketName, namespace);
-      // 設定を再読み込み
-      await loadObjectStorageSettings();
-    } else {
-      utilsShowToast(response.message || '保存に失敗しました', 'error');
-    }
-    
-  } catch (error) {
-    // console.error('Object Storage設定保存エラー:', error);
-    utilsShowToast(`保存エラー: ${error.message}`, 'error');
-  } finally {
-    utilsHideLoading();
   }
 }
 
@@ -5309,9 +5288,7 @@ window.removeFileFromSelection = removeFileFromSelection;
 window.loadOciSettings = loadOciSettings;
 window.saveOciSettings = saveOciSettings;
 window.testOciConnection = testOciConnection;
-window.loadObjectStorageSettings = loadObjectStorageSettings;
 window.refreshObjectStorageSettings = refreshObjectStorageSettings;
-window.saveObjectStorageSettings = saveObjectStorageSettings;
 window.testObjectStorageConnection = testObjectStorageConnection;
 
 // 認証関連（TODO: window.authModuleに移行予定）

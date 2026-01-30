@@ -40,7 +40,6 @@ variableGroups:
     variables:
       - dify_branch
       - dify_bucket_name
-      - bucket_region
       - oci_access_key
       - oci_secret_key
 
@@ -164,18 +163,6 @@ variables:
     title: "Dify Bucket Name"
     description: "Object Storage bucket name for Dify"
     default: "dify-bucket"
-
-  bucket_region:
-    type: enum
-    required: true
-    visible: ${enable_dify}
-    title: "Object Storage Region"
-    description: "Select region for Object Storage bucket"
-    enum:
-      - "ap-osaka-1"
-      - "ap-tokyo-1"
-      - "us-chicago-1"
-    default: "ap-osaka-1"
 
   oci_access_key:
     type: string
