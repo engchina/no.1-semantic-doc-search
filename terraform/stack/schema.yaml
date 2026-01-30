@@ -141,7 +141,7 @@ variables:
 
   dify_branch:
     type: string
-    required: ${enable_dify}
+    required: true
     visible: ${enable_dify}
     title: "Dify Branch/Tag"
     description: "Branch or tag name to clone from Dify repository"
@@ -149,7 +149,7 @@ variables:
 
   dify_bucket_name:
     type: string
-    required: ${enable_dify}
+    required: true
     visible: ${enable_dify}
     title: "Dify Bucket Name"
     description: "Object Storage bucket name for Dify"
@@ -157,7 +157,7 @@ variables:
 
   bucket_region:
     type: enum
-    required: ${enable_dify}
+    required: true
     visible: ${enable_dify}
     title: "Object Storage Region"
     description: "Select region for Object Storage bucket"
@@ -169,18 +169,21 @@ variables:
 
   oci_access_key:
     type: string
-    required: ${enable_dify}
+    required: true
     visible: ${enable_dify}
     title: "OCI Access Key"
     description: "OCI Object Storage Access Key (S3 compatibility)"
+    confirmation: false
+    default: "oci_access_key"
 
   oci_secret_key:
     type: password
-    required: ${enable_dify}
+    required: true
     visible: ${enable_dify}
     title: "OCI Secret Key"
     description: "OCI Object Storage Secret Key (S3 compatibility)"
     confirmation: false
+    default: "oci_secret_key"
 
   instance_image_source_id:
     type: enum

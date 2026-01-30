@@ -72,6 +72,7 @@ write_files:
 runcmd:
   - apt install -y git unzip poppler-utils nginx netfilter-persistent
   - iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+  - iptables -I INPUT 7 -m state --state NEW -p tcp --dport 8080 -j ACCEPT
   - netfilter-persistent save
   - systemctl enable nginx
   - systemctl start nginx

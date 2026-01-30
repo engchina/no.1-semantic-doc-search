@@ -361,19 +361,81 @@ server {
         access_log off;
     }
 
-    # Difyリバースプロキシ（/difyパス）
-    location /dify/ {
-        proxy_pass http://127.0.0.1:8080/;
+    # Dify Console API
+    location /dify/console/api {
+        proxy_pass http://127.0.0.1:5001/console/api;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Prefix /dify;
+        proxy_connect_timeout 300s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # Dify Service API
+    location /dify/api {
+        proxy_pass http://127.0.0.1:5001/api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 300s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # Dify v1 API
+    location /dify/v1 {
+        proxy_pass http://127.0.0.1:5001/v1;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 300s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # Dify Files
+    location /dify/files {
+        proxy_pass http://127.0.0.1:5001/files;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 300s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # Dify Web Frontend
+    location /dify/ {
+        proxy_pass http://127.0.0.1:3000/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocketサポート
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        proxy_connect_timeout 300s;
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
         proxy_buffering off;
-        rewrite ^/dify/(.*)$ /$1 break;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # /difyへのアクセスを/dify/にリダイレクト
+    location = /dify {
+        return 301 /dify/;
     }
 }
 NGINX_EOF
@@ -570,8 +632,8 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         echo "Dify環境ファイルを設定中..."
         cp -f .env.example .env
         
-        # Basic port configuration (8080内部ポートのみ使用、外部公開なし)
-        sed -i "s|EXPOSE_NGINX_PORT=80|EXPOSE_NGINX_PORT=8080|g" .env
+        # Dify内部Nginxのポート設定（外部Nginxから直接web/apiにプロキシするため未使用）
+        # 内部Nginxは無効化せず、デフォルトのままにする
         
         # Configure Oracle ADB as vector store
         echo "Oracle ADBをベクトルストアとして設定中..."
@@ -612,6 +674,11 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         sed -i "s|^APP_API_URL=.*|APP_API_URL=http://${EXTERNAL_IP}/dify/api|" .env
         sed -i "s|^APP_WEB_URL=.*|APP_WEB_URL=http://${EXTERNAL_IP}/dify|" .env
         sed -i "s|^FILES_URL=.*|FILES_URL=http://${EXTERNAL_IP}/dify/files|" .env
+        
+        # Set files access URL (internal)
+        sed -i "s|^FILES_ACCESS_URL=.*|FILES_ACCESS_URL=http://${EXTERNAL_IP}/dify/files|" .env || echo "FILES_ACCESS_URL=http://${EXTERNAL_IP}/dify/files" >> .env
+        
+        # Configure file upload and processing limits
         sed -i "s|^UPLOAD_FILE_SIZE_LIMIT=15|UPLOAD_FILE_SIZE_LIMIT=100|g" .env
         sed -i "s|^CODE_MAX_STRING_ARRAY_LENGTH=30|CODE_MAX_STRING_ARRAY_LENGTH=1000|g" .env
         sed -i "s|^CODE_MAX_OBJECT_ARRAY_LENGTH=30|CODE_MAX_OBJECT_ARRAY_LENGTH=1000|g" .env
@@ -619,16 +686,23 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         
         # Create docker-compose.override.yaml for internal port configuration
         echo "Docker Compose override設定を作成中..."
-        cat > docker-compose.override.yaml << 'EOL'
+        cat > docker-compose.override.yaml << EOL
 services:
-  nginx:
+  web:
     ports:
-      - '127.0.0.1:8080:80'
+      - '127.0.0.1:3000:3000'
+    environment:
+      CONSOLE_API_URL: 'http://${EXTERNAL_IP}/dify/console/api'
+      CONSOLE_WEB_URL: 'http://${EXTERNAL_IP}/dify'
+      APP_API_URL: 'http://${EXTERNAL_IP}/dify/api'
+      APP_WEB_URL: 'http://${EXTERNAL_IP}/dify'
   api:
     ports:
       - '127.0.0.1:5001:5001'
     environment:
       - NLTK_DATA=/tmp/nltk_data
+      - WEB_API_CORS_ALLOW_ORIGINS=*
+      - CONSOLE_CORS_ALLOW_ORIGINS=*
     volumes:
       - ./volumes/nltk_data:/tmp/nltk_data
   worker:
@@ -698,7 +772,8 @@ EOL
         for attempt in $(seq 1 $max_attempts); do
             echo "サービスの可用性を検証中 (attempt $attempt/$max_attempts)..."
             
-            if curl -s -f "http://127.0.0.1:8080" >/dev/null 2>&1; then
+            # webサービス(3000)とapiサービス(5001)の両方を検証
+            if curl -s -f "http://127.0.0.1:3000" >/dev/null 2>&1 && curl -s -f "http://127.0.0.1:5001/health" >/dev/null 2>&1; then
                 echo "Difyサービスの検証に成功しました"
                 break
             fi
