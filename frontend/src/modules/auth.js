@@ -82,7 +82,7 @@ export async function handleLogin(event) {
     }
     
     const apiBase = appState.get('apiBase') || '';
-    const url = apiBase ? `${apiBase}/api/login` : '/api/login';
+    const url = apiBase ? `${apiBase}/api/login` : '/ai/api/login';
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -143,7 +143,7 @@ export async function handleLogout() {
     const loginToken = appState.get('loginToken');
     if (loginToken) {
       const apiBase = appState.get('apiBase') || '';
-      const url = apiBase ? `${apiBase}/api/logout` : '/api/logout';
+      const url = apiBase ? `${apiBase}/api/logout` : '/ai/api/logout';
       await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${loginToken}` }

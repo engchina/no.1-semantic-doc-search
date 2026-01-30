@@ -59,7 +59,7 @@ export async function loadOciObjects() {
       display_type: ociObjectsDisplayType
     });
     
-    const data = await apiCall(`/api/oci/objects?${params}`);
+    const data = await apiCall(`/ai/api/oci/objects?${params}`);
     
     hideLoading();
     
@@ -586,7 +586,7 @@ export async function downloadSelectedOciObjects() {
       headers['Authorization'] = `Bearer ${loginToken}`;
     }
     
-    const response = await fetch('/api/oci/objects/download', {
+    const response = await fetch('/ai/api/oci/objects/download', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify({
@@ -684,7 +684,7 @@ export async function convertSelectedOciObjectsToImages() {
       headers['Authorization'] = `Bearer ${loginToken}`;
     }
     
-    const response = await fetch('/api/oci/objects/convert-to-images', {
+    const response = await fetch('/ai/api/oci/objects/convert-to-images', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify({
@@ -775,7 +775,7 @@ export async function vectorizeSelectedOciObjects() {
       headers['Authorization'] = `Bearer ${loginToken}`;
     }
     
-    const response = await fetch('/api/oci/objects/vectorize', {
+    const response = await fetch('/ai/api/oci/objects/vectorize', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify({
@@ -844,7 +844,7 @@ export async function deleteSelectedOciObjects() {
   
   try {
     // 一括削除APIを呼び出す
-    const response = await apiCall('/api/oci/objects/delete', {
+    const response = await apiCall('/ai/api/oci/objects/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ object_names: selectedOciObjects })

@@ -14,7 +14,7 @@ import { showLoading, hideLoading, showToast, showImageModal } from './utils.js'
  * @returns {string} トークン付きの画像URL
  */
 function getAuthenticatedImageUrl(bucket, objectName) {
-  const baseUrl = `/api/oci/image/${bucket}/${encodeURIComponent(objectName)}`;
+  const baseUrl = `/ai/api/oci/image/${bucket}/${encodeURIComponent(objectName)}`;
   const token = localStorage.getItem('loginToken');
   if (token) {
     return `${baseUrl}?token=${encodeURIComponent(token)}`;
@@ -38,7 +38,7 @@ export async function performSearch() {
   try {
     showLoading('検索中...');
     
-    const data = await apiCall('/api/search', {
+    const data = await apiCall('/ai/api/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, top_k: topK, min_score: minScore })

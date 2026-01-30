@@ -71,7 +71,7 @@ let currentPageTableDataRows = [];  // -> appState.get('currentPageTableDataRows
  * @returns {string} トークン付きの画像URL
  */
 function getAuthenticatedImageUrl(bucket, objectName) {
-  const baseUrl = `/api/oci/image/${bucket}/${encodeURIComponent(objectName)}`;
+  const baseUrl = `/ai/api/oci/image/${bucket}/${encodeURIComponent(objectName)}`;
   const token = localStorage.getItem('loginToken');
   if (token) {
     return `${baseUrl}?token=${encodeURIComponent(token)}`;
@@ -405,7 +405,7 @@ async function uploadMultipleDocuments() {
     });
     
     // API呼び出し
-    const data = await authApiCall('/api/documents/upload/multiple', {
+    const data = await authApiCall('/ai/api/documents/upload/multiple', {
       method: 'POST',
       body: formData
     });
@@ -524,7 +524,7 @@ async function uploadDocument() {
     const formData = new FormData();
     formData.append('file', selectedFile);
     
-    const data = await authApiCall('/api/documents/upload', {
+    const data = await authApiCall('/ai/api/documents/upload', {
       method: 'POST',
       body: formData
     });
@@ -546,7 +546,7 @@ async function uploadDocument() {
 
 async function loadDocuments() {
   try {
-    const data = await authApiCall('/api/documents');
+    const data = await authApiCall('/ai/api/documents');
     documentsCache = data.documents;
     displayDocumentsList(data.documents);
   } catch (error) {
@@ -677,7 +677,7 @@ async function loadOciObjects() {
       display_type: ociObjectsDisplayType
     });
     
-    const data = await authApiCall(`/api/oci/objects?${params}`);
+    const data = await authApiCall(`/ai/api/oci/objects?${params}`);
     
     utilsHideLoading();
     
@@ -1328,7 +1328,7 @@ async function deleteSelectedOciObjects() {
   
   try {
     // 一括削除APIを呼び出す
-    const response = await authApiCall('/api/oci/objects/delete', {
+    const response = await authApiCall('/ai/api/oci/objects/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ object_names: selectedOciObjects })
@@ -1387,7 +1387,7 @@ window.downloadSelectedOciObjects = async function() {
       headers['Authorization'] = `Bearer ${token}`;
     }
     
-    const response = await fetch('/api/oci/objects/download', {
+    const response = await fetch('/ai/api/oci/objects/download', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify({
@@ -1477,7 +1477,7 @@ window.convertSelectedOciObjectsToImages = async function() {
       headers['Authorization'] = `Bearer ${token}`;
     }
     
-    const response = await fetch('/api/oci/objects/convert-to-images', {
+    const response = await fetch('/ai/api/oci/objects/convert-to-images', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify({
@@ -1714,7 +1714,7 @@ window.vectorizeSelectedOciObjects = async function() {
       headers['Authorization'] = `Bearer ${token}`;
     }
     
-    const response = await fetch('/api/oci/objects/vectorize', {
+    const response = await fetch('/ai/api/oci/objects/vectorize', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify({
@@ -2011,7 +2011,7 @@ window.cancelCurrentJob = async function(jobId) {
       headers['Authorization'] = `Bearer ${token}`;
     }
     
-    const response = await fetch(`/api/jobs/${jobId}/cancel`, {
+    const response = await fetch(`/ai/api/jobs/${jobId}/cancel`, {
       method: 'POST',
       headers: headers
     });
@@ -2100,7 +2100,7 @@ async function deleteDocument(documentId, filename) {
   try {
     utilsShowLoading('文書を削除中...');
     
-    await authApiCall(`/api/documents/${documentId}`, {
+    await authApiCall(`/ai/api/documents/${documentId}`, {
       method: 'DELETE'
     });
     
@@ -2141,7 +2141,7 @@ let ociConnectionTestResult = null;
  */
 async function loadOciSettings() {
   try {
-    const data = await authApiCall('/api/oci/settings');
+    const data = await authApiCall('/ai/api/oci/settings');
     ociSettings = data.settings;
     ociSettings.region = 'us-chicago-1'; // 固定値
     ociSettingsStatus = data.status;
@@ -2207,7 +2207,7 @@ async function saveOciSettings() {
       namespace: document.getElementById('namespace').value.trim()
     };
     
-    const result = await authApiCall('/api/oci/settings', {
+    const result = await authApiCall('/ai/api/oci/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settingsToSave)
@@ -2277,7 +2277,7 @@ async function testOciConnection() {
   try {
     utilsShowLoading('OCI接続テスト実行中...');
     
-    const result = await authApiCall('/api/oci/test', {
+    const result = await authApiCall('/ai/api/oci/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ settings: ociSettings })
@@ -2455,7 +2455,7 @@ window.handleDropForInput = handleDropForInput;
 
 async function loadDbConnectionSettings() {
   try {
-    const data = await authApiCall('/api/settings/database');
+    const data = await authApiCall('/ai/api/settings/database');
     const settings = data.settings;
     
     document.getElementById('dbUser').value = settings.username || '';
@@ -2508,7 +2508,7 @@ async function refreshDbConnectionFromEnv() {
     utilsShowLoading('接続設定を再取得中...');
     
     // 環境変数から情報を取得
-    const envData = await authApiCall('/api/settings/database/env');
+    const envData = await authApiCall('/ai/api/settings/database/env');
     
     if (!envData.success) {
       utilsHideLoading();
@@ -2685,7 +2685,7 @@ async function uploadWalletFile(file) {
       headers['Authorization'] = `Bearer ${loginToken}`;
     }
     
-    const response = await fetch(API_BASE ? `${API_BASE}/api/settings/database/wallet` : '/api/settings/database/wallet', {
+    const response = await fetch(API_BASE ? `${API_BASE}/api/settings/database/wallet` : '/ai/api/settings/database/wallet', {
       method: 'POST',
       headers: headers,
       body: formData
@@ -2762,7 +2762,7 @@ async function saveDbConnection() {
   try {
     utilsShowLoading('DB設定を保存中...');
     
-    await authApiCall('/api/settings/database', {
+    await authApiCall('/ai/api/settings/database', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
@@ -2800,7 +2800,7 @@ async function testDbConnection() {
     if (!password) {
       utilsShowLoading('環境変数からパスワードを取得中...');
       try {
-        const envData = await authApiCall('/api/settings/database/env?include_password=true');
+        const envData = await authApiCall('/ai/api/settings/database/env?include_password=true');
         if (envData.success && envData.password && envData.password !== '[CONFIGURED]') {
           password = envData.password;
         }
@@ -2844,7 +2844,7 @@ async function testDbConnection() {
       setTimeout(() => reject(new Error('接続テストがタイムアウトしました（20秒）')), 20000)
     );
     
-    const apiPromise = authApiCall('/api/settings/database/test', {
+    const apiPromise = authApiCall('/ai/api/settings/database/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody)
@@ -2873,7 +2873,7 @@ async function loadDbInfo() {
   try {
     utilsShowLoading('データベース情報を取得中...');
     
-    const data = await authApiCall('/api/database/info');
+    const data = await authApiCall('/ai/api/database/info');
     
     utilsHideLoading();
     
@@ -2947,7 +2947,7 @@ async function loadDbTables() {
     utilsShowLoading('テーブル一覧を取得中...');
     
     // ページングパラメータ付きでAPIを呼び出し
-    const data = await authApiCall(`/api/database/tables?page=${dbTablesPage}&page_size=${dbTablesPageSize}`);
+    const data = await authApiCall(`/ai/api/database/tables?page=${dbTablesPage}&page_size=${dbTablesPageSize}`);
     
     utilsHideLoading();
     
@@ -3105,7 +3105,7 @@ async function loadTableData(tableName) {
   try {
     utilsShowLoading(`テーブル ${tableName} のデータを読み込み中...`);
     
-    const data = await authApiCall(`/api/database/tables/${encodeURIComponent(tableName)}/data?page=${tableDataPage}&page_size=${tableDataPageSize}`);
+    const data = await authApiCall(`/ai/api/database/tables/${encodeURIComponent(tableName)}/data?page=${tableDataPage}&page_size=${tableDataPageSize}`);
     
     utilsHideLoading();
     
@@ -3409,7 +3409,7 @@ function deleteSelectedTableData() {
         });
         
         // 汎用的な削除APIを呼び出す
-        const response = await authApiCall(`/api/database/tables/${encodeURIComponent(selectedTableForPreview)}/delete`, {
+        const response = await authApiCall(`/ai/api/database/tables/${encodeURIComponent(selectedTableForPreview)}/delete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ primary_keys: primaryKeyValues })
@@ -3675,7 +3675,7 @@ async function deleteSelectedDbTables() {
   
   try {
     // 一括削除APIを呼び出す
-    const response = await authApiCall('/api/database/tables/batch-delete', {
+    const response = await authApiCall('/ai/api/database/tables/batch-delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ table_names: selectedDbTables })
@@ -3718,7 +3718,7 @@ async function refreshDbTables() {
     utilsShowLoading('統計情報を再取得中...');
     
     // 先に統計情報を更新
-    const statsResult = await authApiCall('/api/database/tables/refresh-statistics', {
+    const statsResult = await authApiCall('/ai/api/database/tables/refresh-statistics', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -3750,7 +3750,7 @@ async function loadDbStorage() {
   try {
     utilsShowLoading('ストレージ情報を取得中...');
     
-    const data = await authApiCall('/api/database/storage');
+    const data = await authApiCall('/ai/api/database/storage');
     
     utilsHideLoading();
     
@@ -3900,7 +3900,7 @@ async function refreshDbStorage() {
 async function loadConfig() {
   try {
     // API_BASEが空の場合は相対パス、設定されている場合は絶対パス
-    const url = API_BASE ? `${API_BASE}/api/config` : '/api/config';
+    const url = API_BASE ? `${API_BASE}/api/config` : '/ai/api/config';
     const response = await fetch(url);
     if (response.ok) {
       const config = await response.json();
@@ -4016,7 +4016,7 @@ async function handleLogin(event) {
       errorDiv.style.display = 'none';
     }
     
-    const url = API_BASE ? `${API_BASE}/api/login` : '/api/login';
+    const url = API_BASE ? `${API_BASE}/api/login` : '/ai/api/login';
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4076,7 +4076,7 @@ async function handleLogin(event) {
 async function handleLogout() {
   try {
     if (loginToken) {
-      const url = API_BASE ? `${API_BASE}/api/logout` : '/api/logout';
+      const url = API_BASE ? `${API_BASE}/api/logout` : '/ai/api/logout';
       await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${loginToken}` }
@@ -4194,7 +4194,7 @@ let currentAdbInfo = {
  */
 async function loadAdbOcidOnly() {
   try {
-    const data = await authApiCall('/api/database/target/ocid', {
+    const data = await authApiCall('/ai/api/database/target/ocid', {
       method: 'GET'
     });
     
@@ -4216,7 +4216,7 @@ async function loadAdbOcidOnly() {
  */
 async function loadDbConnectionInfoFromEnv() {
   try {
-    const data = await authApiCall('/api/database/connection-info', {
+    const data = await authApiCall('/ai/api/database/connection-info', {
       method: 'GET'
     });
     
@@ -4261,7 +4261,7 @@ async function getAdbInfo() {
     
     // バックエンドのADB_OCIDを使用するため、
     // 環境変数から読み取る（参考コードと同じパターン）
-    const data = await authApiCall('/api/database/target', {
+    const data = await authApiCall('/ai/api/database/target', {
       method: 'GET'
     });
     
@@ -4303,7 +4303,7 @@ async function startAdb() {
   try {
     utilsShowLoading('ADBを起動中...');
     
-    const data = await authApiCall('/api/database/target/start', {
+    const data = await authApiCall('/ai/api/database/target/start', {
       method: 'POST'
     });
     
@@ -4342,7 +4342,7 @@ async function stopAdb() {
   try {
     utilsShowLoading('ADBを停止中...');
     
-    const data = await authApiCall('/api/database/target/stop', {
+    const data = await authApiCall('/ai/api/database/target/stop', {
       method: 'POST'
     });
     
@@ -5063,7 +5063,7 @@ async function refreshObjectStorageSettings() {
     utilsShowLoading('.envからObject Storage設定を再取得中...');
     
     // OCI設定を取得
-    const settingsData = await authApiCall('/api/oci/settings');
+    const settingsData = await authApiCall('/ai/api/oci/settings');
     
     // Bucket Nameを設定
     const bucketNameInput = document.getElementById('bucketName');
@@ -5096,7 +5096,7 @@ async function refreshObjectStorageSettings() {
       namespaceStatus.className = 'text-xs text-blue-600';
       
       try {
-        const namespaceData = await authApiCall('/api/oci/namespace');
+        const namespaceData = await authApiCall('/ai/api/oci/namespace');
         if (namespaceData.success) {
           namespaceInput.value = namespaceData.namespace;
           namespaceStatus.textContent = `OCI APIから自動取得済み`;
@@ -5143,7 +5143,7 @@ async function refreshObjectStorageSettings() {
 async function loadObjectStorageSettings() {
   try {
     // OCI設定を取得
-    const settingsData = await authApiCall('/api/oci/settings');
+    const settingsData = await authApiCall('/ai/api/oci/settings');
     
     // Bucket Nameを設定
     const bucketNameInput = document.getElementById('bucketName');
@@ -5166,7 +5166,7 @@ async function loadObjectStorageSettings() {
       namespaceStatus.className = 'text-xs text-blue-600';
       
       try {
-        const namespaceData = await authApiCall('/api/oci/namespace');
+        const namespaceData = await authApiCall('/ai/api/oci/namespace');
         if (namespaceData.success) {
           namespaceInput.value = namespaceData.namespace;
           namespaceStatus.textContent = `OCI APIから自動取得済み`;
@@ -5214,7 +5214,7 @@ async function saveObjectStorageSettings() {
     
     utilsShowLoading('Object Storage設定を保存中...');
     
-    const response = await authApiCall('/api/oci/object-storage/save', {
+    const response = await authApiCall('/ai/api/oci/object-storage/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -5261,7 +5261,7 @@ async function testObjectStorageConnection() {
     
     utilsShowLoading('Object Storage接続テスト中...');
     
-    const response = await authApiCall('/api/oci/object-storage/test', {
+    const response = await authApiCall('/ai/api/oci/object-storage/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

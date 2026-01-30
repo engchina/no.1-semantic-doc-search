@@ -315,22 +315,41 @@ if [ -d "$PROJECT_DIR" ]; then
     echo "本番用フロントエンドをビルド中..."
     npm run build
     
-    # Configure nginx
-    echo "nginxを設定中..."
-    cat > /etc/nginx/sites-available/semantic-doc-search << 'NGINX_EOF'
+    # Configure nginx (Difyなし版)
+    echo "nginxを設定中 (Difyなし)..."
+    cat > /etc/nginx/sites-available/app << 'NGINX_EOF'
 server {
     listen 80;
     server_name _;
 
     # ログ設定
-    access_log /var/log/nginx/semantic-doc-search-access.log;
-    error_log /var/log/nginx/semantic-doc-search-error.log warn;
+    access_log /var/log/nginx/app.log;
+    error_log /var/log/nginx/app-error.log warn;
 
     # クライアント最大ボディサイズ（アップロード用）
     client_max_body_size 100M;
 
-    # フロントエンド（静的ファイル）
-    location / {
+    # 本アプリのAPI (/ai/api)
+    location /ai/api/ {
+        proxy_pass http://127.0.0.1:8081/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # 本アプリのヘルスチェック
+    location /ai/health {
+        proxy_pass http://127.0.0.1:8081/health;
+        proxy_set_header Host $host;
+        access_log off;
+    }
+
+    # 本アプリのフロントエンド (/ai)
+    location /ai {
         proxy_pass http://127.0.0.1:5175;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -342,106 +361,15 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    # APIエンドポイント
-    location /api/ {
-        proxy_pass http://127.0.0.1:8081/;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-    }
-
-    # ヘルスチェック
-    location /health {
-        proxy_pass http://127.0.0.1:8081/health;
-        proxy_set_header Host $host;
-        access_log off;
-    }
-
-    # Dify Console API
-    location /dify/console/api {
-        proxy_pass http://127.0.0.1:5001/console/api;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_connect_timeout 300s;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-    }
-
-    # Dify Service API
-    location /dify/api {
-        proxy_pass http://127.0.0.1:5001/api;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_connect_timeout 300s;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-    }
-
-    # Dify v1 API
-    location /dify/v1 {
-        proxy_pass http://127.0.0.1:5001/v1;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_connect_timeout 300s;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-    }
-
-    # Dify Files
-    location /dify/files {
-        proxy_pass http://127.0.0.1:5001/files;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_connect_timeout 300s;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-    }
-
-    # Dify Web Frontend
-    location /dify/ {
-        proxy_pass http://127.0.0.1:3000/;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # WebSocketサポート
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        
-        proxy_connect_timeout 300s;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_buffering off;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # /difyへのアクセスを/dify/にリダイレクト
-    location = /dify {
-        return 301 /dify/;
+    # ルートパスは/aiにリダイレクト (Difyがない場合)
+    location / {
+        return 302 /ai;
     }
 }
 NGINX_EOF
 
     # サイトを有効化
-    ln -sf /etc/nginx/sites-available/semantic-doc-search /etc/nginx/sites-enabled/
+    ln -sf /etc/nginx/sites-available/app /etc/nginx/sites-enabled/
     
     # デフォルトサイトを無効化
     rm -f /etc/nginx/sites-enabled/default
@@ -457,6 +385,15 @@ NGINX_EOF
     # nginx自動起動を有効化
     echo "nginx自動起動を有効化中..."
     systemctl enable nginx
+    
+    # Difyなしの場合の完了メッセージ
+    EXTERNAL_IP=$(curl -s -m 10 http://whatismyip.akamai.com/ || echo "localhost")
+    echo "========================================"
+    echo "初期化が完了しました。"
+    echo "  本アプリ: http://${EXTERNAL_IP}/ai"
+    echo "  API:      http://${EXTERNAL_IP}/ai/api/"
+    echo "  (ルート'/'は/aiにリダイレクトされます)"
+    echo "========================================"
 fi
 
 # Create startup script
@@ -482,13 +419,13 @@ echo "セマンティック文書検索バックエンドサービスを起動�
 # 環境変数からAPI_HOSTとAPI_PORTを読み取る（デフォルト値付き）
 API_HOST=${API_HOST:-0.0.0.0}
 API_PORT=${API_PORT:-8081}
-nohup uv run --directory backend uvicorn app.main:app --host "${API_HOST}" --port "${API_PORT}" > /var/log/semantic-doc-search-backend.log 2>&1 &
+nohup uv run --directory backend uvicorn app.main:app --host "${API_HOST}" --port "${API_PORT}" > /var/log/app-backend.log 2>&1 &
 
 sleep 5
 
 echo "セマンティック文書検索フロントエンドサービスを起動中..."
 cd /u01/aipoc/no.1-semantic-doc-search/frontend
-nohup npm run preview -- --host 0.0.0.0 --port 5175 > /var/log/semantic-doc-search-frontend.log 2>&1 &
+nohup npm run preview -- --host 0.0.0.0 --port 5175 > /var/log/app-frontend.log 2>&1 &
 
 echo "セマンティック文書検索サービスが起動しました。"
 EOF
@@ -618,7 +555,7 @@ if [ "$ENABLE_DIFY" = "true" ]; then
             retry_command git clone -b "${DIFY_BRANCH}" https://github.com/langgenius/dify.git
         fi
         
-        cd dify/docker
+        cd "${INSTALL_DIR}/dify/docker"
         
         # Get external IP
         EXTERNAL_IP=$(curl -s -m 10 http://whatismyip.akamai.com/ || echo "localhost")
@@ -631,9 +568,6 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         # Configure Dify environment
         echo "Dify環境ファイルを設定中..."
         cp -f .env.example .env
-        
-        # Dify内部Nginxのポート設定（外部Nginxから直接web/apiにプロキシするため未使用）
-        # 内部Nginxは無効化せず、デフォルトのままにする
         
         # Configure Oracle ADB as vector store
         echo "Oracle ADBをベクトルストアとして設定中..."
@@ -666,17 +600,14 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         sed -i "s|OCI_SECRET_KEY=.*|OCI_SECRET_KEY=${OCI_SECRET_KEY}|g" .env
         sed -i "s|OCI_REGION=.*|OCI_REGION=${OCI_REGION}|g" .env
         
-        # Update URL configuration (Nginxリバースプロキシ経由 /dify パス)
-        echo "URL設定を更新中..."
-        sed -i "s|^CONSOLE_API_URL=.*|CONSOLE_API_URL=http://${EXTERNAL_IP}/dify/console/api|" .env
-        sed -i "s|^CONSOLE_WEB_URL=.*|CONSOLE_WEB_URL=http://${EXTERNAL_IP}/dify|" .env
-        sed -i "s|^SERVICE_API_URL=.*|SERVICE_API_URL=http://${EXTERNAL_IP}/dify/api|" .env
-        sed -i "s|^APP_API_URL=.*|APP_API_URL=http://${EXTERNAL_IP}/dify/api|" .env
-        sed -i "s|^APP_WEB_URL=.*|APP_WEB_URL=http://${EXTERNAL_IP}/dify|" .env
-        sed -i "s|^FILES_URL=.*|FILES_URL=http://${EXTERNAL_IP}/dify/files|" .env
-        
-        # Set files access URL (internal)
-        sed -i "s|^FILES_ACCESS_URL=.*|FILES_ACCESS_URL=http://${EXTERNAL_IP}/dify/files|" .env || echo "FILES_ACCESS_URL=http://${EXTERNAL_IP}/dify/files" >> .env
+        # Update URL configuration (Difyをルートパスで動作)
+        echo "URL設定を更新中 (ルートパス)..."
+        sed -i "s|^CONSOLE_API_URL=.*|CONSOLE_API_URL=http://${EXTERNAL_IP}/console/api|" .env
+        sed -i "s|^CONSOLE_WEB_URL=.*|CONSOLE_WEB_URL=http://${EXTERNAL_IP}|" .env
+        sed -i "s|^SERVICE_API_URL=.*|SERVICE_API_URL=http://${EXTERNAL_IP}/api|" .env
+        sed -i "s|^APP_API_URL=.*|APP_API_URL=http://${EXTERNAL_IP}/api|" .env
+        sed -i "s|^APP_WEB_URL=.*|APP_WEB_URL=http://${EXTERNAL_IP}|" .env
+        sed -i "s|^FILES_URL=.*|FILES_URL=http://${EXTERNAL_IP}/files|" .env
         
         # Configure file upload and processing limits
         sed -i "s|^UPLOAD_FILE_SIZE_LIMIT=15|UPLOAD_FILE_SIZE_LIMIT=100|g" .env
@@ -684,28 +615,15 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         sed -i "s|^CODE_MAX_OBJECT_ARRAY_LENGTH=30|CODE_MAX_OBJECT_ARRAY_LENGTH=1000|g" .env
         sed -i "s|^HTTP_REQUEST_NODE_MAX_BINARY_SIZE=10485760|HTTP_REQUEST_NODE_MAX_BINARY_SIZE=104857600|g" .env
         
-        # Create docker-compose.override.yaml for internal port configuration
+        # Create docker-compose.override.yaml
+        # Dify内部Nginxを8080ポートで公開（外部Nginxからプロキシ）
         echo "Docker Compose override設定を作成中..."
-        cat > docker-compose.override.yaml << EOL
+        cat > docker-compose.override.yaml << 'EOL'
 services:
   nginx:
-    # Dify内部Nginxは外部に公開しない（外部Nginxが直接web/apiにプロキシ）
-    ports: []
-  web:
     ports:
-      - '127.0.0.1:3000:3000'
-    environment:
-      # サブパス設定
-      NEXT_PUBLIC_BASE_PATH: '/dify'
-      NEXT_PUBLIC_PUBLIC_API_PREFIX: 'http://${EXTERNAL_IP}/dify/api'
-      # URL設定
-      CONSOLE_API_URL: 'http://${EXTERNAL_IP}/dify/console/api'
-      CONSOLE_WEB_URL: 'http://${EXTERNAL_IP}/dify'
-      APP_API_URL: 'http://${EXTERNAL_IP}/dify/api'
-      APP_WEB_URL: 'http://${EXTERNAL_IP}/dify'
+      - '127.0.0.1:8080:80'
   api:
-    ports:
-      - '127.0.0.1:5001:5001'
     environment:
       - NLTK_DATA=/tmp/nltk_data
       - WEB_API_CORS_ALLOW_ORIGINS=*
@@ -737,16 +655,11 @@ EOL
         # Configure wallet files to containers
         echo "Difyコンテナにwalletファイルを設定中..."
         if [ -d "${WALLET_DIR}" ]; then
-            # sqlnet.oraのDIRECTORYパスはそのまま（WALLET_DIRがすでに正しいパスを指している）
-            # sed操作は不要
-            
             # Copy wallet to Dify containers
             WORKER_CONTAINER=$(docker ps --filter "name=worker" --format "{{.Names}}" | head -n 1)
             if [ -n "$WORKER_CONTAINER" ]; then
                 echo "walletを${WORKER_CONTAINER}にコピー中..."
                 docker cp "${WALLET_DIR}" "${WORKER_CONTAINER}:/app/api/storage/wallet"
-                
-                # Fix wallet permissions
                 chown -R 1001:1001 volumes/app/storage/wallet 2>/dev/null || true
             fi
             
@@ -754,22 +667,90 @@ EOL
             echo "NLTKダウンロード問題を修正中..."
             API_CONTAINER=$(docker ps --filter "name=api" --format "{{.Names}}" | head -n 1)
             if [ -n "$API_CONTAINER" ]; then
-                # Set NLTK_DATA to writable directory and download
                 docker exec "$API_CONTAINER" bash -c 'mkdir -p /tmp/nltk_data && export NLTK_DATA=/tmp/nltk_data && python -c "import nltk; nltk.download(\"punkt\", download_dir=\"/tmp/nltk_data\", quiet=True); nltk.download(\"punkt_tab\", download_dir=\"/tmp/nltk_data\", quiet=True)"' || true
             fi
             
             if [ -n "$WORKER_CONTAINER" ]; then
-                # Set NLTK_DATA to writable directory and download
                 docker exec "$WORKER_CONTAINER" bash -c 'mkdir -p /tmp/nltk_data && export NLTK_DATA=/tmp/nltk_data && python -c "import nltk; nltk.download(\"punkt\", download_dir=\"/tmp/nltk_data\", quiet=True); nltk.download(\"punkt_tab\", download_dir=\"/tmp/nltk_data\", quiet=True)"' || true
             fi
             
             # Restart containers to apply configuration
             echo "設定を適用するためにコンテナを再起動中..."
             docker restart "$WORKER_CONTAINER" "$API_CONTAINER" || true
-            
-            # Wait and verify containers are running
             sleep 30
         fi
+        
+        # Update Nginx configuration for Dify (Difyあり版)
+        echo "Nginx設定を更新中 (Difyあり)..."
+        cat > /etc/nginx/sites-available/app << 'NGINX_DIFY_EOF'
+server {
+    listen 80;
+    server_name _;
+
+    # ログ設定
+    access_log /var/log/nginx/app.log;
+    error_log /var/log/nginx/app-error.log warn;
+
+    # クライアント最大ボディサイズ（アップロード用）
+    client_max_body_size 100M;
+
+    # 本アプリのAPI (/ai/api)
+    location /ai/api/ {
+        proxy_pass http://127.0.0.1:8081/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # 本アプリのヘルスチェック
+    location /ai/health {
+        proxy_pass http://127.0.0.1:8081/health;
+        proxy_set_header Host $host;
+        access_log off;
+    }
+
+    # 本アプリのフロントエンド (/ai)
+    location /ai {
+        proxy_pass http://127.0.0.1:5175;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Dify (ルートパス)
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocketサポート
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        proxy_connect_timeout 300s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_buffering off;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+NGINX_DIFY_EOF
+
+        # Reload Nginx
+        echo "Nginxをリロード中..."
+        nginx -t && systemctl reload nginx
         
         # Final service verification
         echo "サービスの最終検証を実施中..."
@@ -779,8 +760,7 @@ EOL
         for attempt in $(seq 1 $max_attempts); do
             echo "サービスの可用性を検証中 (attempt $attempt/$max_attempts)..."
             
-            # webサービス(3000)とapiサービス(5001)の両方を検証
-            if curl -s -f "http://127.0.0.1:3000" >/dev/null 2>&1 && curl -s -f "http://127.0.0.1:5001/health" >/dev/null 2>&1; then
+            if curl -s -f "http://127.0.0.1:8080" >/dev/null 2>&1; then
                 echo "Difyサービスの検証に成功しました"
                 break
             fi
@@ -790,11 +770,16 @@ EOL
                 sleep $wait_time
             else
                 echo "サービスの検証が$max_attempts回の試行後に失敗しました"
-                echo "http://${EXTERNAL_IP}/dify を手動でアクセスして確認してください"
+                echo "http://${EXTERNAL_IP}/ を手動でアクセスして確認してください"
             fi
         done
         
-        echo "Difyが準備完了しました。アクセスURL: http://${EXTERNAL_IP}/dify"
+        echo "========================================"
+        echo "Difyが準備完了しました。"
+        echo "  Dify:       http://${EXTERNAL_IP}/"
+        echo "  本アプリ:   http://${EXTERNAL_IP}/ai"
+        echo "  API:        http://${EXTERNAL_IP}/ai/api/"
+        echo "========================================"
     fi
 else
     echo "Difyインストールが無効になっています。スキップします。"
