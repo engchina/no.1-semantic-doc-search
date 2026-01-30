@@ -1375,11 +1375,28 @@ async def search_documents(query: SearchQuery, request: Request):
         api_base_path = os.getenv('API_BASE_PATH', '/ai/api')
         base_url = f"{scheme}://{host}{api_base_path}"
         
+        # 現在のユーザーのトークンを取得
+        user_token = None
+        if not debug_mode:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                user_token = auth_header.split(" ")[1]
+            elif auth_header and auth_header.startswith("ApiKey "):
+                # APIキー認証の場合はトークンなし(APIキー認証で直接アクセス可能)
+                user_token = None
+            else:
+                # クエリパラメータからトークンを取得
+                user_token = request.query_params.get("token")
+        
         # 絶対URL生成用のヘルパー関数
         def build_absolute_url(bucket: str, object_name: str) -> str:
-            """ファイル/画像の絶対URLを生成"""
+            """ファイル/画像の絶対URLを生成（トークン付き）"""
             encoded_name = quote(object_name, safe='')
-            return f"{base_url}/object/{bucket}/{encoded_name}"
+            url = f"{base_url}/object/{bucket}/{encoded_name}"
+            # トークンを追加（デバッグモードではトークン不要）
+            if user_token:
+                url += f"?token={quote(user_token, safe='')}"
+            return url
         
         files_dict = defaultdict(lambda: {
             'file_id': None,
