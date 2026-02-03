@@ -1028,180 +1028,285 @@ async def upload_document(file: UploadFile = File(...)):
 @app.post("/documents/upload/multiple")
 async def upload_multiple_documents(files: List[UploadFile] = File(...)):
     """
-    複数の文書をObject Storageにアップロード（最大10ファイル）
-    - ファイル検証（サイズ、拡張子、MIMEタイプ）
+    複数の文書をObject Storageにアップロード(最大10ファイル) - SSEストリーミング対応
+    - ファイル検証(サイズ、拡張子、MIMEタイプ)
     - Object Storageに保存
-    - ファイル名衝突回避（UUID）
+    - ファイル名衝突回避(UUID)
+    - リアルタイム進捗通知
     """
-    try:
-        # ファイル数チェック
-        max_files = 10
-        if len(files) > max_files:
-            raise HTTPException(status_code=400, detail=f"アップロード可能なファイル数は最大{max_files}個です")
-        
-        if len(files) == 0:
-            raise HTTPException(status_code=400, detail="アップロードするファイルを選択してください")
-        
-        # 環境変数から設定を取得
-        max_size = int(os.getenv("MAX_FILE_SIZE", 100000000))  # 100MB
-        allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,pptx,ppt,docx,txt,md,png,jpg,jpeg")
-        allowed_extensions = [ext.strip() for ext in allowed_extensions_str.split(",")]
-        
-        # 許可されたMIMEタイプ（品質確保）
-        allowed_mime_types = {
-            'pdf': 'application/pdf',
-            'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            'ppt': 'application/vnd.ms-powerpoint',
-            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'txt': 'text/plain',
-            'md': 'text/markdown',
-            'png': 'image/png',
-            'jpg': 'image/jpeg',
-            'jpeg': 'image/jpeg'
-        }
-        
-        results = []
-        success_count = 0
-        failed_count = 0
-        
-        # 各ファイルを処理
-        for idx, file in enumerate(files, 1):
-            file_result = {
-                "filename": file.filename,
-                "index": idx,
-                "success": False,
-                "message": "",
-                "document_id": None,
-                "oci_path": None
+    
+    async def generate_upload_events():
+        try:
+            # ファイル数チェック
+            max_files = 10
+            if len(files) > max_files:
+                error_data = {"type": "error", "message": f"アップロード可能なファイル数は最大{max_files}個です"}
+                yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+                return
+            
+            if len(files) == 0:
+                error_data = {"type": "error", "message": "アップロードするファイルを選択してください"}
+                yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+                return
+            
+            # 環境変数から設定を取得
+            max_size = int(os.getenv("MAX_FILE_SIZE", 100000000))  # 100MB
+            allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,pptx,ppt,docx,txt,md,png,jpg,jpeg")
+            allowed_extensions = [ext.strip() for ext in allowed_extensions_str.split(",")]
+            
+            # 許可されたMIMEタイプ(品質確保)
+            allowed_mime_types = {
+                'pdf': 'application/pdf',
+                'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                'ppt': 'application/vnd.ms-powerpoint',
+                'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'txt': 'text/plain',
+                'md': 'text/markdown',
+                'png': 'image/png',
+                'jpg': 'image/jpeg',
+                'jpeg': 'image/jpeg'
             }
             
-            try:
-                # ファイル名検証
-                if not file.filename or file.filename.strip() == "":
-                    file_result["message"] = "無効なファイル名です"
-                    failed_count += 1
-                    results.append(file_result)
-                    continue
-                
-                # ファイル拡張子チェック
-                file_ext = Path(file.filename).suffix.lower().lstrip('.')
-                
-                if file_ext not in allowed_extensions:
-                    file_result["message"] = f"サポートされていないファイル形式: {file_ext}"
-                    failed_count += 1
-                    results.append(file_result)
-                    continue
-                
-                # ファイルサイズをストリーミングでチェック
-                file.file.seek(0, 2)
-                file_size = file.file.tell()
-                file.file.seek(0)
-                
-                if file_size > max_size:
-                    file_result["message"] = f"ファイルサイズが大きすぎます（最大{max_size}バイト）"
-                    failed_count += 1
-                    results.append(file_result)
-                    continue
-                
-                if file_size == 0:
-                    file_result["message"] = "空のファイルです"
-                    failed_count += 1
-                    results.append(file_result)
-                    continue
-                
-                # MIMEタイプ検証（品質確保）
-                content_type = file.content_type
-                expected_mime = allowed_mime_types.get(file_ext)
-                
-                if expected_mime and content_type:
-                    # メインMIMEタイプが一致するかチェック
-                    if not content_type.startswith(expected_mime.split('/')[0]):
-                        logger.warning(f"MIMEタイプの不一致: 拡張子={file_ext}, Content-Type={content_type}")
-                
-                # 文書IDを生成（UUIDで衝突回避）
-                document_id = str(uuid.uuid4())
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                
-                # ファイル名をサニタイズ（パストラバーサル対策）
-                safe_basename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', file.filename)
-                safe_basename = safe_basename.replace('..', '_')
-                if not safe_basename or safe_basename.strip() == '':
-                    safe_basename = 'unnamed_file'
-                
-                safe_filename = f"{timestamp}_{document_id[:8]}_{safe_basename}"
-                oci_object_name = safe_filename
-                
-                # OCI Object Storageにアップロード（ストリーミング）
-                logger.info(f"Object Storageにアップロード中 [{idx}/{len(files)}]: {file.filename}")
-                
-                # ファイルを先頭にリセット
-                file.file.seek(0)
-                
-                # OCIに直接アップロード
-                upload_success = oci_service.upload_file(
-                    file_content=file.file,
-                    object_name=oci_object_name,
-                    content_type=content_type or f"application/{file_ext}",
-                    original_filename=file.filename,
-                    file_size=file_size
-                )
-                
-                if not upload_success:
-                    file_result["message"] = "Object Storageアップロード失敗"
-                    failed_count += 1
-                    results.append(file_result)
-                    continue
-                
-                logger.info(f"Object Storageアップロード完了 [{idx}/{len(files)}]: {file.filename} ({file_size} バイト)")
-                
-                # メタデータを保存
-                documents = load_documents_metadata()
-                document_metadata = {
-                    "document_id": document_id,
+            results = []
+            success_count = 0
+            failed_count = 0
+            
+            # 開始イベント送信
+            start_event = {"type": "start", "total_files": len(files)}
+            yield f"data: {json.dumps(start_event, ensure_ascii=False)}\n\n"
+            
+            # 各ファイルを処理
+            for idx, file in enumerate(files, 1):
+                file_result = {
                     "filename": file.filename,
-                    "file_size": file_size,
-                    "content_type": content_type or f"application/{file_ext}",
-                    "uploaded_at": datetime.now().isoformat(),
-                    "oci_path": oci_object_name,
-                    "status": "uploaded"
+                    "index": idx,
+                    "success": False,
+                    "message": "",
+                    "document_id": None,
+                    "oci_path": None
                 }
-                documents.append(document_metadata)
-                save_documents_metadata(documents)
                 
-                logger.info(f"文書アップロード完了 [{idx}/{len(files)}]: {file.filename} (ID: {document_id})")
+                # ファイル処理開始イベント
+                file_start_event = {
+                    "type": "file_start",
+                    "file_index": idx,
+                    "total_files": len(files),
+                    "file_name": file.filename or ""
+                }
+                yield f"data: {json.dumps(file_start_event, ensure_ascii=False)}\n\n"
                 
-                file_result["success"] = True
-                file_result["message"] = "アップロード成功"
-                file_result["document_id"] = document_id
-                file_result["file_size"] = file_size
-                file_result["oci_path"] = oci_object_name
-                success_count += 1
-                results.append(file_result)
-                
-            except Exception as e:
-                logger.error(f"ファイル処理エラー [{idx}/{len(files)}] {file.filename}: {e}")
-                file_result["message"] = f"処理エラー: {str(e)}"
-                failed_count += 1
-                results.append(file_result)
-        
-        # 全体の結果を返す
-        overall_success = failed_count == 0
-        summary_message = f"アップロード完了: 成功 {success_count}件、失敗 {failed_count}件"
-        
-        return {
-            "success": overall_success,
-            "message": summary_message,
-            "total_files": len(files),
-            "success_count": success_count,
-            "failed_count": failed_count,
-            "results": results
+                try:
+                    # ファイル名検証
+                    if not file.filename or file.filename.strip() == "":
+                        error_msg = "無効なファイル名です"
+                        file_result["message"] = error_msg
+                        failed_count += 1
+                        results.append(file_result)
+                        error_event = {
+                            "type": "file_error",
+                            "file_index": idx,
+                            "total_files": len(files),
+                            "file_name": file.filename or "",
+                            "error": error_msg
+                        }
+                        yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+                        continue
+                    
+                    # ファイル拡張子チェック
+                    file_ext = Path(file.filename).suffix.lower().lstrip('.')
+                    
+                    if file_ext not in allowed_extensions:
+                        error_msg = f"サポートされていないファイル形式: {file_ext}"
+                        file_result["message"] = error_msg
+                        failed_count += 1
+                        results.append(file_result)
+                        error_event = {
+                            "type": "file_error",
+                            "file_index": idx,
+                            "total_files": len(files),
+                            "file_name": file.filename,
+                            "error": error_msg
+                        }
+                        yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+                        continue
+                    
+                    # ファイルサイズをストリーミングでチェック
+                    file.file.seek(0, 2)
+                    file_size = file.file.tell()
+                    file.file.seek(0)
+                    
+                    if file_size > max_size:
+                        error_msg = f"ファイルサイズが大きすぎます(最大{max_size}バイト)"
+                        file_result["message"] = error_msg
+                        failed_count += 1
+                        results.append(file_result)
+                        error_event = {
+                            "type": "file_error",
+                            "file_index": idx,
+                            "total_files": len(files),
+                            "file_name": file.filename,
+                            "error": error_msg
+                        }
+                        yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+                        continue
+                    
+                    if file_size == 0:
+                        error_msg = "空のファイルです"
+                        file_result["message"] = error_msg
+                        failed_count += 1
+                        results.append(file_result)
+                        error_event = {
+                            "type": "file_error",
+                            "file_index": idx,
+                            "total_files": len(files),
+                            "file_name": file.filename,
+                            "error": error_msg
+                        }
+                        yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+                        continue
+                    
+                    # MIMEタイプ検証(品質確保)
+                    content_type = file.content_type
+                    expected_mime = allowed_mime_types.get(file_ext)
+                    
+                    if expected_mime and content_type:
+                        if not content_type.startswith(expected_mime.split('/')[0]):
+                            logger.warning(f"MIMEタイプの不一致: 拡張子={file_ext}, Content-Type={content_type}")
+                    
+                    # アップロード進行中イベント
+                    uploading_event = {
+                        "type": "file_uploading",
+                        "file_index": idx,
+                        "total_files": len(files),
+                        "file_name": file.filename,
+                        "file_size": file_size
+                    }
+                    yield f"data: {json.dumps(uploading_event, ensure_ascii=False)}\n\n"
+                    
+                    # 文書IDを生成(UUIDで衝突回避)
+                    document_id = str(uuid.uuid4())
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    
+                    # ファイル名をサニタイズ(パストラバーサル対策)
+                    safe_basename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', file.filename)
+                    safe_basename = safe_basename.replace('..', '_')
+                    if not safe_basename or safe_basename.strip() == '':
+                        safe_basename = 'unnamed_file'
+                    
+                    safe_filename = f"{timestamp}_{document_id[:8]}_{safe_basename}"
+                    oci_object_name = safe_filename
+                    
+                    # OCI Object Storageにアップロード(ストリーミング)
+                    logger.info(f"Object Storageにアップロード中 [{idx}/{len(files)}]: {file.filename}")
+                    
+                    # ファイルを先頭にリセット
+                    file.file.seek(0)
+                    
+                    # OCIに直接アップロード
+                    upload_success = oci_service.upload_file(
+                        file_content=file.file,
+                        object_name=oci_object_name,
+                        content_type=content_type or f"application/{file_ext}",
+                        original_filename=file.filename,
+                        file_size=file_size
+                    )
+                    
+                    if not upload_success:
+                        error_msg = "Object Storageアップロード失敗"
+                        file_result["message"] = error_msg
+                        failed_count += 1
+                        results.append(file_result)
+                        error_event = {
+                            "type": "file_error",
+                            "file_index": idx,
+                            "total_files": len(files),
+                            "file_name": file.filename,
+                            "error": error_msg
+                        }
+                        yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+                        continue
+                    
+                    logger.info(f"Object Storageアップロード完了 [{idx}/{len(files)}]: {file.filename} ({file_size} バイト)")
+                    
+                    # メタデータを保存
+                    documents = load_documents_metadata()
+                    document_metadata = {
+                        "document_id": document_id,
+                        "filename": file.filename,
+                        "file_size": file_size,
+                        "content_type": content_type or f"application/{file_ext}",
+                        "uploaded_at": datetime.now().isoformat(),
+                        "oci_path": oci_object_name,
+                        "status": "uploaded"
+                    }
+                    documents.append(document_metadata)
+                    save_documents_metadata(documents)
+                    
+                    logger.info(f"文書アップロード完了 [{idx}/{len(files)}]: {file.filename} (ID: {document_id})")
+                    
+                    file_result["success"] = True
+                    file_result["message"] = "アップロード成功"
+                    file_result["document_id"] = document_id
+                    file_result["file_size"] = file_size
+                    file_result["oci_path"] = oci_object_name
+                    success_count += 1
+                    results.append(file_result)
+                    
+                    # ファイル完了イベント
+                    complete_event = {
+                        "type": "file_complete",
+                        "file_index": idx,
+                        "total_files": len(files),
+                        "file_name": file.filename,
+                        "status": "完了"
+                    }
+                    yield f"data: {json.dumps(complete_event, ensure_ascii=False)}\n\n"
+                    
+                except Exception as e:
+                    logger.error(f"ファイル処理エラー [{idx}/{len(files)}] {file.filename}: {e}")
+                    error_msg = f"処理エラー: {str(e)}"
+                    file_result["message"] = error_msg
+                    failed_count += 1
+                    results.append(file_result)
+                    error_event = {
+                        "type": "file_error",
+                        "file_index": idx,
+                        "total_files": len(files),
+                        "file_name": file.filename or "",
+                        "error": error_msg
+                    }
+                    yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+            
+            # 全体の結果を返す
+            overall_success = failed_count == 0
+            summary_message = f"アップロード完了: 成功 {success_count}件、失敗 {failed_count}件"
+            
+            # 完了イベント送信
+            complete_event = {
+                "type": "complete",
+                "success": overall_success,
+                "message": summary_message,
+                "total_files": len(files),
+                "success_count": success_count,
+                "failed_count": failed_count
+            }
+            yield f"data: {json.dumps(complete_event, ensure_ascii=False)}\n\n"
+            
+        except Exception as e:
+            logger.error(f"アップロード処理エラー: {e}")
+            error_msg = f"アップロード処理エラー: {str(e)}"
+            error_event = {"type": "error", "message": error_msg}
+            yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+    
+    return StreamingResponse(
+        generate_upload_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
         }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"複数ファイルアップロードエラー: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    )
 
 @app.get("/documents", response_model=DocumentListResponse)
 async def list_documents():

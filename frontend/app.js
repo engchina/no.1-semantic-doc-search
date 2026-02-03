@@ -410,6 +410,9 @@ function clearMultipleFileSelection() {
 /**
  * 複数ファイルをアップロード
  */
+/**
+ * 複数ファイルアップロード（SSE対応・進捗表示付き）
+ */
 async function uploadMultipleDocuments() {
   if (selectedMultipleFiles.length === 0) {
     utilsShowToast('ファイルを選択してください', 'warning');
@@ -418,10 +421,17 @@ async function uploadMultipleDocuments() {
   
   try {
     // ボタンを無効化
-    document.getElementById('uploadMultipleBtn').disabled = true;
+    const uploadBtn = document.getElementById('uploadMultipleBtn');
+    uploadBtn.disabled = true;
     
-    // オーバーレイを表示
-    utilsShowLoading(`${selectedMultipleFiles.length}個のファイルをアップロード中...`);
+    // 選択されたファイルリストを非表示
+    const selectedFilesList = document.getElementById('selectedFilesList');
+    if (selectedFilesList) {
+      selectedFilesList.style.display = 'none';
+    }
+    
+    // 進捗表示UIを初期化
+    showUploadProgressUI(selectedMultipleFiles);
     
     // FormDataを作成
     const formData = new FormData();
@@ -429,75 +439,287 @@ async function uploadMultipleDocuments() {
       formData.append('files', file);
     });
     
-    // API呼び出し
-    const data = await authApiCall('/ai/api/documents/upload/multiple', {
+    // トークンを取得
+    const loginToken = localStorage.getItem('loginToken');
+    const headers = {};
+    if (loginToken) {
+      headers['Authorization'] = `Bearer ${loginToken}`;
+    }
+    
+    // API呼び出し（SSE）
+    const response = await fetch('/ai/api/documents/upload/multiple', {
       method: 'POST',
+      headers: headers,
       body: formData
     });
     
-    // オーバーレイを非表示
-    utilsHideLoading();
-    
-    // 結果を表示
-    displayUploadResults(data);
-    
-    // 成功した場合のトースト
-    if (data.success) {
-      utilsShowToast(`${data.success_count}件のファイルアップロードが完了しました`, 'success');
-    } else {
-      utilsShowToast(data.message, 'warning');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
     
-    // フォームをリセット（5秒後：showToastと同じタイミング）
-    setTimeout(() => {
-      clearMultipleFileSelection();
-      // 注: 文書リストの自動刷新は行わない（🔄 更新ボタンで手動刷新）
-    }, 5000);
+    // SSEストリーミング処理
+    await processUploadStreamingResponse(response, selectedMultipleFiles.length);
     
   } catch (error) {
-    utilsHideLoading();
-    document.getElementById('uploadProgress').style.display = 'none';
-    document.getElementById('uploadMultipleBtn').disabled = false;
+    console.error('アップロードエラー:', error);
+    hideUploadProgressUI();
+    const uploadBtn = document.getElementById('uploadMultipleBtn');
+    if (uploadBtn) {
+      uploadBtn.disabled = false;
+    }
     utilsShowToast(`アップロードエラー: ${error.message}`, 'error');
   }
 }
 
 /**
- * アップロード結果を表示
+ * アップロード進捗UIを表示
  */
-function displayUploadResults(data) {
+function showUploadProgressUI(files) {
   const progressDiv = document.getElementById('uploadProgress');
   progressDiv.style.display = 'block';
   
-  const results = data.results || [];
+  const filesArray = Array.from(files);
+  const totalFiles = filesArray.length;
   
-  const successResults = results.filter(r => r.success);
-  const failedResults = results.filter(r => !r.success);
-  
-  progressDiv.innerHTML = `
-    <div class="bg-white border border-gray-200 rounded-lg p-4">
-      <div class="mb-3">
-        <div class="text-sm font-semibold text-gray-800 mb-2">アップロード結果</div>
-        <div class="flex items-center gap-4 text-xs">
-          <span class="text-green-600 font-semibold">✅ 成功: ${data.success_count}件</span>
-          ${data.failed_count > 0 ? `<span class="text-red-600 font-semibold">❌ 失敗: ${data.failed_count}件</span>` : ''}
+  let filesHtml = '';
+  filesArray.forEach((file, index) => {
+    // ファイル名をエスケープ
+    const safeFileName = escapeHtml(file.name);
+    filesHtml += `
+      <div id="upload-file-${index}" class="flex items-start gap-2 p-3 rounded bg-gray-50 border border-gray-200" style="margin-bottom: 8px;">
+        <div class="flex-1">
+          <div class="text-sm font-medium text-gray-800">${safeFileName}</div>
+          <div class="flex items-center gap-2 mt-1">
+            <div class="flex-1 bg-gray-200 rounded-full h-2">
+              <div id="upload-progress-bar-${index}" class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <span id="upload-progress-percent-${index}" class="text-xs font-semibold text-gray-600" style="min-width: 40px;">0%</span>
+          </div>
+          <div id="upload-status-${index}" class="text-xs text-gray-500 mt-1"></div>
         </div>
       </div>
+    `;
+  });
+  
+  progressDiv.innerHTML = `
+    <div class="bg-white border-2 border-blue-400 rounded-lg p-4" style="margin-bottom: 16px;">
+      <div class="mb-3 pb-3 border-b border-gray-200 flex items-center justify-between">
+        <div>
+          <div class="text-base font-bold text-gray-800 mb-1">オブジェクト・ストアにファイルをアップロード中</div>
+          <div class="text-xs text-gray-600">選択されたファイル: ${totalFiles}件</div>
+        </div>
+        <button 
+          id="closeUploadProgressBtn" 
+          onclick="closeUploadProgress()" 
+          class="text-gray-400 hover:text-gray-600 transition-colors" 
+          style="display: none; font-size: 24px; line-height: 1; padding: 4px;"
+          title="閉じる"
+        >
+          ✕
+        </button>
+      </div>
       
-      <div class="space-y-2">
-        ${results.map(result => `
-          <div class="flex items-start gap-2 p-2 rounded ${result.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}">
-            <span class="text-lg">${result.success ? '✅' : '❌'}</span>
-            <div class="flex-1">
-              <div class="text-sm font-medium ${result.success ? 'text-green-800' : 'text-red-800'}">${result.filename}</div>
-              <div class="text-xs ${result.success ? 'text-green-600' : 'text-red-600'} mt-1">${result.message}</div>
-              ${result.success && result.page_count ? `<div class="text-xs text-gray-500 mt-1">ページ数: ${result.page_count}</div>` : ''}
-            </div>
-          </div>
-        `).join('')}
+      <div id="upload-files-container" style="max-height: 400px; overflow-y: auto;">
+        ${filesHtml}
+      </div>
+      
+      <div class="mt-3 pt-3 border-t border-gray-200">
+        <div id="upload-overall-status" class="text-sm font-semibold text-gray-700">準備中...</div>
       </div>
     </div>
   `;
+}
+
+/**
+ * アップロード進捗UIを非表示
+ */
+function hideUploadProgressUI() {
+  const progressDiv = document.getElementById('uploadProgress');
+  if (progressDiv) {
+    progressDiv.style.display = 'none';
+  }
+}
+
+/**
+ * アップロード進捗UIを手動で閉じる
+ */
+function closeUploadProgress() {
+  clearMultipleFileSelection();
+  hideUploadProgressUI();
+}
+
+/**
+ * ストリーミングレスポンスの処理（アップロード専用）
+ */
+async function processUploadStreamingResponse(response, totalFiles) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  
+  let currentFileIndex = 0;
+  let successCount = 0;
+  let failedCount = 0;
+  let processingCompleted = false;
+  
+  const processEventLine = async (line) => {
+    if (!line.startsWith('data: ')) return;
+    
+    try {
+      const jsonStr = line.substring(6);
+      const data = JSON.parse(jsonStr);
+      
+      switch(data.type) {
+        case 'start':
+          totalFiles = data.total_files;
+          updateUploadOverallStatus(`アップロード開始: ${totalFiles}件`);
+          break;
+          
+        case 'file_start':
+          currentFileIndex = data.file_index;
+          updateFileUploadStatus(data.file_index - 1, '待機中', 0);
+          updateUploadOverallStatus(`ファイル ${data.file_index}/${data.total_files} を処理中...`);
+          break;
+          
+        case 'file_uploading':
+          updateFileUploadStatus(data.file_index - 1, 'アップロード中...', 50);
+          break;
+          
+        case 'file_complete':
+          successCount++;
+          updateFileUploadStatus(data.file_index - 1, '完了', 100, true);
+          updateUploadOverallStatus(`完了: ${successCount}/${totalFiles}件`);
+          break;
+          
+        case 'file_error':
+          failedCount++;
+          updateFileUploadStatus(data.file_index - 1, `エラー: ${data.error}`, 100, false, true);
+          updateUploadOverallStatus(`進行中: 成功 ${successCount}件、失敗 ${failedCount}件`);
+          break;
+          
+        case 'complete':
+          processingCompleted = true;
+          updateUploadOverallStatus(
+            data.success ? 
+              `✓ すべて完了しました (${data.success_count}件)` : 
+              `完了: 成功 ${data.success_count}件、失敗 ${data.failed_count}件`
+          );
+          
+          // 成功時のトースト
+          if (data.success) {
+            utilsShowToast(`${data.success_count}件のファイルアップロードが完了しました`, 'success');
+          } else {
+            utilsShowToast(data.message, 'warning');
+          }
+          
+          // 閉じるボタンを表示
+          const closeBtn = document.getElementById('closeUploadProgressBtn');
+          if (closeBtn) {
+            closeBtn.style.display = 'block';
+          }
+          
+          const uploadBtn = document.getElementById('uploadMultipleBtn');
+          if (uploadBtn) {
+            uploadBtn.disabled = false;
+          }
+          break;
+          
+        case 'error':
+          processingCompleted = true;
+          updateUploadOverallStatus(`エラー: ${data.message}`);
+          utilsShowToast(`エラー: ${data.message}`, 'error');
+          const uploadBtnError = document.getElementById('uploadMultipleBtn');
+          if (uploadBtnError) {
+            uploadBtnError.disabled = false;
+          }
+          hideUploadProgressUI();
+          break;
+      }
+    } catch (parseError) {
+      console.error('JSONパースエラー:', parseError, '行:', line);
+    }
+  };
+  
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      
+      if (done) {
+        buffer += decoder.decode(new Uint8Array(), { stream: false });
+        if (buffer.trim()) {
+          const remainingLines = buffer.split('\n');
+          for (const line of remainingLines) {
+            await processEventLine(line);
+          }
+        }
+        break;
+      }
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      
+      for (const line of lines) {
+        await processEventLine(line);
+      }
+    }
+  } catch (error) {
+    console.error('ストリーム読み取りエラー:', error);
+    throw error;
+  } finally {
+    // ストリームが異常終了してもUIをリセット
+    if (!processingCompleted) {
+      const uploadBtn = document.getElementById('uploadMultipleBtn');
+      if (uploadBtn) {
+        uploadBtn.disabled = false;
+      }
+    }
+  }
+}
+
+/**
+ * ファイルアップロード状態を更新
+ */
+function updateFileUploadStatus(fileIndex, status, progress, isSuccess = false, isError = false) {
+  const fileDiv = document.getElementById(`upload-file-${fileIndex}`);
+  const progressBar = document.getElementById(`upload-progress-bar-${fileIndex}`);
+  const progressPercent = document.getElementById(`upload-progress-percent-${fileIndex}`);
+  const statusDiv = document.getElementById(`upload-status-${fileIndex}`);
+  
+  if (!fileDiv || !progressBar || !progressPercent || !statusDiv) return;
+  
+  // プログレスバー更新
+  progressBar.style.width = `${progress}%`;
+  progressPercent.textContent = `${progress}%`;
+  
+  // 状態テキスト更新
+  statusDiv.textContent = status;
+  
+  // 色の変更
+  if (isSuccess) {
+    fileDiv.classList.remove('bg-gray-50', 'border-gray-200', 'bg-red-50', 'border-red-200');
+    fileDiv.classList.add('bg-green-50', 'border-green-200');
+    progressBar.classList.remove('bg-blue-500', 'bg-red-500');
+    progressBar.classList.add('bg-green-500');
+    statusDiv.classList.remove('text-gray-500', 'text-red-600');
+    statusDiv.classList.add('text-green-600');
+  } else if (isError) {
+    fileDiv.classList.remove('bg-gray-50', 'border-gray-200', 'bg-green-50', 'border-green-200');
+    fileDiv.classList.add('bg-red-50', 'border-red-200');
+    progressBar.classList.remove('bg-blue-500', 'bg-green-500');
+    progressBar.classList.add('bg-red-500');
+    statusDiv.classList.remove('text-gray-500', 'text-green-600');
+    statusDiv.classList.add('text-red-600');
+  }
+}
+
+/**
+ * 全体ステータスを更新
+ */
+function updateUploadOverallStatus(message) {
+  const statusDiv = document.getElementById('upload-overall-status');
+  if (statusDiv) {
+    statusDiv.textContent = message;
+  }
 }
 
 function handleFileSelect(event) {
@@ -5300,6 +5522,7 @@ window.handleDropForMultipleInput = handleDropForMultipleInput;
 window.uploadMultipleDocuments = uploadMultipleDocuments;
 window.clearMultipleFileSelection = clearMultipleFileSelection;
 window.removeFileFromSelection = removeFileFromSelection;
+window.closeUploadProgress = closeUploadProgress;
 
 // OCI設定関連
 window.loadOciSettings = loadOciSettings;
