@@ -1004,8 +1004,8 @@ function displayOciObjectsList(data) {
           </button>
         </div>
       </div>
-      <div class="w-px h-6 bg-gray-300"></div>
-      <div class="flex items-center gap-2">
+      <div class="w-px h-6 bg-gray-300 hidden"></div>
+      <div class="flex items-center gap-2" style="display: none;">
         <span class="text-xs font-medium text-gray-600">🖼️ ページ画像化:</span>
         <div class="flex gap-1">
           <button 
@@ -1113,7 +1113,7 @@ function displayOciObjectsList(data) {
         📥 ダウンロード (${selectedOciObjects.length}件)
       </button>
       <button 
-        class="px-3 py-1 text-xs rounded transition-colors ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'bg-purple-300 text-white cursor-not-allowed' : 'bg-purple-500 hover:bg-purple-600 text-white'}" 
+        class="hidden px-3 py-1 text-xs rounded transition-colors ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'bg-purple-300 text-white cursor-not-allowed' : 'bg-purple-500 hover:bg-purple-600 text-white'}" 
         onclick="convertSelectedOciObjectsToImages()" 
         ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'disabled' : ''}
         title="選択されたファイル（フォルダ配下の子ファイルを含む）をページ毎に画像化: ${selectedOciObjects.length}件"
@@ -1159,7 +1159,7 @@ function displayOciObjectsList(data) {
               <th>名前</th>
               <th>サイズ</th>
               <th>作成日時</th>
-              <th style="text-align: center;">ページ画像化</th>
+              <th style="text-align: center;" class="hidden">ページ画像化</th>
               <th style="text-align: center;">ベクトル化</th>
             </tr>
           </thead>
@@ -1236,7 +1236,7 @@ function displayOciObjectsList(data) {
                   </td>
                   <td>${isFolder ? '-' : utilsFormatFileSize(obj.size)}</td>
                   <td>${obj.time_created ? utilsFormatDateTime(obj.time_created) : '-'}</td>
-                  <td style="text-align: center;">${pageImageStatusHtml}</td>
+                  <td style="text-align: center;" class="hidden">${pageImageStatusHtml}</td>
                   <td style="text-align: center;">${vectorizeStatusHtml}</td>
                 </tr>
               `;
@@ -2064,13 +2064,24 @@ window.vectorizeSelectedOciObjects = async function() {
                 break;
                 
               case 'auto_convert_start':
-                const convertProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n画像化を開始...`, convertProgress, jobId);
+                // 自動ページ画像化開始
+                currentFileIndex = data.file_index || currentFileIndex;
+                const autoConvertStartProgress = (currentFileIndex - 1) / totalFiles;
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n📄 ページ画像が見つかりません\n自動的にページ画像化を開始中...`, autoConvertStartProgress, jobId);
+                utilsShowToast(`ページ画像化を自動実行: ${data.file_name}`, 'info');
+                break;
+                
+              case 'auto_convert_progress':
+                // 自動ページ画像化進捗
+                const autoConvertProgressValue = (currentFileIndex - 1) / totalFiles;
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n📄 画像変換完了: ${data.total_pages}ページ\nアップロード中...`, autoConvertProgressValue, jobId);
                 break;
                 
               case 'auto_convert_complete':
-                const convertCompleteProgress = (currentFileIndex - 1) / totalFiles;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n画像化完了: ${data.image_count}ページ`, convertCompleteProgress, jobId);
+                // 自動ページ画像化完了
+                const autoConvertCompleteProgress = (currentFileIndex - 1) / totalFiles;
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n✓ ページ画像化完了: ${data.total_pages}ページ\nベクトル化を開始します...`, autoConvertCompleteProgress, jobId);
+                utilsShowToast(`ページ画像化完了: ${data.file_name} (${data.total_pages}ページ)`, 'success');
                 break;
                 
               case 'vectorize_start':

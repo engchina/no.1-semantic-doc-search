@@ -297,15 +297,6 @@ class ParallelProcessor:
             'total_workers': self.image_workers
         }
         
-        # 全ファイルを「待機中」に設定
-        for obj_name in object_names:
-            await JobManager.update_file_state(job_id, obj_name, '待機中')
-            yield {
-                'type': 'file_queued',
-                'file_name': obj_name,
-                'status': '待機中'
-            }
-        
         # Namespace取得
         namespace_result = oci_service.get_namespace()
         if not namespace_result.get("success"):
@@ -379,16 +370,32 @@ class ParallelProcessor:
                         'total_files': total_files,
                         'error': 'ファイルが見つかりません'
                     })
+                    
+                    # リアルタイム進捗イベントを送信
+                    await event_queue.put({
+                        'type': 'progress_update',
+                        'completed_count': success_count + failed_count,
+                        'total_count': total_files,
+                        'success_count': success_count,
+                        'failed_count': failed_count
+                    })
                     return
+                
+                # ファイル処理開始（待機中状態通知）
+                await event_queue.put({
+                    'type': 'file_start',
+                    'file_index': file_idx,
+                    'file_name': obj_name,
+                    'total_files': total_files
+                })
                 
                 # 処理中に更新
                 await JobManager.update_file_state(job_id, obj_name, '画像化中')
                 await event_queue.put({
-                    'type': 'file_processing',
+                    'type': 'file_uploading',
                     'file_index': file_idx,
                     'file_name': obj_name,
-                    'total_files': total_files,
-                    'status': '画像化中'
+                    'total_files': total_files
                 })
                 
                 # ProcessPoolで変換（run_in_executorを直接使用）
@@ -422,6 +429,15 @@ class ParallelProcessor:
                         'file_name': obj_name,
                         'total_files': total_files,
                         'error': error_msg
+                    })
+                    
+                    # リアルタイム進捗イベントを送信
+                    await event_queue.put({
+                        'type': 'progress_update',
+                        'completed_count': success_count + failed_count,
+                        'total_count': total_files,
+                        'success_count': success_count,
+                        'failed_count': failed_count
                     })
                     return
                 
@@ -556,6 +572,15 @@ class ParallelProcessor:
                     'total_files': total_files,
                     'error': str(e)
                 })
+                
+                # リアルタイム進捗イベントを送信（フロントエンドのUI即時更新用）
+                await event_queue.put({
+                    'type': 'progress_update',
+                    'completed_count': success_count + failed_count,
+                    'total_count': total_files,
+                    'success_count': success_count,
+                    'failed_count': failed_count
+                })
             finally:
                 async with results_lock:
                     completed_count += 1
@@ -680,15 +705,6 @@ class ParallelProcessor:
             'total_workers': self.vector_workers
         }
         
-        # 全ファイルを「待機中」に設定
-        for obj_name in object_names:
-            await JobManager.update_file_state(job_id, obj_name, '待機中')
-            yield {
-                'type': 'file_queued',
-                'file_name': obj_name,
-                'status': '待機中'
-            }
-        
         # Namespace取得
         namespace_result = oci_service.get_namespace()
         if not namespace_result.get("success"):
@@ -753,20 +769,30 @@ class ParallelProcessor:
                 
                 result['folder_name'] = folder_name
                 
+                # ファイル処理開始（待機中状態通知）
+                await event_queue.put({
+                    'type': 'file_start',
+                    'file_index': file_idx,
+                    'file_name': obj_name,
+                    'total_files': total_files
+                })
+                
                 # 処理中に更新
                 await JobManager.update_file_state(job_id, obj_name, 'ベクトル化中')
                 await event_queue.put({
-                    'type': 'file_processing',
+                    'type': 'file_uploading',
                     'file_index': file_idx,
                     'file_name': obj_name,
-                    'total_files': total_files,
-                    'status': 'ベクトル化中'
+                    'total_files': total_files
                 })
                 
                 # FILE_IDを取得または作成（非同期化）
                 file_id = await asyncio.to_thread(
                     image_vectorizer.get_file_id_by_object_name, bucket_name, obj_name
                 )
+                
+                # ファイルコンテンツを先に定義（スコープ問題回避）
+                file_content = None
                 
                 if file_id:
                     # 既存のembeddingを削除
@@ -792,6 +818,15 @@ class ParallelProcessor:
                             'file_name': obj_name,
                             'total_files': total_files,
                             'error': result['message']
+                        })
+                        
+                        # リアルタイム進捗イベントを送信
+                        await event_queue.put({
+                            'type': 'progress_update',
+                            'completed_count': success_count + failed_count,
+                            'total_count': total_files,
+                            'success_count': success_count,
+                            'failed_count': failed_count
                         })
                         return
                     
@@ -871,20 +906,303 @@ class ParallelProcessor:
                 
                 page_images.sort()
                 
+                # ページ画像が見つからない場合、自動的にページ画像化を実行
                 if not page_images:
-                    result['message'] = 'ページ画像が見つかりません。先にページ画像化を実行してください'
-                    await JobManager.increment_failed(job_id)
-                    async with results_lock:
-                        failed_count += 1
-                        results.append(result)
+                    logger.info(f"ページ画像が見つかりません。自動的にページ画像化を実行: {obj_name}")
                     await event_queue.put({
-                        'type': 'file_error',
+                        'type': 'auto_convert_start',
                         'file_index': file_idx,
                         'file_name': obj_name,
                         'total_files': total_files,
-                        'error': result['message']
+                        'message': 'ページ画像が見つかりません。自動的にページ画像化を開始しています...'
                     })
-                    return
+                    
+                    # ページ画像化を実行
+                    try:
+                        # キャンセルチェック
+                        if JobManager.is_cancelled(job_id):
+                            return
+                        
+                        # ファイルコンテンツが既に存在するか確認
+                        if file_content is None:
+                            # ファイルをダウンロード
+                            file_content = await asyncio.to_thread(oci_service.download_object, obj_name)
+                            if not file_content:
+                                result['message'] = 'ファイルのダウンロードに失敗しました'
+                                await JobManager.increment_failed(job_id)
+                                async with results_lock:
+                                    failed_count += 1
+                                    results.append(result)
+                                await event_queue.put({
+                                    'type': 'file_error',
+                                    'file_index': file_idx,
+                                    'file_name': obj_name,
+                                    'total_files': total_files,
+                                    'error': result['message']
+                                })
+                                await event_queue.put({
+                                    'type': 'progress_update',
+                                    'completed_count': success_count + failed_count,
+                                    'total_count': total_files,
+                                    'success_count': success_count,
+                                    'failed_count': failed_count
+                                })
+                                return
+                        
+                        # file_idがない場合、FILE_INFOテーブルにファイル情報を保存
+                        if not file_id:
+                            file_size = len(file_content)
+                            content_type = f"application/{file_ext}"
+                            
+                            # OCIメタデータからoriginal_filenameを取得
+                            metadata_result = await asyncio.to_thread(
+                                oci_service.get_object_metadata,
+                                bucket_name=bucket_name,
+                                namespace=namespace,
+                                object_name=obj_name
+                            )
+                            
+                            # メタデータからoriginal_filenameを取得、失敗時はフォールバック
+                            if metadata_result.get('success') and metadata_result.get('original_filename'):
+                                clean_filename = metadata_result.get('original_filename')
+                            else:
+                                # フォールバック: プレフィクスを除去
+                                prefix_pattern = r'^\d{8}_\d{6}_[a-f0-9]{8}_'
+                                clean_filename = re.sub(prefix_pattern, '', file_path.name)
+                            
+                            file_id = await asyncio.to_thread(
+                                image_vectorizer.save_file_info,
+                                bucket=bucket_name,
+                                object_name=obj_name,
+                                original_filename=clean_filename,
+                                file_size=file_size,
+                                content_type=content_type
+                            )
+                            
+                            if not file_id:
+                                result['message'] = 'ファイル情報保存エラー'
+                                await JobManager.increment_failed(job_id)
+                                async with results_lock:
+                                    failed_count += 1
+                                    results.append(result)
+                                await event_queue.put({
+                                    'type': 'file_error',
+                                    'file_index': file_idx,
+                                    'file_name': obj_name,
+                                    'total_files': total_files,
+                                    'error': result['message']
+                                })
+                                
+                                # リアルタイム進捗イベントを送信
+                                await event_queue.put({
+                                    'type': 'progress_update',
+                                    'completed_count': success_count + failed_count,
+                                    'total_count': total_files,
+                                    'success_count': success_count,
+                                    'failed_count': failed_count
+                                })
+                                return
+                        
+                        # キャンセルチェック
+                        if JobManager.is_cancelled(job_id):
+                            return
+                        
+                        # ワーカープロセスで画像変換を実行
+                        loop = asyncio.get_event_loop()
+                        process_pool = self._get_process_pool()
+                        
+                        convert_future = process_pool.submit(
+                            _convert_file_to_images_worker,
+                            file_content,
+                            file_ext,
+                            obj_name
+                        )
+                        
+                        # 非同期で結果を待機
+                        success, converted_images, error_msg = await loop.run_in_executor(None, convert_future.result)
+                        
+                        # キャンセルチェック
+                        if JobManager.is_cancelled(job_id):
+                            return
+                        
+                        if not success:
+                            result['message'] = f'ページ画像化に失敗しました: {error_msg}'
+                            await JobManager.increment_failed(job_id)
+                            async with results_lock:
+                                failed_count += 1
+                                results.append(result)
+                            await event_queue.put({
+                                'type': 'file_error',
+                                'file_index': file_idx,
+                                'file_name': obj_name,
+                                'total_files': total_files,
+                                'error': result['message']
+                            })
+                            
+                            # リアルタイム進捗イベントを送信
+                            await event_queue.put({
+                                'type': 'progress_update',
+                                'completed_count': success_count + failed_count,
+                                'total_count': total_files,
+                                'success_count': success_count,
+                                'failed_count': failed_count
+                            })
+                            return
+                        
+                        # 変換した画像をObject Storageにアップロード
+                        total_converted_pages = len(converted_images)
+                        await event_queue.put({
+                            'type': 'auto_convert_progress',
+                            'file_index': file_idx,
+                            'file_name': obj_name,
+                            'total_pages': total_converted_pages,
+                            'message': f'{total_converted_pages}ページの画像変換完了。アップロード中...'
+                        })
+                        
+                        # 並列アップロード（セマフォで制限）
+                        async def upload_single_page(page_num: int, img_bytes: bytes) -> dict:
+                            """1ページをアップロード"""
+                            page_file_name = f"{folder_name}/page_{page_num:03d}.png"
+                            async with semaphore:
+                                if JobManager.is_cancelled(job_id):
+                                    return {'success': False, 'page': page_num}
+                                try:
+                                    result = await asyncio.to_thread(
+                                        oci_service.upload_file,
+                                        file_content=img_bytes,
+                                        object_name=page_file_name,
+                                        content_type="image/png"
+                                    )
+                                    return {'success': result, 'page': page_num}
+                                except Exception as e:
+                                    logger.error(f"ページ {page_num} アップロードエラー: {e}")
+                                    return {'success': False, 'page': page_num, 'error': str(e)}
+                        
+                        # 全ページを並列アップロード
+                        upload_tasks = [
+                            upload_single_page(page_num, img_bytes)
+                            for page_num, img_bytes in converted_images
+                        ]
+                        upload_results = await asyncio.gather(*upload_tasks, return_exceptions=True)
+                        
+                        # キャンセルチェック
+                        if JobManager.is_cancelled(job_id):
+                            return
+                        
+                        # アップロード結果を確認
+                        successful_uploads = 0
+                        failed_uploads = []
+                        for i, result_item in enumerate(upload_results, start=1):
+                            if isinstance(result_item, Exception):
+                                logger.error(f"ページ {i} アップロード例外: {result_item}")
+                                failed_uploads.append(i)
+                            elif isinstance(result_item, dict) and result_item.get('success'):
+                                successful_uploads += 1
+                            else:
+                                failed_uploads.append(i)
+                        
+                        # アップロードが全て失敗した場合はエラー
+                        if successful_uploads == 0:
+                            result['message'] = 'ページ画像のアップロードが全て失敗しました'
+                            await JobManager.increment_failed(job_id)
+                            async with results_lock:
+                                failed_count += 1
+                                results.append(result)
+                            await event_queue.put({
+                                'type': 'file_error',
+                                'file_index': file_idx,
+                                'file_name': obj_name,
+                                'total_files': total_files,
+                                'error': result['message']
+                            })
+                            return
+                        
+                        # アップロードが部分的に失敗した場合は警告
+                        if successful_uploads < total_converted_pages:
+                            warning_msg = f'ページ画像のアップロードが部分的に失敗しました: {successful_uploads}/{total_converted_pages} (失敗ページ: {failed_uploads})'
+                            logger.warning(warning_msg)
+                            await event_queue.put({
+                                'type': 'auto_convert_complete',
+                                'file_index': file_idx,
+                                'file_name': obj_name,
+                                'total_pages': successful_uploads,
+                                'message': f'ページ画像化完了: {successful_uploads}ページ (警告: {len(failed_uploads)}ページ失敗)'
+                            })
+                        else:
+                            await event_queue.put({
+                                'type': 'auto_convert_complete',
+                                'file_index': file_idx,
+                                'file_name': obj_name,
+                                'total_pages': successful_uploads,
+                                'message': f'ページ画像化完了: {successful_uploads}ページ'
+                            })
+                        
+                        # Object Storageの一貫性を保証するため待機
+                        await asyncio.sleep(1.0)
+                        
+                        # 再度ページ画像を取得
+                        page_images_result = await asyncio.to_thread(
+                            oci_service.list_objects,
+                            bucket_name=bucket_name,
+                            namespace=namespace,
+                            prefix=f"{folder_name}/",
+                            page_size=1000
+                        )
+                        
+                        page_images = []
+                        if page_images_result.get("success"):
+                            objects = page_images_result.get("objects", [])
+                            for obj in objects:
+                                obj_name_str = obj.get("name", "")
+                                if not obj_name_str.endswith('/') and re.search(r'/page_\d{3}\.png$', obj_name_str):
+                                    page_images.append(obj_name_str)
+                        
+                        page_images.sort()
+                        
+                        if not page_images:
+                            result['message'] = 'ページ画像化後もページ画像が見つかりません'
+                            await JobManager.increment_failed(job_id)
+                            async with results_lock:
+                                failed_count += 1
+                                results.append(result)
+                            await event_queue.put({
+                                'type': 'file_error',
+                                'file_index': file_idx,
+                                'file_name': obj_name,
+                                'total_files': total_files,
+                                'error': result['message']
+                            })
+                            await event_queue.put({
+                                'type': 'progress_update',
+                                'completed_count': success_count + failed_count,
+                                'total_count': total_files,
+                                'success_count': success_count,
+                                'failed_count': failed_count
+                            })
+                            return
+                        
+                    except Exception as convert_error:
+                        logger.error(f"自動ページ画像化エラー: {convert_error}", exc_info=True)
+                        result['message'] = f'自動ページ画像化に失敗しました: {str(convert_error)}'
+                        await JobManager.increment_failed(job_id)
+                        async with results_lock:
+                            failed_count += 1
+                            results.append(result)
+                        await event_queue.put({
+                            'type': 'file_error',
+                            'file_index': file_idx,
+                            'file_name': obj_name,
+                            'total_files': total_files,
+                            'error': result['message']
+                        })
+                        await event_queue.put({
+                            'type': 'progress_update',
+                            'completed_count': success_count + failed_count,
+                            'total_count': total_files,
+                            'success_count': success_count,
+                            'failed_count': failed_count
+                        })
+                        return
                 
                 total_pages = len(page_images)
                 
@@ -1083,6 +1401,15 @@ class ParallelProcessor:
                         'status': '一部失敗' if embedding_count > 0 else '失敗',
                         'error': result['message']
                     })
+                    
+                    # リアルタイム進捗イベントを送信（フロントエンドのUI即時更新用）
+                    await event_queue.put({
+                        'type': 'progress_update',
+                        'completed_count': success_count + failed_count,
+                        'total_count': total_files,
+                        'success_count': success_count,
+                        'failed_count': failed_count
+                    })
                 
             except Exception as e:
                 result['message'] = f'処理エラー: {str(e)}'
@@ -1090,7 +1417,7 @@ class ParallelProcessor:
                 async with results_lock:
                     failed_count += 1
                     results.append(result)
-                logger.error(f"ベクトル化エラー ({obj_name}): {e}")
+                logger.error(f"ベクトル化エラー ({obj_name}): {e}", exc_info=True)
                 
                 await event_queue.put({
                     'type': 'file_error',
@@ -1098,6 +1425,15 @@ class ParallelProcessor:
                     'file_name': obj_name,
                     'total_files': total_files,
                     'error': str(e)
+                })
+                
+                # リアルタイム進捗イベントを送信（フロントエンドのUI即時更新用）
+                await event_queue.put({
+                    'type': 'progress_update',
+                    'completed_count': success_count + failed_count,
+                    'total_count': total_files,
+                    'success_count': success_count,
+                    'failed_count': failed_count
                 })
             finally:
                 async with results_lock:
@@ -1255,6 +1591,283 @@ class ParallelProcessor:
             logger.info("ThreadPoolExecutorをシャットダウンしました")
         
         logger.info("ParallelProcessorシャットダウン完了")
+    
+    async def process_deletion(
+        self,
+        object_names: List[str],
+        oci_service: Any,
+        image_vectorizer: Any,
+        database_service: Any,
+        job_id: str
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        複数オブジェクトを並列で削除（SSEストリーミング対応）
+        
+        削除順序:
+        1. object_nameからFILE_IDを取得
+        2. FILE_INFOテーブルのレコード削除（IMG_EMBEDDINGSはCASCADE自動削除）
+        3. 生成された画像ファイル削除
+        4. 生成された画像フォルダ削除
+        5. ファイル本体削除
+        
+        Args:
+            object_names: 削除するオブジェクト名のリスト
+            oci_service: OCIサービスインスタンス
+            image_vectorizer: 画像ベクトル化インスタンス
+            database_service: データベースサービスインスタンス
+            job_id: ジョブID
+            
+        Yields:
+            SSEイベント辞書
+        """
+        start_time = time.time()
+        total_files = len(object_names)
+        
+        # ジョブ作成
+        job = await JobManager.create_job(job_id, total_files)
+        
+        # 開始イベント
+        yield {
+            'type': 'start',
+            'job_id': job_id,
+            'total_files': total_files
+        }
+        
+        # Namespace取得
+        namespace_result = oci_service.get_namespace()
+        if not namespace_result.get("success"):
+            yield {
+                'type': 'error',
+                'message': 'Namespace取得エラー'
+            }
+            return
+        
+        namespace = namespace_result.get("namespace")
+        bucket_name = os.getenv("OCI_BUCKET")
+        
+        if not bucket_name:
+            yield {
+                'type': 'error',
+                'message': 'OCI_BUCKET環境変数が設定されていません'
+            }
+            return
+        
+        # イベントキュー（並列タスクからイベントを収集）
+        event_queue: asyncio.Queue = asyncio.Queue()
+        
+        # 処理結果を追跡（スレッドセーフ用にlock使用）
+        results = []
+        results_lock = asyncio.Lock()
+        success_count = 0
+        failed_count = 0
+        completed_count = 0
+        
+        # 完了シグナル用のイベント
+        all_tasks_done = asyncio.Event()
+        
+        async def delete_single_object(file_idx: int, obj_name: str):
+            """単一オブジェクトを削除（非同期）"""
+            nonlocal success_count, failed_count, completed_count
+            
+            if JobManager.is_cancelled(job_id):
+                return
+            
+            result = {
+                'object_name': obj_name,
+                'success': False,
+                'message': ''
+            }
+            
+            try:
+                # ファイル処理開始（待機中状態通知）
+                await event_queue.put({
+                    'type': 'file_start',
+                    'file_index': file_idx,
+                    'file_name': obj_name,
+                    'total_files': total_files
+                })
+                
+                # 削除中に更新
+                await event_queue.put({
+                    'type': 'file_uploading',
+                    'file_index': file_idx,
+                    'file_name': obj_name,
+                    'total_files': total_files
+                })
+                
+                # フォルダや画像ファイルはデータベース削除をスキップ
+                if not (obj_name.endswith('/') or '/page_' in obj_name):
+                    try:
+                        # FILE_IDを取得
+                        file_id = await asyncio.to_thread(
+                            image_vectorizer.get_file_id_by_object_name,
+                            bucket_name,
+                            obj_name
+                        )
+                        
+                        if file_id:
+                            # FILE_INFOレコードを削除（IMG_EMBEDDINGSはCASCADE制約で自動削除）
+                            delete_result = await asyncio.to_thread(
+                                database_service.delete_file_info_records,
+                                [str(file_id)]
+                            )
+                            
+                            if not delete_result.get("success"):
+                                logger.warning(f"データベース削除失敗: {delete_result.get('message')}")
+                        
+                    except Exception as db_error:
+                        logger.error(f"データベース削除エラー: {obj_name}, {db_error}")
+                
+                # OCI Object Storageから削除
+                delete_result = await asyncio.to_thread(
+                    oci_service.delete_objects,
+                    bucket_name=bucket_name,
+                    namespace=namespace,
+                    object_names=[obj_name]
+                )
+                
+                if JobManager.is_cancelled(job_id):
+                    return
+                
+                if delete_result.get('success'):
+                    result['success'] = True
+                    result['message'] = '削除完了'
+                    await JobManager.increment_completed(job_id)
+                    async with results_lock:
+                        success_count += 1
+                        results.append(result)
+                    
+                    # ファイル完了イベント
+                    await event_queue.put({
+                        'type': 'file_complete',
+                        'file_index': file_idx,
+                        'file_name': obj_name,
+                        'total_files': total_files,
+                        'status': '完了'
+                    })
+                    
+                    # リアルタイム進捗イベントを送信（フロントエンドのUI即時更新用）
+                    await event_queue.put({
+                        'type': 'progress_update',
+                        'completed_count': success_count + failed_count,
+                        'total_count': total_files,
+                        'success_count': success_count,
+                        'failed_count': failed_count
+                    })
+                else:
+                    result['message'] = delete_result.get('message', '削除失敗')
+                    await JobManager.increment_failed(job_id)
+                    async with results_lock:
+                        failed_count += 1
+                        results.append(result)
+                    
+                    await event_queue.put({
+                        'type': 'file_error',
+                        'file_index': file_idx,
+                        'file_name': obj_name,
+                        'total_files': total_files,
+                        'error': result['message']
+                    })
+                    
+                    # リアルタイム進捗イベントを送信（フロントエンドのUI即時更新用）
+                    await event_queue.put({
+                        'type': 'progress_update',
+                        'completed_count': success_count + failed_count,
+                        'total_count': total_files,
+                        'success_count': success_count,
+                        'failed_count': failed_count
+                    })
+                
+            except Exception as e:
+                result['message'] = f'削除エラー: {str(e)}'
+                await JobManager.increment_failed(job_id)
+                async with results_lock:
+                    failed_count += 1
+                    results.append(result)
+                logger.error(f"削除エラー ({obj_name}): {e}")
+                
+                await event_queue.put({
+                    'type': 'file_error',
+                    'file_index': file_idx,
+                    'file_name': obj_name,
+                    'total_files': total_files,
+                    'error': str(e)
+                })
+                
+                # リアルタイム進捗イベントを送信（フロントエンドのUI即時更新用）
+                await event_queue.put({
+                    'type': 'progress_update',
+                    'completed_count': success_count + failed_count,
+                    'total_count': total_files,
+                    'success_count': success_count,
+                    'failed_count': failed_count
+                })
+            finally:
+                async with results_lock:
+                    completed_count += 1
+                    if completed_count >= total_files:
+                        all_tasks_done.set()
+        
+        # 並列タスクを作成・実行
+        tasks = [
+            asyncio.create_task(delete_single_object(file_idx, obj_name))
+            for file_idx, obj_name in enumerate(object_names, start=1)
+        ]
+        
+        # イベント収集とタスク完了を同時に処理
+        async def collect_events():
+            """タスク完了までイベントを収集（ハートビート付き）"""
+            heartbeat_interval = 2.0  # ハートビート間隔（秒）
+            last_heartbeat = time.time()
+            event_timeout = 0.5  # イベント待機タイムアウト（秒）
+            
+            while not all_tasks_done.is_set():
+                try:
+                    # タイムアウト付きでイベントを待機
+                    event = await asyncio.wait_for(event_queue.get(), timeout=event_timeout)
+                    yield event
+                    last_heartbeat = time.time()  # イベント送信後にリセット
+                except asyncio.TimeoutError:
+                    # ハートビートを定期的に送信（接続維持のため）
+                    current_time = time.time()
+                    if current_time - last_heartbeat >= heartbeat_interval:
+                        yield {
+                            'type': 'heartbeat',
+                            'timestamp': current_time,
+                            'status': 'processing'
+                        }
+                        last_heartbeat = current_time
+                    continue
+            
+            # 残りのイベントをすべて取得
+            while not event_queue.empty():
+                try:
+                    event = event_queue.get_nowait()
+                    yield event
+                except asyncio.QueueEmpty:
+                    break
+        
+        # イベントをストリーミング
+        async for event in collect_events():
+            yield event
+        
+        # タスク完了を待機
+        await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 完了イベント
+        elapsed = time.time() - start_time
+        overall_success = failed_count == 0
+        
+        yield {
+            'type': 'complete',
+            'success': overall_success,
+            'message': f'削除完了: 成功 {success_count}件、失敗 {failed_count}件',
+            'total_files': total_files,
+            'success_count': success_count,
+            'failed_count': failed_count,
+            'elapsed_time': round(elapsed, 2)
+        }
+
 
 
 # グローバルインスタンス

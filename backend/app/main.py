@@ -829,81 +829,60 @@ async def get_object_metadata(object_name: str):
 @app.post("/oci/objects/delete")
 async def delete_oci_objects(request: ObjectDeleteRequest):
     """
-    OCI Object Storage内のオブジェクトを削除
+    OCI Object Storage内のオブジェクトを削除（SSEストリーミング対応）
     
     削除順序:
     1. object_nameからFILE_IDを取得
     2. FILE_INFOテーブルのレコード削除（IMG_EMBEDDINGSはCASCADE自動削除）
     3. 生成された画像ファイル削除
     4. 生成された画像フォルダ削除
-    5. 選択されたファイル本体削除
+    5. ファイル本体削除
     """
-    try:
-        logger.info(f"[DEBUG] delete_oci_objects開始: object_names={request.object_names}")
-        
-        # 環境変数からバケット名を取得
-        bucket_name = os.getenv("OCI_BUCKET")
-        
-        if not bucket_name:
-            logger.error("[DEBUG] バケット名が設定されていません")
-            raise HTTPException(status_code=400, detail="バケット名が設定されていません")
-        
-        # Namespaceを取得（.env優先、空ならAPI）
-        namespace_result = oci_service.get_namespace()
-        if not namespace_result.get("success"):
-            logger.error(f"[DEBUG] Namespace取得エラー: {namespace_result.get('message')}")
-            raise HTTPException(status_code=500, detail=f"Namespace取得エラー: {namespace_result.get('message')}")
-        
-        namespace = namespace_result.get("namespace")
-        logger.info(f"[DEBUG] Namespace: {namespace}, bucket: {bucket_name}")
-        
-        if not request.object_names or len(request.object_names) == 0:
-            logger.warning("[DEBUG] 削除するオブジェクトが指定されていません")
-            raise HTTPException(status_code=400, detail="削除するオブジェクトが指定されていません")
-        
-        # 各オブジェクトに対してFILE_IDを取得してデータベース削除
-        for obj_name in request.object_names:
-            # フォルダや画像ファイルはスキップ（データベースにレコードがない）
-            if obj_name.endswith('/') or '/page_' in obj_name:
-                logger.info(f"[DEBUG] フォルダまたは画像ファイルをスキップ: {obj_name}")
-                continue
-            
-            try:
-                logger.info(f"[DEBUG] FILE_ID取得試行: object_name={obj_name}")
-                file_id = image_vectorizer.get_file_id_by_object_name(bucket_name, obj_name)
+    if not request.object_names or len(request.object_names) == 0:
+        raise HTTPException(status_code=400, detail="削除するオブジェクトが指定されていません")
+    
+    job_id = str(uuid.uuid4())
+    logger.info(f"削除処理開始（並列）: {len(request.object_names)}件, job_id={job_id}")
+    
+    async def generate_progress():
+        """進捗状況をSSE形式でストリーミング"""
+        event_count = 0
+        try:
+            logger.info(f"削除SSEストリーム開始: job_id={job_id}")
+            async for event in parallel_processor.process_deletion(
+                object_names=request.object_names,
+                oci_service=oci_service,
+                image_vectorizer=image_vectorizer,
+                database_service=database_service,
+                job_id=job_id
+            ):
+                event_count += 1
+                # 心拍以外のイベントのみログ出力
+                if event.get('type') != 'heartbeat':
+                    logger.debug(f"SSEイベント送信 [{event_count}]: {event.get('type')}")
                 
-                if file_id:
-                    logger.info(f"[DEBUG] FILE_ID取得成功: FILE_ID={file_id}, object_name={obj_name}")
-                    
-                    # FILE_INFOレコードを削除（IMG_EMBEDDINGSはCASCADE制約で自動削除）
-                    delete_result = database_service.delete_file_info_records([str(file_id)])
-                    logger.info(f"[DEBUG] データベース削除結果: {delete_result}")
-                    
-                    if delete_result.get("success"):
-                        logger.info(f"[DEBUG] データベース削除成功: FILE_ID={file_id}")
-                    else:
-                        logger.warning(f"[DEBUG] データベース削除失敗: {delete_result.get('message')}")
-                else:
-                    logger.info(f"[DEBUG] FILE_IDが見つかりません（ベクトル化されていない可能性）: {obj_name}")
-            except Exception as e:
-                logger.error(f"[DEBUG] データベース削除エラー: {obj_name}, {e}", exc_info=True)
+                # SSE形式で送信
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            
+            logger.info(f"削除SSEストリーム完了: job_id={job_id}, total_events={event_count}")
         
-        # オブジェクトを削除（画像、フォルダ、ファイル本体）
-        logger.info(f"[DEBUG] OCI Object Storage削除開始: {len(request.object_names)}件")
-        result = oci_service.delete_objects(
-            bucket_name=bucket_name,
-            namespace=namespace,
-            object_names=request.object_names
-        )
-        logger.info(f"[DEBUG] OCI Object Storage削除結果: {result}")
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[DEBUG] OCI Object Storage削除エラー: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        except Exception as e:
+            logger.error(f"削除SSEストリームエラー: {e}", exc_info=True)
+            error_event = {
+                'type': 'error',
+                'message': f'削除処理エラー: {str(e)}'
+            }
+            yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+    
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 # ========================================
 # 文書管理

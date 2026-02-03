@@ -142,7 +142,7 @@ export function displayOciObjectsList(data) {
         </div>
       </div>
       <div class="w-px h-6 bg-gray-300"></div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2" style="display: none;">
         <span class="text-xs font-medium text-gray-600">🖼️ ページ画像化:</span>
         <div class="flex gap-1">
           <button 
@@ -250,7 +250,7 @@ export function displayOciObjectsList(data) {
         📥 ダウンロード (${selectedOciObjects.length}件)
       </button>
       <button 
-        class="px-3 py-1 text-xs rounded transition-colors ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'bg-purple-300 text-white cursor-not-allowed' : 'bg-purple-500 hover:bg-purple-600 text-white'}" 
+        class="hidden px-3 py-1 text-xs rounded transition-colors ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'bg-purple-300 text-white cursor-not-allowed' : 'bg-purple-500 hover:bg-purple-600 text-white'}" 
         onclick="window.ociModule.convertToImages()" 
         ${selectedOciObjects.length === 0 || ociObjectsBatchDeleteLoading ? 'disabled' : ''}
         title="選択されたファイル（フォルダ配下の子ファイルを含む）をページ毎に画像化: ${selectedOciObjects.length}件"
@@ -299,7 +299,7 @@ export function displayOciObjectsList(data) {
               <th>名前</th>
               <th>サイズ</th>
               <th>作成日時</th>
-              <th style="text-align: center;">ページ画像化</th>
+              <th style="text-align: center;" class="hidden">ページ画像化</th>
               <th style="text-align: center;">ベクトル化</th>
             </tr>
           </thead>
@@ -352,7 +352,7 @@ function generateObjectRow(obj, allOciObjects, selectedOciObjects, ociObjectsBat
       <td>${obj.name}</td>
       <td>${obj.size ? formatBytes(obj.size) : '-'}</td>
       <td>${obj.time_created || '-'}</td>
-      <td style="text-align: center;">${pageImagesStatusHtml}</td>
+      <td style="text-align: center;" class="hidden">${pageImagesStatusHtml}</td>
       <td style="text-align: center;">${embeddingsStatusHtml}</td>
     </tr>
   `;
@@ -837,35 +837,43 @@ export async function deleteSelectedOciObjects() {
   
   // 処理中表示を設定
   appState.set('ociObjectsBatchDeleteLoading', true);
-  showLoading('オブジェクトを削除中...');
-  
-  // UIを更新（エラーは無視）
-  loadOciObjects().catch(err => console.warn('UI更新エラー:', err));
+  showLoading(`オブジェクトを削除中... (0/${count}件)`);
   
   try {
-    // 一括削除APIを呼び出す
-    const response = await apiCall('/ai/api/oci/objects/delete', {
+    // SSEストリーミング対応のAPI呼び出し
+    const loginToken = appState.get('loginToken');
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    // トークンがある場合のみAuthorizationヘッダーを追加
+    if (loginToken) {
+      headers['Authorization'] = `Bearer ${loginToken}`;
+    }
+    
+    const response = await fetch('/ai/api/oci/objects/delete', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ object_names: selectedOciObjects })
+      headers: headers,
+      body: JSON.stringify({
+        object_names: selectedOciObjects
+      })
     });
     
-    if (response.success) {
-      showToast(`${count}件のオブジェクトを削除しました`, 'success');
-      // 選択をクリア
-      appState.set('selectedOciObjects', []);
-      // ページを1にリセット
-      appState.set('ociObjectsPage', 1);
-    } else {
-      showToast(`削除エラー: ${response.message || '不明なエラー'}`, 'error');
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || '削除に失敗しました');
     }
+    
+    // SSE (Server-Sent Events) を使用して進捗状況を受信
+    await processStreamingResponse(response, selectedOciObjects.length, 'delete');
+    
   } catch (error) {
-    showToast(`削除エラー: ${error.message}`, 'error');
-  } finally {
-    // 処理中表示を解除
-    appState.set('ociObjectsBatchDeleteLoading', false);
     hideLoading();
-    // 一覧を再読み込み
+    appState.set('ociObjectsBatchDeleteLoading', false);
+    console.error('削除エラー:', error);
+    showToast(`削除エラー: ${error.message}`, 'error');
+    
+    // 選択をクリアして一覧を更新
+    appState.set('selectedOciObjects', []);
     await loadOciObjects();
   }
 }
@@ -902,34 +910,52 @@ async function processStreamingResponse(response, totalFiles, operationType) {
             case 'start':
               totalFiles = data.total_files;
               totalWorkers = data.total_workers || 1;
-              updateLoadingMessage(operationType === 'convert' ? 
-                `ファイルをページ画像化中... (0/${totalFiles})\n並列ワーカー: ${totalWorkers}` :
-                `ファイルをベクトル化中... (0/${totalFiles})\n並列ワーカー: ${totalWorkers}`, 0, jobId);
+              let startMessage = '';
+              if (operationType === 'convert') {
+                startMessage = `ファイルをページ画像化中... (0/${totalFiles})\n並列ワーカー: ${totalWorkers}`;
+              } else if (operationType === 'vectorize') {
+                startMessage = `ファイルをベクトル化中... (0/${totalFiles})\n並列ワーカー: ${totalWorkers}`;
+              } else if (operationType === 'delete') {
+                startMessage = `オブジェクトを削除中... (0/${totalFiles})`;
+              }
+              updateLoadingMessage(startMessage, 0, jobId);
               break;
-              
+                        
             case 'heartbeat':
               // ハートビートは接続維持のため、UIは更新せず接続続行を示す
               console.log('ハートビート受信:', data.timestamp);
               break;
-              
-            case 'file_queued':
-              // ファイルが待機中になった
-              updateLoadingMessage(`ファイル待機中: ${data.file_name}\nステータス: ⏳ ${data.status}`, 0, jobId);
+                        
+            case 'file_start':
+              // ファイル処理開始（待機中状態）
+              currentFileIndex = data.file_index;
+              if (data.total_files) totalFiles = data.total_files;
+              const fileStartProgress = (currentFileIndex - 1) / (totalFiles || 1);
+              let fileStartMessage = '';
+              if (operationType === 'convert') {
+                fileStartMessage = `ファイル ${currentFileIndex}/${totalFiles} 待機中...\n${data.file_name}`;
+              } else if (operationType === 'vectorize') {
+                fileStartMessage = `ファイル ${currentFileIndex}/${totalFiles} 待機中...\n${data.file_name}`;
+              } else if (operationType === 'delete') {
+                fileStartMessage = `オブジェクト ${currentFileIndex}/${totalFiles} 待機中...\n${data.file_name}`;
+              }
+              updateLoadingMessage(fileStartMessage, fileStartProgress, jobId);
               break;
-              
-            case 'file_processing':
+                        
+            case 'file_uploading':
               // ファイルが処理中になった
               currentFileIndex = data.file_index;
               if (data.total_files) totalFiles = data.total_files;
               const processingProgress = totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0;
-              updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files || totalFiles}\n${data.file_name}\nステータス: 🔄 ${data.status}`, processingProgress, jobId);
-              break;
-              
-            case 'file_start':
-              currentFileIndex = data.file_index;
-              if (data.total_files) totalFiles = data.total_files;
-              const fileProgress = (currentFileIndex - 1) / (totalFiles || 1);
-              updateLoadingMessage(`ファイル ${currentFileIndex}/${data.total_files || totalFiles} を処理中...\n${data.file_name}`, fileProgress, jobId);
+              let uploadingMessage = '';
+              if (operationType === 'convert') {
+                uploadingMessage = `ファイル ${data.file_index}/${totalFiles}\n${data.file_name}\nステータス: 🔄 画像化中`;
+              } else if (operationType === 'vectorize') {
+                uploadingMessage = `ファイル ${data.file_index}/${totalFiles}\n${data.file_name}\nステータス: 🔄 ベクトル化中`;
+              } else if (operationType === 'delete') {
+                uploadingMessage = `オブジェクト ${data.file_index}/${totalFiles}\n${data.file_name}\nステータス: 🔄 削除中`;
+              }
+              updateLoadingMessage(uploadingMessage, processingProgress, jobId);
               break;
               
             case 'page_progress':
@@ -951,15 +977,31 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               currentFileIndex = data.file_index;
               const totalForComplete = data.total_files || totalFiles || 1;
               const completedFileProgress = currentFileIndex / totalForComplete;
-              updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files || totalFiles} ✓ 完了\n${data.file_name}`, completedFileProgress, jobId);
+              let completeMessage = '';
+              if (operationType === 'convert') {
+                completeMessage = `ファイル ${data.file_index}/${totalForComplete} ✓ 完了\n${data.file_name}`;
+              } else if (operationType === 'vectorize') {
+                completeMessage = `ファイル ${data.file_index}/${totalForComplete} ✓ 完了\n${data.file_name}`;
+              } else if (operationType === 'delete') {
+                completeMessage = `オブジェクト ${data.file_index}/${totalForComplete} ✓ 完了\n${data.file_name}`;
+              }
+              updateLoadingMessage(completeMessage, completedFileProgress, jobId);
               // UI更新はprogress_updateイベントに任せる（重複回避）
               break;
               
             case 'file_error':
-              console.error(`ファイル ${data.file_index}/${data.total_files || totalFiles} エラー: ${data.error}`);
+              console.error(`${operationType === 'delete' ? 'オブジェクト' : 'ファイル'} ${data.file_index}/${data.total_files || totalFiles} エラー: ${data.error}`);
               const totalForError = data.total_files || totalFiles || 1;
               const errorProgress = currentFileIndex > 0 ? (currentFileIndex - 1) / totalForError : 0;
-              updateLoadingMessage(`ファイル ${data.file_index}/${data.total_files || totalFiles} ✗ エラー\n${data.file_name}\n${data.error}`, errorProgress, jobId);
+              let errorMessage = '';
+              if (operationType === 'convert') {
+                errorMessage = `ファイル ${data.file_index}/${totalForError} ✗ エラー\n${data.file_name}\n${data.error}`;
+              } else if (operationType === 'vectorize') {
+                errorMessage = `ファイル ${data.file_index}/${totalForError} ✗ エラー\n${data.file_name}\n${data.error}`;
+              } else if (operationType === 'delete') {
+                errorMessage = `オブジェクト ${data.file_index}/${totalForError} ✗ エラー\n${data.file_name}\n${data.error}`;
+              }
+              updateLoadingMessage(errorMessage, errorProgress, jobId);
               break;
               
             case 'cancelled':
@@ -1003,7 +1045,15 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 showToast(`${data.message}\n成功: ${data.success_count}件、失敗: ${data.failed_count}件`, 'warning');
               }
               
-              console.log(`${operationType === 'convert' ? 'ページ画像化' : 'ベクトル化'}結果:`, data.results);
+              let operationName = '';
+              if (operationType === 'convert') {
+                operationName = 'ページ画像化';
+              } else if (operationType === 'vectorize') {
+                operationName = 'ベクトル化';
+              } else if (operationType === 'delete') {
+                operationName = '削除';
+              }
+              console.log(`${operationName}結果:`, data.results || data);
               
               // 選択をクリアして一覧を更新（最終同期）
               appState.set('selectedOciObjects', []);
