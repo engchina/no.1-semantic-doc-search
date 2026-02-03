@@ -297,6 +297,33 @@ if [ -d "$PROJECT_DIR" ]; then
         echo "DEBUG=false" >> .env
     fi
 
+    # UI Feature Toggles
+    # Set SHOW_AI_ASSISTANT (if available)
+    if [ -f "${INSTALL_DIR}/props/show_ai_assistant.txt" ]; then
+        SHOW_AI_ASSISTANT=$(cat "${INSTALL_DIR}/props/show_ai_assistant.txt" | xargs)
+        if [ -n "$SHOW_AI_ASSISTANT" ]; then
+            if grep -q "^SHOW_AI_ASSISTANT=" .env; then
+                sed -i "s|^SHOW_AI_ASSISTANT=.*|SHOW_AI_ASSISTANT=${SHOW_AI_ASSISTANT}|g" .env
+            else
+                echo "SHOW_AI_ASSISTANT=${SHOW_AI_ASSISTANT}" >> .env
+            fi
+            echo "AIアシスタント表示: ${SHOW_AI_ASSISTANT}"
+        fi
+    fi
+
+    # Set SHOW_SEARCH_TAB (if available)
+    if [ -f "${INSTALL_DIR}/props/show_search_tab.txt" ]; then
+        SHOW_SEARCH_TAB=$(cat "${INSTALL_DIR}/props/show_search_tab.txt" | xargs)
+        if [ -n "$SHOW_SEARCH_TAB" ]; then
+            if grep -q "^SHOW_SEARCH_TAB=" .env; then
+                sed -i "s|^SHOW_SEARCH_TAB=.*|SHOW_SEARCH_TAB=${SHOW_SEARCH_TAB}|g" .env
+            else
+                echo "SHOW_SEARCH_TAB=${SHOW_SEARCH_TAB}" >> .env
+            fi
+            echo "検索タブ表示: ${SHOW_SEARCH_TAB}"
+        fi
+    fi
+
     # Setup backend with Python 3.13
     echo "Python 3.13でバックエンドをセットアップ中..."
     cd "${PROJECT_DIR}"
