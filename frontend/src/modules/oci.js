@@ -4,6 +4,9 @@
  * OCI Object Storageの操作、表示、フィルタリングを担当
  */
 
+// ========================================
+// インポート文
+// ========================================
 import { appState, getSelectedOciObjects, toggleOciObjectSelection, setAllOciObjectsSelection } from '../state.js';
 import { apiCall as authApiCall, forceLogout as authForceLogout, showLoginModal as authShowLoginModal } from './auth.js';
 import { showLoading as utilsShowLoading, hideLoading as utilsHideLoading, showToast as utilsShowToast, showConfirmModal as utilsShowConfirmModal, updateStatusBadge as utilsUpdateStatusBadge } from './utils.js';
@@ -328,6 +331,10 @@ export function displayOciObjectsList(data) {
     </div>
   `;
 }
+
+// ========================================
+// プライベートヘルパー関数
+// ========================================
 
 /**
  * オブジェクト行のHTMLを生成
@@ -921,6 +928,10 @@ export async function deleteSelectedOciObjects() {
     await loadOciObjects();
   }
 }
+
+// ========================================
+// ストリーミング処理関数
+// ========================================
 
 /**
  * ストリーミングレスポンスの処理（共通）
@@ -1654,7 +1665,7 @@ function closeProcessProgress() {
 }
 
 // ========================================
-// windowオブジェクトへの登録
+// エクスポート設定
 // ========================================
 
 // windowオブジェクトに登録
