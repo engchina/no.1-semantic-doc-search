@@ -4,8 +4,14 @@
  * 効率的なDOM更新とパフォーマンス最適化のためのヘルパー関数群
  */
 
-// 注: debounce: utilsDebounce, throttleはutils.jsに定義されているため、ここでは再エクスポートのみ
+// ========================================
+// インポート文
+// ========================================
 import { debounce as utilsDebounce, throttle as utilsThrottle } from './modules/utils.js';
+
+// ========================================
+// 要素属性操作関数
+// ========================================
 
 /**
  * 要素の属性を効率的に更新
@@ -21,6 +27,10 @@ export function updateAttributes(element, attributes) {
     }
   });
 }
+
+// ========================================
+// チェックボックス操作関数
+// ========================================
 
 /**
  * チェックボックスの状態を効率的に更新（再描画を最小化）
@@ -45,6 +55,10 @@ export function batchUpdateCheckboxes(updates) {
   });
 }
 
+// ========================================
+// テキスト操作関数
+// ========================================
+
 /**
  * テキストコンテンツを効率的に更新
  * @param {string} elementId - 要素ID
@@ -66,6 +80,10 @@ export function batchUpdateText(updates) {
     updateText(id, text);
   });
 }
+
+// ========================================
+// クラス操作関数
+// ========================================
 
 /**
  * クラスを効率的に切り替え
@@ -119,6 +137,10 @@ export function updateBadge(badgeId, text, type = 'info') {
   badge.style.color = '';
 }
 
+// ========================================
+// スクロール操作関数
+// ========================================
+
 /**
  * スクロール位置を保存
  * @param {string} containerId - コンテナ要素のID
@@ -140,6 +162,10 @@ export function restoreScrollPosition(containerId, position) {
     container.scrollTop = position;
   }
 }
+
+// ========================================
+// テーブル操作関数
+// ========================================
 
 /**
  * テーブル行を効率的に更新（差分更新）
@@ -172,6 +198,10 @@ export function updateTableRows(tableBodyId, newRows, renderRowFn) {
     }
   });
 }
+
+// ========================================
+// DOM構築関数
+// ========================================
 
 /**
  * DocumentFragmentを使った効率的なDOM構築
@@ -215,7 +245,9 @@ export function appendHTML(parentId, html, prepend = false) {
   }
 }
 
-// パフォーマンス測定はこのファイルで定義（DOM操作に関連するため）
+// ========================================
+// パフォーマンス測定関数
+// ========================================
 
 /**
  * パフォーマンス測定
@@ -256,9 +288,9 @@ export function calculateViewport(totalItems, itemHeight, containerHeight, scrol
   return { startIndex, endIndex, offsetY };
 }
 
+// ========================================
 // エクスポート
-// debounce, throttleはutils.jsから再エクスポート
-export { utilsDebounce as debounce, utilsThrottle as throttle };
+// ========================================
 
 export default {
   updateAttributes,
