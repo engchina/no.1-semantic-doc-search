@@ -4,8 +4,8 @@
  * 効率的なDOM更新とパフォーマンス最適化のためのヘルパー関数群
  */
 
-// 注: debounce, throttleはutils.jsに定義されているため、ここでは再エクスポートのみ
-import { debounce, throttle } from './modules/utils.js';
+// 注: debounce: utilsDebounce, throttleはutils.jsに定義されているため、ここでは再エクスポートのみ
+import { debounce as utilsDebounce, throttle as utilsThrottle } from './modules/utils.js';
 
 /**
  * 要素の属性を効率的に更新
@@ -258,7 +258,7 @@ export function calculateViewport(totalItems, itemHeight, containerHeight, scrol
 
 // エクスポート
 // debounce, throttleはutils.jsから再エクスポート
-export { debounce, throttle };
+export { utilsDebounce as debounce, utilsThrottle as throttle };
 
 export default {
   updateAttributes,
@@ -274,8 +274,8 @@ export default {
   createFragment,
   replaceElement,
   appendHTML,
-  debounce,
-  throttle,
+  debounce: utilsDebounce,
+  throttle: utilsThrottle,
   measurePerformance,
   calculateViewport
 };

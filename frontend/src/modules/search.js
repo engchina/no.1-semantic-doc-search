@@ -4,8 +4,8 @@
  * セマンティック検索機能を担当
  */
 
-import { apiCall } from './auth.js';
-import { showLoading, hideLoading, showToast, showImageModal } from './utils.js';
+import { apiCall as authApiCall } from './auth.js';
+import { showLoading as utilsShowLoading, hideLoading as utilsHideLoading, showToast as utilsShowToast, showImageModal as utilsShowImageModal } from './utils.js';
 
 /**
  * 認証トークン付きのURLを生成
@@ -48,25 +48,25 @@ export async function performSearch() {
   const minScore = parseFloat(document.getElementById('minScore').value) || 0.7;
   
   if (!query) {
-    showToast('検索クエリを入力してください', 'warning');
+    utilsShowToast('検索クエリを入力してください', 'warning');
     return;
   }
   
   try {
-    showLoading('検索中...');
+    utilsShowLoading('検索中...');
     
-    const data = await apiCall('/ai/api/search', {
+    const data = await authApiCall('/ai/api/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, top_k: topK, min_score: minScore })
     });
     
-    hideLoading();
+    utilsHideLoading();
     displaySearchResults(data);
     
   } catch (error) {
-    hideLoading();
-    showToast(`検索エラー: ${error.message}`, 'error');
+    utilsHideLoading();
+    utilsShowToast(`検索エラー: ${error.message}`, 'error');
   }
 }
 
@@ -222,7 +222,7 @@ export function showSearchImageModal(imageUrl, title, vectorDistance) {
   const filename = `${title} - マッチ度: ${matchPercent.toFixed(1)}% | 距離: ${vectorDistance.toFixed(4)}`;
   
   // 共通のshowImageModal関数を呼び出す
-  showImageModal(imageUrl, filename);
+  utilsShowImageModal(imageUrl, filename);
 }
 
 /**
@@ -243,9 +243,9 @@ export async function downloadFile(bucket, encodedObjectName) {
     // 新しいタブで開く
     window.open(fileUrl, '_blank');
     
-    showToast('ファイルを開きました', 'success');
+    utilsShowToast('ファイルを開きました', 'success');
   } catch (error) {
-    showToast(`ダウンロードエラー: ${error.message}`, 'error');
+    utilsShowToast(`ダウンロードエラー: ${error.message}`, 'error');
   }
 }
 

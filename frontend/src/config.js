@@ -19,7 +19,7 @@ export const API_CONFIG = {
 // ========================================
 export const UPLOAD_CONFIG = {
   MAX_FILES: 10,
-  MAX_FILE_SIZE: 100 * 1024 * 1024, // 100MB
+  MAX_FILE_SIZE: 200 * 1024 * 1024, // 200MB
   ALLOWED_EXTENSIONS: ['pdf', 'pptx', 'ppt', 'png', 'jpg', 'jpeg'],
   ALLOWED_MIME_TYPES: {
     pdf: 'application/pdf',
