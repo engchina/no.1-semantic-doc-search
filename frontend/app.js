@@ -275,10 +275,7 @@ function isGeneratedPageImage(objectName, allObjects = appState.get('allOciObjec
   if (!/\/page_\d{3}\.png$/.test(objectName)) {
     return false;
   }
-  
-  // デバッグ用ログ（本番環境ではコメントアウト）
-  // console.log('[isGeneratedPageImage] objectName:', objectName);
-  
+   
   // 親ファイル名を抽出（例: "example/page_001.png" → "example"）
   const lastSlashIndex = objectName.lastIndexOf('/');
   if (lastSlashIndex === -1) {
@@ -287,7 +284,6 @@ function isGeneratedPageImage(objectName, allObjects = appState.get('allOciObjec
   }
   
   const parentFolderPath = objectName.substring(0, lastSlashIndex);
-  // console.log('[isGeneratedPageImage] parentFolderPath:', parentFolderPath);
   
   // 親フォルダと同名のファイルが存在するかチェック
   // 例: "example/page_001.png" の場合、"example", "example.pdf", "example.pptx" などが存在すればページ画像化されたファイル
@@ -301,8 +297,6 @@ function isGeneratedPageImage(objectName, allObjects = appState.get('allOciObjec
     const objNameWithoutExt = obj.name.replace(/\.[^.]+$/, '');
     return objNameWithoutExt === parentFolderPath;
   });
-  
-  // console.log('[isGeneratedPageImage] parentFileExists:', parentFileExists);
   
   return parentFileExists;
 }
@@ -983,11 +977,7 @@ function displayOciObjectsList(data) {
   const pagination = data.pagination || {};
   
   // デバッグ: 選択状態を確認
-  // console.log('========== displayOciObjectsList ==========');
-  // console.log('現在表示中のオブジェクト:', objects.map(o => o.name));
-  // console.log('selectedOciObjects:', selectedOciObjects);
-  // console.log('selectedOciObjects.length:', selectedOciObjects.length);
-  // console.log('allOciObjects.length:', allOciObjects.length);
+  
   
   // 全ページ選択状態をチェック（チェックボックスを持つオブジェクトのみ対象）
   // ページ画像化で生成されたファイル（page_*.png）はチェックボックスを持たないため除外

@@ -132,7 +132,7 @@ export function showImageModal(imageUrl, filename = '') {
       document.removeEventListener('keydown', _imageModalEscHandler);
       _imageModalEscHandler = null;
     }
-  };
+  }
   
   // クリックで閉じる
   modal.onclick = closeModal;
@@ -142,7 +142,7 @@ export function showImageModal(imageUrl, filename = '') {
     if (e.key === 'Escape') {
       closeModal();
     }
-  };
+  }
   document.addEventListener('keydown', _imageModalEscHandler);
   
   document.body.appendChild(modal);
@@ -329,10 +329,10 @@ export function debounce(func, wait) {
     const later = () => {
       clearTimeout(timeout);
       func(...args);
-    };
+    }
     clearTimeout(timeout);
     timeout = setTimeout(later, wait);
-  };
+  }
 }
 
 /**
@@ -349,7 +349,7 @@ export function throttle(func, limit) {
       inThrottle = true;
       setTimeout(() => inThrottle = false, limit);
     }
-  };
+  }
 }
 
 // デフォルトエクスポート
@@ -370,4 +370,4 @@ export default {
   copyToClipboard,
   debounce,
   throttle
-};
+}

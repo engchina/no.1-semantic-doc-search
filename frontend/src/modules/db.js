@@ -212,7 +212,7 @@ export async function retryLoadDbSettings() {
       utilsShowToast(`再読み込みエラー: ${error.message}`, 'error');
     }
   }
-};
+}
 
 
 let selectedWalletFile = null;
@@ -242,7 +242,7 @@ export async function uploadWalletFile(file) {
     const formData = new FormData();
     formData.append('file', file);
     
-    const headers = {};
+    const headers = {}
     if (loginToken) {
       headers['Authorization'] = `Bearer ${loginToken}`;
     }
@@ -314,7 +314,7 @@ export async function saveDbConnection() {
     username: username,
     password: password,
     dsn: dsn
-  };
+  }
   
   try {
     utilsShowLoading('DB設定を保存中...');
@@ -388,7 +388,7 @@ export async function testDbConnection() {
         password: password,
         dsn: dsn
       }
-    };
+    }
     
     // console.log('Request body:', JSON.stringify({...requestBody, settings: {...requestBody.settings, password: '[HIDDEN]'}}));
     
@@ -753,7 +753,7 @@ export function showTablePreview(tableName, columns, rows, total, paginationData
     total: total,
     start_row: 1,
     end_row: rows.length
-  };
+  }
   
   // 現在ページの行を一意に識別する（最初の列を識別子として使用）
   // ※ どのテーブルでも対応できるよう、特定の列名に依存しない汎用的な処理

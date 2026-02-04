@@ -93,7 +93,7 @@ export async function loadOciObjects(showLoadingOverlay = true) {
     
     // バッジを更新
     const totalCount = data.pagination?.total || 0;
-    const statistics = data.statistics || { file_count: 0, page_image_count: 0, total_count: 0 };
+    const statistics = data.statistics || { file_count: 0, page_image_count: 0, total_count: 0 }
     
     updateDocumentsStatusBadge(`${totalCount}件`, 'success');
     updateDocumentsStatisticsBadges(statistics, 'success');
@@ -112,7 +112,7 @@ export async function loadOciObjects(showLoadingOverlay = true) {
 export function displayOciObjectsList(data) {
   const listDiv = document.getElementById('documentsList');
   const objects = data.objects || [];
-  const pagination = data.pagination || {};
+  const pagination = data.pagination || {}
   const allOciObjects = appState.get('allOciObjects') || [];
   const selectedOciObjects = getSelectedOciObjects();
   const ociObjectsBatchDeleteLoading = appState.get('ociObjectsBatchDeleteLoading');
@@ -598,7 +598,7 @@ export async function downloadSelectedOciObjects() {
     // リクエストヘッダーを構築
     const headers = {
       'Content-Type': 'application/json'
-    };
+    }
     
     // トークンがある場合のみAuthorizationヘッダーを追加
     if (loginToken) {
@@ -702,7 +702,7 @@ export async function convertSelectedOciObjectsToImages() {
     // リクエストヘッダーを構築
     const headers = {
       'Content-Type': 'application/json'
-    };
+    }
     
     // トークンがある場合のみAuthorizationヘッダーを追加
     if (loginToken) {
@@ -808,7 +808,7 @@ export async function vectorizeSelectedOciObjects() {
     // リクエストヘッダーを構築
     const headers = {
       'Content-Type': 'application/json'
-    };
+    }
     
     // トークンがある場合のみAuthorizationヘッダーを追加
     if (loginToken) {
@@ -893,7 +893,7 @@ export async function deleteSelectedOciObjects() {
     const loginToken = localStorage.getItem('loginToken');
     const headers = {
       'Content-Type': 'application/json'
-    };
+    }
     // トークンがある場合のみAuthorizationヘッダーを追加
     if (loginToken) {
       headers['Authorization'] = `Bearer ${loginToken}`;
@@ -1326,7 +1326,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
     } catch (parseError) {
       console.error('JSONパースエラー:', parseError, '行:', line);
     }
-  };
+  }
   
   while (true) {
     const { done, value } = await reader.read();
@@ -1689,7 +1689,7 @@ window.ociModule = {
   vectorizeSelected: vectorizeSelectedOciObjects,
   deleteSelected: deleteSelectedOciObjects,
   closeProcessProgress: closeProcessProgress
-};
+}
 
 // デフォルトエクスポート
 export default {

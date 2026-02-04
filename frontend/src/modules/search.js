@@ -273,7 +273,7 @@ export default {
   showSearchImageModal,
   downloadFile,
   clearSearchResults
-};
+}
 
 /**
  * 画像モーダルを閉じる
@@ -296,4 +296,4 @@ export function closeImageModal() {
   if (typeof window._imageModalEscapeHandler !== 'undefined') {
     window._imageModalEscapeHandler = null;
   }
-};
+}
