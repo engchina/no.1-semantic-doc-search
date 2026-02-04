@@ -274,3 +274,20 @@ export default {
   downloadFile,
   clearSearchResults
 };
+
+/**
+ * 画像モーダルを閉じる
+ */
+export function closeImageModal() {
+  const modal = document.getElementById('imageModal');
+  if (!modal) return;
+  
+  // ESCハンドラーを削除
+  if (_imageModalEscapeHandler) {
+    document.removeEventListener('keydown', _imageModalEscapeHandler);
+    _imageModalEscapeHandler = null;
+  }
+  
+  // 即座に削除（フラッシュを防ぐためアニメーションなし）
+  modal.remove();
+};

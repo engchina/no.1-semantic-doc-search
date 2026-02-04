@@ -3,6 +3,7 @@
 // ========================================
 import { appState, setAuthState, getAuthState } from './src/state.js';
 import { apiCall as authApiCall } from './src/modules/auth.js';
+import { closeImageModal as searchCloseImageModal } from './src/modules/search.js';
 import { 
   showToast as utilsShowToast, 
   showLoading as utilsShowLoading, 
@@ -5410,7 +5411,7 @@ function showImageModal(imageUrl, filename = '') {
   const closeBtn = document.getElementById('imageModalCloseBtn');
   closeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    closeImageModal();
+    searchCloseImageModal();
   });
   closeBtn.addEventListener('mouseover', function() {
     this.style.background = 'rgba(255, 255, 255, 0.3)';
@@ -5429,33 +5430,16 @@ function showImageModal(imageUrl, filename = '') {
   
   // 背景クリックで閉じる（1回だけ実行）
   modal.addEventListener('click', () => {
-    closeImageModal();
+    searchCloseImageModal();
   }, { once: true });
   
   // ESCキーで閉じる
   _imageModalEscapeHandler = (e) => {
     if (e.key === 'Escape') {
-      closeImageModal();
+      searchCloseImageModal();
     }
   };
   document.addEventListener('keydown', _imageModalEscapeHandler);
-}
-
-/**
- * 画像モーダルを閉じる
- */
-function closeImageModal() {
-  const modal = document.getElementById('imageModal');
-  if (!modal) return;
-  
-  // ESCハンドラーを削除
-  if (_imageModalEscapeHandler) {
-    document.removeEventListener('keydown', _imageModalEscapeHandler);
-    _imageModalEscapeHandler = null;
-  }
-  
-  // 即座に削除（フラッシュを防ぐためアニメーションなし）
-  modal.remove();
 }
 
 // ========================================
@@ -5475,7 +5459,6 @@ window.handleCopilotPaste = handleCopilotPaste;
 window.removeCopilotImageAt = removeCopilotImageAt;
 window.clearCopilotImages = clearCopilotImages;
 window.showImageModal = showImageModal;
-window.closeImageModal = closeImageModal;
 window.openCopilotImage = openCopilotImage;
 
 // 検索関連（削除済み - window.searchModuleを使用）
