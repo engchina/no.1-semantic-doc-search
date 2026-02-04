@@ -5331,19 +5331,24 @@ function clearCopilotImages() {
 /**
  * 画像モーダルを表示
  */
-let _imageModalEscapeHandler = null;
+window._imageModalEscapeHandler = null;
 
 function showImageModal(imageUrl, filename = '') {
-  // 既存のモーダルがあれば即座に削除
+  // 既存のモーダルがあれば先に適切にクリーンアップ
   const existingModal = document.getElementById('imageModal');
   if (existingModal) {
+    // 既存のイベントリスナーをクリーンアップ
+    if (window._imageModalEscapeHandler) {
+      document.removeEventListener('keydown', window._imageModalEscapeHandler);
+      window._imageModalEscapeHandler = null;
+    }
     existingModal.remove();
   }
   
   // 既存のESCハンドラーを削除
-  if (_imageModalEscapeHandler) {
-    document.removeEventListener('keydown', _imageModalEscapeHandler);
-    _imageModalEscapeHandler = null;
+  if (window._imageModalEscapeHandler) {
+    document.removeEventListener('keydown', window._imageModalEscapeHandler);
+    window._imageModalEscapeHandler = null;
   }
   
   // モーダルを作成
@@ -5408,12 +5413,12 @@ function showImageModal(imageUrl, filename = '') {
   }, { once: true });
   
   // ESCキーで閉じる
-  _imageModalEscapeHandler = (e) => {
+  window._imageModalEscapeHandler = (e) => {
     if (e.key === 'Escape') {
       searchCloseImageModal();
     }
   };
-  document.addEventListener('keydown', _imageModalEscapeHandler);
+  document.addEventListener('keydown', window._imageModalEscapeHandler);
 }
 
 // ========================================

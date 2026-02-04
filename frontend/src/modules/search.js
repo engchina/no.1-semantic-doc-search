@@ -291,4 +291,9 @@ export function closeImageModal() {
   
   // 即座に削除（フラッシュを防ぐためアニメーションなし）
   modal.remove();
+  
+  // 追加の安全策：app.js側のグローバル変数もクリーンアップ
+  if (typeof window._imageModalEscapeHandler !== 'undefined') {
+    window._imageModalEscapeHandler = null;
+  }
 };
