@@ -109,6 +109,9 @@ export async function loadOciObjects(showLoadingOverlay = true) {
     }
     utilsShowToast(`OCI Object Storage一覧取得エラー: ${error.message}`, 'error');
     updateDocumentsStatusBadge('エラー', 'error');
+    
+    // エラー時もバッジをリセット
+    updateDocumentsStatisticsBadges({ file_count: 0, page_image_count: 0, total_count: 0 }, 'error');
   }
 }
 
@@ -228,6 +231,10 @@ export function displayOciObjectsList(data) {
         </div>
       </div>
     `;
+    
+    // 空状態でもバッジを更新
+    const statistics = data.statistics || { file_count: 0, page_image_count: 0, total_count: 0 };
+    updateDocumentsStatisticsBadges(statistics, 'success');
     return;
   }
   
@@ -349,7 +356,7 @@ export function displayOciObjectsList(data) {
 function generateObjectRow(obj, allOciObjects, selectedOciObjects, ociObjectsBatchDeleteLoading) {
   const isFolder = obj.name.endsWith('/');
   const isPageImage = isGeneratedPageImage(obj.name, allOciObjects);
-  const icon = isFolder ? '📁' : '📄';
+  const icon = isFolder ? '📁' : (isPageImage ? '🖼️' : '📄');
   const isChecked = selectedOciObjects.includes(obj.name);
   
   // ページ画像化状態
@@ -412,13 +419,17 @@ function updateDocumentsStatusBadge(text, type) {
  * @private
  */
 function updateDocumentsStatisticsBadges(statistics, type) {
-  const fileCountBadge = document.getElementById('fileCountBadge');
-  const pageImageCountBadge = document.getElementById('pageImageCountBadge');
-  const totalCountBadge = document.getElementById('totalCountBadge');
+  const fileCountBadge = document.getElementById('documentsFileCountBadge');
+  const pageImageCountBadge = document.getElementById('documentsPageImageCountBadge');
   
-  if (fileCountBadge) fileCountBadge.textContent = `ファイル: ${statistics.file_count}`;
-  if (pageImageCountBadge) pageImageCountBadge.textContent = `ページ画像: ${statistics.page_image_count}`;
-  if (totalCountBadge) totalCountBadge.textContent = `合計: ${statistics.total_count}`;
+  if (fileCountBadge) {
+    fileCountBadge.textContent = `ファイル: ${statistics.file_count}件`;
+    fileCountBadge.style.display = 'inline-block';
+  }
+  if (pageImageCountBadge) {
+    pageImageCountBadge.textContent = `ページ画像: ${statistics.page_image_count}件`;
+    pageImageCountBadge.style.display = 'inline-block';
+  }
 }
 
 // ========================================
@@ -870,6 +881,13 @@ export async function deleteSelectedOciObjects() {
   
   if (selectedOciObjects.length === 0) {
     utilsShowToast('削除するオブジェクトを選択してください', 'warning');
+    return;
+  }
+  
+  // ベクトル化処理中かどうかをチェック
+  const ociObjectsBatchDeleteLoading = appState.get('ociObjectsBatchDeleteLoading');
+  if (ociObjectsBatchDeleteLoading) {
+    utilsShowToast('⚠️ 処理中です。しばらくお待ちください', 'warning');
     return;
   }
   
