@@ -2018,6 +2018,42 @@ function initImageSearchDropZone() {
  * 画像検索ペースト機能の初期化
  */
 function initImageSearchPaste() {
+  const pasteZone = document.getElementById('imageSearchPasteZone');
+  if (!pasteZone) return;
+  
+  // ペーストゾーンのフォーカススタイル
+  pasteZone.addEventListener('focus', () => {
+    pasteZone.style.borderColor = '#667eea';
+    pasteZone.style.background = '#e0e7ff';
+    pasteZone.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.1)';
+  });
+  
+  pasteZone.addEventListener('blur', () => {
+    pasteZone.style.borderColor = '#94a3b8';
+    pasteZone.style.background = '#f1f5f9';
+    pasteZone.style.boxShadow = 'none';
+  });
+  
+  // ホバー効果
+  pasteZone.addEventListener('mouseenter', () => {
+    if (document.activeElement !== pasteZone) {
+      pasteZone.style.borderColor = '#667eea';
+      pasteZone.style.background = '#f0f4ff';
+    }
+  });
+  
+  pasteZone.addEventListener('mouseleave', () => {
+    if (document.activeElement !== pasteZone) {
+      pasteZone.style.borderColor = '#94a3b8';
+      pasteZone.style.background = '#f1f5f9';
+    }
+  });
+  
+  // クリックでフォーカス（ファイル選択ダイアログは開かない）
+  pasteZone.addEventListener('click', () => {
+    pasteZone.focus();
+  });
+  
   // グローバルペーストイベントをリスン
   document.addEventListener('paste', (e) => {
     // 画像検索タブがアクティブかチェック
