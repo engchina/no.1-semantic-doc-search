@@ -15,7 +15,7 @@ import {
 } from './utils.js';
 
 // ========================================
-// OCI設定の状態管理
+// グローバル変数
 // ========================================
 let ociSettings = {
   user_ocid: '',
@@ -556,18 +556,6 @@ export async function testObjectStorageConnection() {
 // エクスポート設定
 // ========================================
 
-// windowオブジェクトに登録（HTMLから呼び出せるように）
-window.ociModule = {
-  loadOciSettings,
-  saveOciSettings,
-  testOciConnection,
-  handlePrivateKeyFileSelect,
-  clearPrivateKey,
-  updateObjectStorageStatusBadge,
-  refreshObjectStorageSettings,
-  testObjectStorageConnection
-};
-
 // HTMLのonclickから直接呼び出せるようにグローバル登録
 window.loadOciSettings = loadOciSettings;
 window.saveOciSettings = saveOciSettings;
@@ -576,15 +564,3 @@ window.handlePrivateKeyFileSelect = handlePrivateKeyFileSelect;
 window.clearPrivateKey = clearPrivateKey;
 window.refreshObjectStorageSettings = refreshObjectStorageSettings;
 window.testObjectStorageConnection = testObjectStorageConnection;
-
-// デフォルトエクスポート
-export default {
-  loadOciSettings,
-  saveOciSettings,
-  testOciConnection,
-  handlePrivateKeyFileSelect,
-  clearPrivateKey,
-  updateObjectStorageStatusBadge,
-  refreshObjectStorageSettings,
-  testObjectStorageConnection
-};
