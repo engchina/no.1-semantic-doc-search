@@ -1714,3 +1714,183 @@ export default {
   vectorizeSelectedOciObjects,
   deleteSelectedOciObjects
 };
+
+
+export async function refreshDbTables() {
+  try {
+    utilsShowLoading('統計情報を再取得中...');
+    
+    // 先に統計情報を更新
+    const statsResult = await authApiCall('/ai/api/database/tables/refresh-statistics', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    // ページを1にリセット
+    appState.set('dbTablesPage', 1);
+    
+    // テーブル一覧を再読み込み
+    utilsShowLoading('テーブル一覧を再取得中...');
+    await loadDbTables();
+    utilsHideLoading();
+    
+    // オーバーレイが非表示になった後にトーストを表示
+    if (!statsResult.success) {
+      utilsShowToast(`統計情報再取得エラー: ${statsResult.message}`, 'error');
+    } else {
+      utilsShowToast(statsResult.message, 'success');
+    }
+  } catch (error) {
+    utilsHideLoading();
+    utilsShowToast(`再取得エラー: ${error.message}`, 'error');
+  }
+}
+
+// ストレージ情報を読み込み
+export async function loadDbStorage() {
+  console.log('[DEBUG] db.jsのloadDbStorageが呼び出されました');
+  try {
+    utilsShowLoading('ストレージ情報を取得中...');
+    
+    const data = await authApiCall('/ai/api/database/storage');
+    
+    utilsHideLoading();
+    
+    const storageDiv = document.getElementById('dbStorageContent');
+    const statusBadge = document.getElementById('dbStorageStatusBadge');
+    
+    if (!data.success || !data.storage_info) {
+      storageDiv.innerHTML = `
+        <div style="text-align: center; padding: 40px; color: #64748b;">
+          <div style="font-size: 48px; margin-bottom: 16px;">💾</div>
+          <div style="font-size: 16px; font-weight: 500;">ストレージ情報なし</div>
+          <div style="font-size: 14px; margin-top: 8px;">データベースに接続後、ストレージ情報が表示されます</div>
+        </div>
+      `;
+      if (statusBadge) {
+        statusBadge.textContent = '未取得';
+        statusBadge.style.background = '#e2e8f0';
+        statusBadge.style.color = '#64748b';
+      }
+      return;
+    }
+    
+    const storage = data.storage_info;
+    
+    // ステータスバッジを更新
+    if (statusBadge) {
+      statusBadge.textContent = `${storage.used_percent.toFixed(1)}% 使用中`;
+      const usedPercent = storage.used_percent;
+      if (usedPercent >= 90) {
+        statusBadge.style.background = '#ef4444';
+        statusBadge.style.color = '#fff';
+      } else if (usedPercent >= 70) {
+        statusBadge.style.background = '#f59e0b';
+        statusBadge.style.color = '#fff';
+      } else {
+        statusBadge.style.background = '#10b981';
+        statusBadge.style.color = '#fff';
+      }
+    }
+    
+    storageDiv.innerHTML = `
+      <!-- 全体サマリ -->
+      <div class="card" style="margin-bottom: 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+        <div class="card-body">
+          <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; opacity: 0.9;">全体ストレージ使用状況</h3>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;">
+            <div>
+              <div style="font-size: 12px; opacity: 0.8; margin-bottom: 4px;">総容量</div>
+              <div style="font-size: 20px; font-weight: 700;">${storage.total_size_mb.toFixed(0)} MB</div>
+            </div>
+            <div>
+              <div style="font-size: 12px; opacity: 0.8; margin-bottom: 4px;">使用済み</div>
+              <div style="font-size: 20px; font-weight: 700;">${storage.used_size_mb.toFixed(0)} MB</div>
+            </div>
+            <div>
+              <div style="font-size: 12px; opacity: 0.8; margin-bottom: 4px;">空き容量</div>
+              <div style="font-size: 20px; font-weight: 700;">${storage.free_size_mb.toFixed(0)} MB</div>
+            </div>
+            <div>
+              <div style="font-size: 12px; opacity: 0.8; margin-bottom: 4px;">使用率</div>
+              <div style="font-size: 20px; font-weight: 700;">${storage.used_percent.toFixed(1)}%</div>
+            </div>
+          </div>
+          <div style="margin-top: 16px; height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; overflow: hidden;">
+            <div style="width: ${storage.used_percent}%; height: 100%; background: white; border-radius: 4px; transition: width 0.3s ease;"></div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- テーブルスペース詳細 -->
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #1e293b;">テーブルスペース別使用状況</h3>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>テーブルスペース名</th>
+              <th>総容量 (MB)</th>
+              <th>使用済み (MB)</th>
+              <th>空き容量 (MB)</th>
+              <th>使用率</th>
+              <th>ステータス</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${storage.tablespaces.map(ts => {
+              const usedPercent = ts.used_percent;
+              let statusColor = '#10b981';
+              let statusText = '正常';
+              if (usedPercent >= 90) {
+                statusColor = '#ef4444';
+                statusText = '警告';
+              } else if (usedPercent >= 70) {
+                statusColor = '#f59e0b';
+                statusText = '注意';
+              }
+              
+              return `
+                <tr>
+                  <td style="font-weight: 500; font-family: monospace;">${ts.tablespace_name}</td>
+                  <td>${ts.total_size_mb.toFixed(2)}</td>
+                  <td>${ts.used_size_mb.toFixed(2)}</td>
+                  <td>${ts.free_size_mb.toFixed(2)}</td>
+                  <td>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <div style="flex: 1; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden;">
+                        <div style="width: ${usedPercent}%; height: 100%; background: ${statusColor}; transition: width 0.3s ease;"></div>
+                      </div>
+                      <span style="font-weight: 500; min-width: 50px; text-align: right;">${usedPercent.toFixed(1)}%</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="px-2 py-1 text-xs font-semibold rounded-md" style="background: ${statusColor}; color: white;">${statusText}</span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    
+  } catch (error) {
+    utilsHideLoading();
+    utilsShowToast(`ストレージ情報取得エラー: ${error.message}`, 'error');
+  }
+}
+
+// ストレージ情報再取得ボタン
+export async function refreshDbStorage() {
+  console.log('[DEBUG] db.jsのrefreshDbStorageが呼び出されました');
+  try {
+    utilsShowLoading('ストレージ情報を再取得中...');
+    await loadDbStorage();
+    utilsHideLoading();
+  } catch (error) {
+    utilsHideLoading();
+    utilsShowToast(`再取得エラー: ${error.message}`, 'error');
+  }
+}

@@ -1,7 +1,9 @@
 
 // グローバル変数（app.jsからの移行）
 let dbTablesPage = 1;
-let dbTablesPageSize = 20;
+
+// デバッグ用：db.jsの関数が呼び出されたことを示すフラグ
+console.log('[DEBUG] db.jsモジュールがロードされました');
 let dbTablesTotalPages = 1;
 let selectedDbTables = [];
 let dbTablesBatchDeleteLoading = false;
@@ -501,8 +503,12 @@ export async function loadDbTables() {
   try {
     utilsShowLoading('テーブル一覧を取得中...');
     
+    // appStateからページ情報を取得
+    const currentPage = appState.get('dbTablesPage') || 1;
+    const pageSize = appState.get('dbTablesPageSize') || 20;
+    
     // ページングパラメータ付きでAPIを呼び出し
-    const data = await authApiCall(`/ai/api/database/tables?page=${dbTablesPage}&page_size=${dbTablesPageSize}`);
+    const data = await authApiCall(`/ai/api/database/tables?page=${currentPage}&page_size=${pageSize}`);
     
     utilsHideLoading();
     
@@ -1063,15 +1069,17 @@ export function toggleSelectAllTableData(checked) {
 // window.handleTableDataJumpPage = handleTableDataJumpPage;
 
 export function handleDbTablesPrevPage() {
-  if (dbTablesPage > 1) {
-    dbTablesPage--;
+  const currentPage = appState.get('dbTablesPage') || 1;
+  if (currentPage > 1) {
+    appState.set('dbTablesPage', currentPage - 1);
     loadDbTables();
   }
 }
 
 export function handleDbTablesNextPage() {
-  if (dbTablesPage < dbTablesTotalPages) {
-    dbTablesPage++;
+  const currentPage = appState.get('dbTablesPage') || 1;
+  if (currentPage < dbTablesTotalPages) {
+    appState.set('dbTablesPage', currentPage + 1);
     loadDbTables();
   }
 }
@@ -1084,20 +1092,21 @@ export function handleDbTablesJumpPage() {
   }
   
   const page = parseInt(input.value, 10);
+  const currentPage = appState.get('dbTablesPage') || 1;
   
   // NaNチェックを追加
   if (isNaN(page)) {
     utilsShowToast('有効な数値を入力してください', 'error');
-    input.value = dbTablesPage;
+    input.value = currentPage;
     return;
   }
   
   if (page >= 1 && page <= dbTablesTotalPages) {
-    dbTablesPage = page;
+    appState.set('dbTablesPage', page);
     loadDbTables();
   } else {
     utilsShowToast('無効なページ番号です', 'error');
-    input.value = dbTablesPage;
+    input.value = currentPage;
   }
 }
 
@@ -1222,7 +1231,7 @@ export async function deleteSelectedDbTables() {
       // 選択をクリア
       selectedDbTables = [];
       // ページを1にリセット
-      dbTablesPage = 1;
+      appState.set('dbTablesPage', 1);
     } else {
       utilsShowToast(`削除エラー: ${response.message || '不明なエラー'}`, 'error');
     }
@@ -1241,38 +1250,6 @@ export async function refreshDbInfo() {
     utilsShowLoading('データベース情報を再取得中...');
     await loadDbInfo();
     utilsHideLoading();
-  } catch (error) {
-    utilsHideLoading();
-    utilsShowToast(`再取得エラー: ${error.message}`, 'error');
-  }
-}
-
-export async function refreshDbTables() {
-  try {
-    utilsShowLoading('統計情報を再取得中...');
-    
-    // 先に統計情報を更新
-    const statsResult = await authApiCall('/ai/api/database/tables/refresh-statistics', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    // ページを1にリセット
-    dbTablesPage = 1;
-    
-    // テーブル一覧を再読み込み
-    utilsShowLoading('テーブル一覧を再取得中...');
-    await loadDbTables();
-    utilsHideLoading();
-    
-    // オーバーレイが非表示になった後にトーストを表示
-    if (!statsResult.success) {
-      utilsShowToast(`統計情報再取得エラー: ${statsResult.message}`, 'error');
-    } else {
-      utilsShowToast(statsResult.message, 'success');
-    }
   } catch (error) {
     utilsHideLoading();
     utilsShowToast(`再取得エラー: ${error.message}`, 'error');
