@@ -10,6 +10,90 @@
 import { appState, setAuthState } from '../state.js';
 
 // ========================================
+// グローバル変数
+// ========================================
+// 開発時はViteのプロキシを使うため空文字列、本番ビルド時は環境変数から設定
+const API_BASE = import.meta.env.VITE_API_BASE || '';
+
+// ========================================
+// グローバル変数
+// ========================================
+// （認証モジュールではグローバル変数は不要）
+
+// ========================================
+// 認証機能
+// ========================================
+
+/**
+ * UI機能トグルを適用
+ * @param {Object} config - 設定オブジェクト
+ */
+function applyUIFeatureToggles(config) {
+  // AI Assistantの表示制御
+  const showAiAssistant = config.show_ai_assistant !== false; // デフォルトはtrue
+  const copilotToggleBtn = document.getElementById('copilotToggleBtn');
+  const copilotPanel = document.getElementById('copilotPanel');
+  
+  if (showAiAssistant) {
+    if (copilotToggleBtn) copilotToggleBtn.style.display = 'block';
+  } else {
+    if (copilotToggleBtn) copilotToggleBtn.style.display = 'none';
+    if (copilotPanel) copilotPanel.style.display = 'none';
+  }
+  
+  // 検索タブの表示制御
+  const showSearchTab = config.show_search_tab !== false; // デフォルトはtrue
+  const searchTabElements = document.querySelectorAll('.apex-tab');
+  
+  if (searchTabElements.length > 0) {
+    const searchTab = searchTabElements[0]; // 最初のタブが検索タブ
+    const searchTabContent = document.getElementById('tab-search');
+    
+    if (showSearchTab) {
+      if (searchTab) searchTab.style.display = '';
+    } else {
+      if (searchTab) searchTab.style.display = 'none';
+      if (searchTabContent) searchTabContent.style.display = 'none';
+      // 検索タブが非表示の場合、文書管理タブに切り替え
+      if (searchTabElements.length > 1) {
+        // switchTab関数はapp.jsで定義されているため、ここではコメントアウト
+        // switchTab('documents', { target: searchTabElements[1] });
+      }
+    }
+  }
+  
+  // appStateにも保存
+  appState.set('showAiAssistant', showAiAssistant);
+  appState.set('showSearchTab', showSearchTab);
+}
+
+/**
+ * 設定を読み込む
+ */
+export async function loadConfig() {
+  try {
+    // API_BASEが空の場合は相対パス、設定されている場合は絶対パス
+    const url = API_BASE ? `${API_BASE}/config` : '/ai/api/config';
+    const response = await fetch(url);
+    if (response.ok) {
+      const config = await response.json();
+      
+      // appStateに設定（oci.js等のモジュールから参照されるため）
+      appState.set('debugMode', config.debug);
+      appState.set('requireLogin', config.require_login);
+      appState.set('apiBase', API_BASE);
+      
+      // UI機能トグルを適用
+      applyUIFeatureToggles(config);
+      
+      // console.log('設定を読み込みました:', config);
+    }
+  } catch (error) {
+    // console.warn('設定の読み込みに失敗しました:', error);
+  }
+}
+
+// ========================================
 // モーダル操作関数
 // ========================================
 
@@ -330,18 +414,18 @@ window.authModule = {
   updateUserInfo,
   checkLoginStatus,
   forceLogout,
-  apiCall
+  apiCall,
+  loadConfig
 };
 
-// デフォルトエクスポート
-export default {
-  showLoginModal,
-  hideLoginModal,
-  toggleLoginPassword,
-  handleLogin,
-  handleLogout,
-  updateUserInfo,
-  checkLoginStatus,
-  forceLogout,
-  apiCall
-};
+// 個別関数も直接登録（後方互換性のため）
+window.showLoginModal = showLoginModal;
+window.hideLoginModal = hideLoginModal;
+window.toggleLoginPassword = toggleLoginPassword;
+window.handleLogin = handleLogin;
+window.handleLogout = handleLogout;
+window.updateUserInfo = updateUserInfo;
+window.checkLoginStatus = checkLoginStatus;
+window.forceLogout = forceLogout;
+window.apiCall = apiCall;
+window.loadConfig = loadConfig;

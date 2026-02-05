@@ -2,7 +2,7 @@
 // モジュールインポート
 // ========================================
 import { appState, setAuthState, getAuthState } from './src/state.js';
-import { apiCall as authApiCall } from './src/modules/auth.js';
+import { apiCall as authApiCall, loadConfig } from './src/modules/auth.js';
 import { closeImageModal as searchCloseImageModal } from './src/modules/search.js';
 import { 
   showToast as utilsShowToast, 
@@ -83,7 +83,8 @@ import {
 // グローバル変数（非推奨 - appStateへの移行中）
 // ========================================
 // 開発時はViteのプロキシを使うため空文字列、本番ビルド時は環境変数から設定
-const API_BASE = import.meta.env.VITE_API_BASE || '';
+// const API_BASE = import.meta.env.VITE_API_BASE || '';
+// NOTE: API_BASEはauth.jsに移動しました
 
 // 注: 以下の変数はappStateに完全移行済み。削除済み。
 // let selectedFile = null;           // -> appState.get('selectedFile')
@@ -2996,76 +2997,13 @@ async function refreshDbStorage() {
   }
 }
 
-// ========================================
-// 認証機能
-// ========================================
-
-/**
- * 設定を読み込む
- */
-async function loadConfig() {
-  try {
-    // API_BASEが空の場合は相対パス、設定されている場合は絶対パス
-    const url = API_BASE ? `${API_BASE}/config` : '/ai/config';
-    const response = await fetch(url);
-    if (response.ok) {
-      const config = await response.json();
-      
-      // appStateに設定（oci.js等のモジュールから参照されるため）
-      appState.set('debugMode', config.debug);
-      appState.set('requireLogin', config.require_login);
-      appState.set('apiBase', API_BASE);
-      
-      // UI機能トグルを適用
-      applyUIFeatureToggles(config);
-      
-      // console.log('設定を読み込みました:', config);
-    }
-  } catch (error) {
-    // console.warn('設定の読み込みに失敗しました:', error);
-  }
-}
-
 /**
  * UI機能トグルを適用
+ * @deprecated auth.jsに移動しました
  */
-function applyUIFeatureToggles(config) {
-  // AI Assistantの表示制御
-  const showAiAssistant = config.show_ai_assistant !== false; // デフォルトはtrue
-  const copilotToggleBtn = document.getElementById('copilotToggleBtn');
-  const copilotPanel = document.getElementById('copilotPanel');
-  
-  if (showAiAssistant) {
-    if (copilotToggleBtn) copilotToggleBtn.style.display = 'block';
-  } else {
-    if (copilotToggleBtn) copilotToggleBtn.style.display = 'none';
-    if (copilotPanel) copilotPanel.style.display = 'none';
-  }
-  
-  // 検索タブの表示制御
-  const showSearchTab = config.show_search_tab !== false; // デフォルトはtrue
-  const searchTabElements = document.querySelectorAll('.apex-tab');
-  
-  if (searchTabElements.length > 0) {
-    const searchTab = searchTabElements[0]; // 最初のタブが検索タブ
-    const searchTabContent = document.getElementById('tab-search');
-    
-    if (showSearchTab) {
-      if (searchTab) searchTab.style.display = '';
-    } else {
-      if (searchTab) searchTab.style.display = 'none';
-      if (searchTabContent) searchTabContent.style.display = 'none';
-      // 検索タブが非表示の場合、文書管理タブに切り替え
-      if (searchTabElements.length > 1) {
-        switchTab('documents', { target: searchTabElements[1] });
-      }
-    }
-  }
-  
-  // appStateにも保存
-  appState.set('showAiAssistant', showAiAssistant);
-  appState.set('showSearchTab', showSearchTab);
-}
+// function applyUIFeatureToggles(config) {
+//   // 関数はauth.jsに移動しました
+// }
 
 /**
  * ログインモーダルを表示
@@ -3163,7 +3101,8 @@ async function handleLogin(event) {
       errorDiv.style.display = 'none';
     }
     
-    const url = API_BASE ? `${API_BASE}/api/login` : '/ai/api/login';
+    const apiBase = appState.get('apiBase') || '';
+    const url = apiBase ? `${apiBase}/api/login` : '/ai/api/login';
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3222,7 +3161,8 @@ async function handleLogout() {
   try {
     const currentToken = appState.get('loginToken');
     if (currentToken) {
-      const url = API_BASE ? `${API_BASE}/api/logout` : '/ai/api/logout';
+      const apiBase = appState.get('apiBase') || '';
+      const url = apiBase ? `${apiBase}/api/logout` : '/ai/api/logout';
       await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${currentToken}` }

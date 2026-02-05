@@ -13,6 +13,7 @@ let selectedTableDataRows = [];
 let currentPageTableDataRows = [];
 let currentPageDbTables = [];
 
+import { appState } from '../state.js';
 import { apiCall as authApiCall } from './auth.js';
 import { showLoading as utilsShowLoading, hideLoading as utilsHideLoading, showToast as utilsShowToast, formatDateTime as utilsFormatDateTime } from './utils.js';
 
@@ -247,7 +248,8 @@ export async function uploadWalletFile(file) {
       headers['Authorization'] = `Bearer ${loginToken}`;
     }
     
-    const response = await fetch(API_BASE ? `${API_BASE}/api/settings/database/wallet` : '/ai/api/settings/database/wallet', {
+    const apiBase = appState.get('apiBase') || '';
+    const response = await fetch(apiBase ? `${apiBase}/api/settings/database/wallet` : '/ai/api/settings/database/wallet', {
       method: 'POST',
       headers: headers,
       body: formData
