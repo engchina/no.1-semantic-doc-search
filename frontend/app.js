@@ -2,7 +2,9 @@
 // モジュールインポート
 // ========================================
 import { appState, setAuthState, getAuthState } from './src/state.js';
-import { apiCall as authApiCall, loadConfig } from './src/modules/auth.js';
+import { apiCall as authApiCall, loadConfig, showLoginModal as authShowLoginModal, 
+         hideLoginModal as authHideLoginModal, updateUserInfo as authUpdateUserInfo, 
+         checkLoginStatus as authCheckLoginStatus } from './src/modules/auth.js';
 import { closeImageModal as searchCloseImageModal } from './src/modules/search.js';
 import { 
   showToast as utilsShowToast, 
@@ -3007,23 +3009,26 @@ async function refreshDbStorage() {
 
 /**
  * ログインモーダルを表示
+ * @deprecated auth.jsモジュールのshowLoginModalを使用してください
  */
-function showLoginModal() {
-  const modal = document.getElementById('loginOverlay');
-  if (modal) {
-    modal.style.display = 'flex';
-    const usernameInput = document.getElementById('loginUsername');
-    if (usernameInput) {
-      usernameInput.focus();
-    }
-  }
-}
+// function showLoginModal() {
+//   console.log('[APP.JS] showLoginModal が呼び出されました');
+//   const modal = document.getElementById('loginOverlay');
+//   if (modal) {
+//     modal.style.display = 'flex';
+//     const usernameInput = document.getElementById('loginUsername');
+//     if (usernameInput) {
+//       usernameInput.focus();
+//     }
+//   }
+// }
 
 /**
  * 強制ログアウト処理（401エラー時に呼び出し）
  * referenceプロジェクトの実装に準拠
  */
 function forceLogout() {
+  console.log('[APP.JS] forceLogout が呼び出されました');
   // セッションを完全にクリア
   setAuthState(false, null, null);
   
@@ -3037,206 +3042,220 @@ function forceLogout() {
   // ログイン画面を表示してユーザーに通知
   setTimeout(() => {
     utilsShowToast('ログインの有効期限が切れました。再度ログインしてください。', 'error');
-    showLoginModal();
+    authShowLoginModal();
   }, 0);
 }
 
 /**
  * ログインモーダルを非表示
+ * @deprecated auth.jsモジュールのhideLoginModalを使用してください
  */
-function hideLoginModal() {
-  const modal = document.getElementById('loginOverlay');
-  if (modal) {
-    modal.style.display = 'none';
-    const errorDiv = document.getElementById('loginError');
-    if (errorDiv) {
-      errorDiv.style.display = 'none';
-    }
-    const form = document.getElementById('loginForm');
-    if (form) {
-      form.reset();
-    }
-  }
-}
+// function hideLoginModal() {
+//   console.log('[APP.JS] hideLoginModal が呼び出されました');
+//   const modal = document.getElementById('loginOverlay');
+//   if (modal) {
+//     modal.style.display = 'none';
+//     const errorDiv = document.getElementById('loginError');
+//     if (errorDiv) {
+//       errorDiv.style.display = 'none';
+//     }
+//     const form = document.getElementById('loginForm');
+//     if (form) {
+//       form.reset();
+//     }
+//   }
+// }
 
 /**
  * パスワード表示切替
+ * @deprecated auth.jsモジュールのtoggleLoginPasswordを使用してください
+ * HTMLからの直接呼び出しに対応するため一時的に維持
  */
-function toggleLoginPassword() {
-  const input = document.getElementById('loginPassword');
-  if (!input) return;
-  input.type = input.type === 'password' ? 'text' : 'password';
-  input.focus();
-  input.setSelectionRange(input.value.length, input.value.length);
-}
+// function toggleLoginPassword() {
+//   console.log('[APP.JS] toggleLoginPassword が呼び出されました');
+//   const input = document.getElementById('loginPassword');
+//   if (!input) return;
+//   input.type = input.type === 'password' ? 'text' : 'password';
+//   input.focus();
+//   input.setSelectionRange(input.value.length, input.value.length);
+// }
 
 /**
  * ログイン処理
+ * @deprecated auth.jsモジュールのhandleLoginを使用してください
+ * HTMLからの直接呼び出しに対応するため一時的に維持
  */
-async function handleLogin(event) {
-  event.preventDefault();
-  
-  const username = document.getElementById('loginUsername').value.trim();
-  const password = document.getElementById('loginPassword').value;
-  const errorDiv = document.getElementById('loginError');
-  const errorMessage = document.getElementById('loginErrorMessage');
-  const submitBtn = document.getElementById('loginSubmitBtn');
-  
-  if (!username || !password) {
-    if (errorMessage) {
-      errorMessage.textContent = 'ユーザー名とパスワードを入力してください';
-    }
-    if (errorDiv) {
-      errorDiv.style.display = 'flex';
-    }
-    return;
-  }
-  
-  try {
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.innerHTML = '<span class="inline-flex items-center gap-2"><span class="spinner spinner-sm"></span>ログイン中...</span>';
-    }
-    if (errorDiv) {
-      errorDiv.style.display = 'none';
-    }
-    
-    const apiBase = appState.get('apiBase') || '';
-    const url = apiBase ? `${apiBase}/api/login` : '/ai/api/login';
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'ログインに失敗しました');
-    }
-    
-    const data = await response.json();
-    
-    if (data.status === 'success') {
-      // ログイン成功 - appStateに保存
-      setAuthState(true, data.token, data.username);
-      
-      // appStateに保存
-      setAuthState(true, data.token, data.username);
-      
-      // ローカルストレージに保存
-      localStorage.setItem('loginToken', data.token);
-      localStorage.setItem('loginUser', data.username);
-      
-      hideLoginModal();
-      utilsShowToast('ログインしました', 'success');
-      
-      // UI更新
-      updateUserInfo();
-      
-      // AI Assistantボタンを表示
-      const copilotBtn = document.getElementById('copilotToggleBtn');
-      if (copilotBtn) {
-        copilotBtn.style.display = 'flex';
-      }
-    }
-  } catch (error) {
-    if (errorMessage) {
-      errorMessage.textContent = error.message;
-    }
-    if (errorDiv) {
-      errorDiv.style.display = 'flex';
-    }
-  } finally {
-    if (submitBtn) {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'ログイン';
-    }
-  }
-}
+// async function handleLogin(event) {
+//   console.log('[APP.JS] handleLogin が呼び出されました');
+//   event.preventDefault();
+//   
+//   const username = document.getElementById('loginUsername').value.trim();
+//   const password = document.getElementById('loginPassword').value;
+//   const errorDiv = document.getElementById('loginError');
+//   const errorMessage = document.getElementById('loginErrorMessage');
+//   const submitBtn = document.getElementById('loginSubmitBtn');
+//   
+//   if (!username || !password) {
+//     if (errorMessage) {
+//       errorMessage.textContent = 'ユーザー名とパスワードを入力してください';
+//     }
+//     if (errorDiv) {
+//       errorDiv.style.display = 'flex';
+//     }
+//     return;
+//   }
+//   
+//   try {
+//     if (submitBtn) {
+//       submitBtn.disabled = true;
+//       submitBtn.innerHTML = '<span class="inline-flex items-center gap-2"><span class="spinner spinner-sm"></span>ログイン中...</span>';
+//     }
+//     if (errorDiv) {
+//       errorDiv.style.display = 'none';
+//     }
+//     
+//     const apiBase = appState.get('apiBase') || '';
+//     const url = apiBase ? `${apiBase}/api/login` : '/ai/api/login';
+//     const response = await fetch(url, {
+//       method: 'POST',
+//       headers: { 'Content-Type': 'application/json' },
+//       body: JSON.stringify({ username, password })
+//     });
+//     
+//     if (!response.ok) {
+//       const error = await response.json();
+//       throw new Error(error.detail || 'ログインに失敗しました');
+//     }
+//     
+//     const data = await response.json();
+//     
+//     if (data.status === 'success') {
+//       // ログイン成功 - appStateに保存
+//       setAuthState(true, data.token, data.username);
+//       
+//       // appStateに保存
+//       setAuthState(true, data.token, data.username);
+//       
+//       // ローカルストレージに保存
+//       localStorage.setItem('loginToken', data.token);
+//       localStorage.setItem('loginUser', data.username);
+//       
+//       authHideLoginModal();
+//       utilsShowToast('ログインしました', 'success');
+//       
+//       // UI更新
+//       authUpdateUserInfo();
+//       
+//       // AI Assistantボタンを表示
+//       const copilotBtn = document.getElementById('copilotToggleBtn');
+//       if (copilotBtn) {
+//         copilotBtn.style.display = 'flex';
+//       }
+//     }
+//   } catch (error) {
+//     if (errorMessage) {
+//       errorMessage.textContent = error.message;
+//     }
+//     if (errorDiv) {
+//       errorDiv.style.display = 'flex';
+//     }
+//   } finally {
+//     if (submitBtn) {
+//       submitBtn.disabled = false;
+//       submitBtn.textContent = 'ログイン';
+//     }
+//   }
+// }
 
 /**
  * ログアウト処理
+ * @deprecated auth.jsモジュールのhandleLogoutを使用してください
  */
-async function handleLogout() {
-  try {
-    const currentToken = appState.get('loginToken');
-    if (currentToken) {
-      const apiBase = appState.get('apiBase') || '';
-      const url = apiBase ? `${apiBase}/api/logout` : '/ai/api/logout';
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${currentToken}` }
-      });
-    }
-  } catch (error) {
-    // console.warn('ログアウトエラー:', error);
-  } finally {
-    // ローカル状態をクリア - appStateと同期
-    setAuthState(false, null, null);
-    
-    // 後方互換性のためグローバル変数も更新（TODO: 削除予定）
-    setAuthState(false, null, null);
-    
-    localStorage.removeItem('loginToken');
-    localStorage.removeItem('loginUser');
-    
-    utilsShowToast('ログアウトしました');
-    
-    // ページをリロードしてログイン画面へ遷移
-    setTimeout(() => {
-      window.location.reload();
-    }, 500);
-  }
-}
+// async function handleLogout() {
+//   console.log('[APP.JS] handleLogout が呼び出されました');
+//   try {
+//     const currentToken = appState.get('loginToken');
+//     if (currentToken) {
+//       const apiBase = appState.get('apiBase') || '';
+//       const url = apiBase ? `${apiBase}/api/logout` : '/ai/api/logout';
+//       await fetch(url, {
+//         method: 'POST',
+//         headers: { 'Authorization': `Bearer ${currentToken}` }
+//       });
+//     }
+//   } catch (error) {
+//     // console.warn('ログアウトエラー:', error);
+//   } finally {
+//     // ローカル状態をクリア - appStateと同期
+//     setAuthState(false, null, null);
+//     
+//     // 後方互換性のためグローバル変数も更新（TODO: 削除予定）
+//     setAuthState(false, null, null);
+//     
+//     localStorage.removeItem('loginToken');
+//     localStorage.removeItem('loginUser');
+//     
+//     utilsShowToast('ログアウトしました');
+//     
+//     // ページをリロードしてログイン画面へ遷移
+//     setTimeout(() => {
+//       window.location.reload();
+//     }, 500);
+//   }
+// }
 
 /**
  * ユーザー情報表示を更新
+ * @deprecated auth.jsモジュールのupdateUserInfoを使用してください
  */
-function updateUserInfo() {
-  const userInfo = document.getElementById('userInfo');
-  const userName = document.getElementById('userName');
-  
-  // appStateから取得
-  const authState = getAuthState();
-  
-  if (authState.isLoggedIn && authState.loginUser) {
-    userName.textContent = `${authState.loginUser}`;
-    userInfo.style.display = 'block';
-  } else {
-    userInfo.style.display = 'none';
-  }
-}
+// function updateUserInfo() {
+//   console.log('[APP.JS] updateUserInfo が呼び出されました');
+//   const userInfo = document.getElementById('userInfo');
+//   const userName = document.getElementById('userName');
+//   
+//   // appStateから取得
+//   const authState = getAuthState();
+//   
+//   if (authState.isLoggedIn && authState.loginUser) {
+//     userName.textContent = `${authState.loginUser}`;
+//     userInfo.style.display = 'block';
+//   } else {
+//     userInfo.style.display = 'none';
+//   }
+// }
 
 /**
  * ログイン状態を確認
+ * @deprecated auth.jsモジュールのcheckLoginStatusを使用してください
  */
-async function checkLoginStatus() {
-  // ローカルストレージからトークンを取得
-  const token = localStorage.getItem('loginToken');
-  const user = localStorage.getItem('loginUser');
-  
-  if (token && user) {
-    // appStateに保存
-    setAuthState(true, token, user);
-    
-    updateUserInfo();
-    
-    // AI Assistantボタンを表示
-    const copilotBtn = document.getElementById('copilotToggleBtn');
-    if (copilotBtn) {
-      copilotBtn.style.display = 'flex';
-    }
-  } else if (appState.get('requireLogin')) {
-    // ログインが必要な場合はログイン画面を表示
-    showLoginModal();
-  } else {
-    // デバッグモードでログイン不要の場合もAI Assistantボタンを表示
-    const copilotBtn = document.getElementById('copilotToggleBtn');
-    if (copilotBtn) {
-      copilotBtn.style.display = 'flex';
-    }
-  }
-}
+// async function checkLoginStatus() {
+//   console.log('[APP.JS] checkLoginStatus が呼び出されました');
+//   // ローカルストレージからトークンを取得
+//   const token = localStorage.getItem('loginToken');
+//   const user = localStorage.getItem('loginUser');
+//   
+//   if (token && user) {
+//     // appStateに保存
+//     setAuthState(true, token, user);
+//     
+//     updateUserInfo();
+//     
+//     // AI Assistantボタンを表示
+//     const copilotBtn = document.getElementById('copilotToggleBtn');
+//     if (copilotBtn) {
+//       copilotBtn.style.display = 'flex';
+//     }
+//   } else if (appState.get('requireLogin')) {
+//     // ログインが必要な場合はログイン画面を表示
+//     showLoginModal();
+//   } else {
+//     // デバッグモードでログイン不要の場合もAI Assistantボタンを表示
+//     const copilotBtn = document.getElementById('copilotToggleBtn');
+//     if (copilotBtn) {
+//       copilotBtn.style.display = 'flex';
+//     }
+//   }
+// }
 
 // ========================================
 // 初期化
@@ -3250,7 +3269,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadConfig();
   
   // ログイン状態を確認
-  await checkLoginStatus();
+  await authCheckLoginStatus();
   
   // console.log('資料みつかるくん - 初期化完了');
 });
@@ -3652,10 +3671,10 @@ window.closeUploadProgress = closeUploadProgress;
 window.vectorizeSelectedOciObjects = ociVectorizeSelectedOciObjects;
 window.deleteSelectedOciObjects = ociDeleteSelectedOciObjects;
 
-// 認証関連（TODO: window.authModuleに移行予定）
-window.handleLogin = handleLogin;
-window.handleLogout = handleLogout;
-window.toggleLoginPassword = toggleLoginPassword;
+// 認証関連（@deprecated auth.jsモジュールを使用してください）
+// window.handleLogin = handleLogin;
+// window.handleLogout = handleLogout;
+// window.toggleLoginPassword = toggleLoginPassword;
 
 // 検索関連（window.searchModuleを使用）
 // 注: window.searchModule.performSearch(), window.searchModule.clearSearchResults() を使用してください

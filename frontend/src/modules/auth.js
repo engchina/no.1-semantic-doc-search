@@ -71,6 +71,7 @@ function applyUIFeatureToggles(config) {
  * 設定を読み込む
  */
 export async function loadConfig() {
+  console.log('[AUTH.JS] loadConfig が呼び出されました');
   try {
     // API_BASEが空の場合は相対パス、設定されている場合は絶対パス
     const url = API_BASE ? `${API_BASE}/config` : '/ai/api/config';
@@ -101,6 +102,7 @@ export async function loadConfig() {
  * ログインモーダルを表示
  */
 export function showLoginModal() {
+  console.log('[AUTH.JS] showLoginModal が呼び出されました');
   const modal = document.getElementById('loginOverlay');
   if (modal) {
     modal.style.display = 'flex';
@@ -115,6 +117,7 @@ export function showLoginModal() {
  * ログインモーダルを非表示
  */
 export function hideLoginModal() {
+  console.log('[AUTH.JS] hideLoginModal が呼び出されました');
   const modal = document.getElementById('loginOverlay');
   if (modal) {
     modal.style.display = 'none';
@@ -133,6 +136,7 @@ export function hideLoginModal() {
  * パスワード表示切替
  */
 export function toggleLoginPassword() {
+  console.log('[AUTH.JS] toggleLoginPassword が呼び出されました');
   const input = document.getElementById('loginPassword');
   if (!input) return;
   input.type = input.type === 'password' ? 'text' : 'password';
@@ -149,6 +153,7 @@ export function toggleLoginPassword() {
  * @param {Event} event - フォーム送信イベント
  */
 export async function handleLogin(event) {
+  console.log('[AUTH.JS] handleLogin が呼び出されました');
   event.preventDefault();
   
   const username = document.getElementById('loginUsername').value.trim();
@@ -234,6 +239,7 @@ export async function handleLogin(event) {
  * ログアウト処理
  */
 export async function handleLogout() {
+  console.log('[AUTH.JS] handleLogout が呼び出されました');
   try {
     const loginToken = appState.get('loginToken');
     if (loginToken) {
@@ -272,6 +278,7 @@ export async function handleLogout() {
  * ユーザー情報表示を更新
  */
 export function updateUserInfo() {
+  console.log('[AUTH.JS] updateUserInfo が呼び出されました');
   const userInfo = document.getElementById('userInfo');
   const userName = document.getElementById('userName');
   
@@ -290,6 +297,7 @@ export function updateUserInfo() {
  * ログイン状態を確認
  */
 export async function checkLoginStatus() {
+  console.log('[AUTH.JS] checkLoginStatus が呼び出されました');
   // ローカルストレージからトークンを取得
   const token = localStorage.getItem('loginToken');
   const user = localStorage.getItem('loginUser');
@@ -323,6 +331,7 @@ export async function checkLoginStatus() {
  * referenceプロジェクトの実装に準拠
  */
 export function forceLogout() {
+  console.log('[AUTH.JS] forceLogout が呼び出されました');
   // セッションを完全にクリア
   setAuthState(false, null, null);
   localStorage.removeItem('loginToken');
@@ -348,6 +357,7 @@ export function forceLogout() {
  * @returns {Promise<any>} レスポンスJSON
  */
 export async function apiCall(endpoint, options = {}) {
+  console.log(`[AUTH.JS] apiCall が呼び出されました: ${endpoint}`);
   const apiBase = appState.get('apiBase') || '';
   const url = apiBase ? `${apiBase}${endpoint}` : endpoint;
   const headers = options.headers || {};
