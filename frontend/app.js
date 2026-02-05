@@ -896,7 +896,7 @@ const displayOciObjectsList = (data) => {
 //     loadOciObjects();
 //   }
 // }
-const handleOciObjectsPrevPage = () => { window.ociModule?.prevPage?.(); };
+const handleOciObjectsPrevPage = () => { window.ociModule?.handleOciObjectsPrevPage?.(); };
 
 /**
  * ページネーション - 次ページ
@@ -908,64 +908,30 @@ const handleOciObjectsPrevPage = () => { window.ociModule?.prevPage?.(); };
 //     loadOciObjects();
 //   }
 // }
-const handleOciObjectsNextPage = () => { window.ociModule?.nextPage?.(); };
+const handleOciObjectsNextPage = () => { window.ociModule?.handleOciObjectsNextPage?.(); };
 
 /**
  * ページネーション - ページジャンプ
  * ※ 移動先: src/modules/document.js
  */
-// function handleOciObjectsJumpPage() {
-//   if (ociObjectsBatchDeleteLoading) return;
-//   
-//   const input = document.getElementById('ociObjectsPageInput');
-//   const page = parseInt(input.value);
-//   
-//   if (page && page >= 1) {
-//     ociObjectsPage = page;
-//     loadOciObjects();
-//   }
-// }
-const handleOciObjectsJumpPage = () => { window.ociModule?.jumpToPage?.(); };
+const handleOciObjectsJumpPage = () => { window.ociModule?.handleOciObjectsJumpPage?.(); };
 
 /**
  * ページ画像化フィルターを設定
  * ※ 移動先: src/modules/document.js
  */
-// window.setOciObjectsFilterPageImages = function(value) {
-//   if (appState.get('ociObjectsBatchDeleteLoading')) return;
-//   appState.set('ociObjectsFilterPageImages', value);
-//   appState.set('ociObjectsPage', 1);  // フィルター変更時は1ページ目に戻る
-//   appState.set('selectedOciObjects', []);  // 選択状態をクリア
-//   loadOciObjects();
-// }
 window.setOciObjectsFilterPageImages = (value) => { window.ociModule?.setFilterPageImages?.(value); };
 
 /**
  * ベクトル化フィルターを設定
  * ※ 移動先: src/modules/document.js
  */
-// window.setOciObjectsFilterEmbeddings = function(value) {
-//   if (appState.get('ociObjectsBatchDeleteLoading')) return;
-//   appState.set('ociObjectsFilterEmbeddings', value);
-//   appState.set('ociObjectsPage', 1);  // フィルター変更時は1ページ目に戻る
-//   appState.set('selectedOciObjects', []);  // 選択状態をクリア
-//   loadOciObjects();
-// }
 window.setOciObjectsFilterEmbeddings = (value) => { window.ociModule?.setFilterEmbeddings?.(value); };
 
 /**
  * すべてのフィルターをクリア
  * ※ 移動先: src/modules/document.js
  */
-// window.clearOciObjectsFilters = function() {
-//   if (ociObjectsBatchDeleteLoading) return;
-//   ociObjectsFilterPageImages = "all";
-//   ociObjectsFilterEmbeddings = "all";
-//   ociObjectsPage = 1;
-//   selectedOciObjects = [];
-//   appState.set('selectedOciObjects', []);  // oci.jsモジュールとの同期
-//   loadOciObjects();
-// }
 window.clearOciObjectsFilters = () => { window.ociModule?.clearFilters?.(); };
 
 /**
@@ -1895,18 +1861,6 @@ window.getAdbInfo = getAdbInfo;
 window.startAdb = startAdb;
 window.stopAdb = stopAdb;
 
-// OCI Object Storage関連関数
-// ※ 移動先: src/modules/document.js（window.ociModuleを使用）
-// window.loadOciObjects = loadOciObjects;
-// window.handleOciObjectsPrevPage = handleOciObjectsPrevPage;
-// window.handleOciObjectsNextPage = handleOciObjectsNextPage;
-// window.handleOciObjectsJumpPage = handleOciObjectsJumpPage;
-// window.toggleOciObjectSelection = toggleOciObjectSelection;
-// window.toggleSelectAllOciObjects = toggleSelectAllOciObjects;
-// window.selectAllOciObjects = selectAllOciObjects;
-// window.clearAllOciObjects = clearAllOciObjects;
-// 上記の関数はsrc/modules/document.jsでwindow.ociModuleとして公開されています
-
 // ========================================
 // グローバル関数公開（window経由） - AI Assistant関連
 // ========================================
@@ -1972,19 +1926,9 @@ window.clearMultipleFileSelection = clearMultipleFileSelection;
 window.removeFileFromSelection = removeFileFromSelection;
 window.closeUploadProgress = closeUploadProgress;
 
-// OCI設定関連（全て oci.js モジュールで登録済み）
-// - loadOciSettings, saveOciSettings, testOciConnection
-// - handlePrivateKeyFileSelect, clearPrivateKey
-// - refreshObjectStorageSettings, testObjectStorageConnection
-
 // OCI Object Storage操作（モジュール版を使用）
 window.vectorizeSelectedOciObjects = ociVectorizeSelectedOciObjects;
 window.deleteSelectedOciObjects = ociDeleteSelectedOciObjects;
-
-// 認証関連（@deprecated auth.jsモジュールを使用してください）
-// window.handleLogin = handleLogin;
-// window.handleLogout = handleLogout;
-// window.toggleLoginPassword = toggleLoginPassword;
 
 // 検索関連（window.searchModuleを使用）
 // 注: window.searchModule.performSearch(), window.searchModule.clearSearchResults() を使用してください

@@ -152,7 +152,7 @@ export const appState = new StateManager({
   
   // OCI Objects管理
   ociObjectsPage: 1,
-  ociObjectsPageSize: 50,
+  ociObjectsPageSize: 20,
   ociObjectsTotalPages: 1,
   ociObjectsPrefix: '',
   selectedOciObjects: [],

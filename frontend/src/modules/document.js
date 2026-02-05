@@ -89,6 +89,11 @@ export async function loadOciObjects(showLoadingOverlay = true) {
     });
     appState.set('allOciObjects', allOciObjects);
     
+    // 総ページ数を更新
+    if (data.pagination?.total_pages) {
+      appState.set('ociObjectsTotalPages', data.pagination.total_pages);
+    }
+    
     displayOciObjectsList(data);
     
     // バッジを更新
@@ -296,9 +301,9 @@ export function displayOciObjectsList(data) {
     totalItems: pagination.total,
     startNum: pagination.start_row,
     endNum: pagination.end_row,
-    onPrevClick: 'window.ociModule.prevPage()',
-    onNextClick: 'window.ociModule.nextPage()',
-    onJumpClick: 'window.ociModule.jumpToPage',
+    onPrevClick: 'window.ociModule.handleOciObjectsPrevPage()',
+    onNextClick: 'window.ociModule.handleOciObjectsNextPage()',
+    onJumpClick: 'window.ociModule.handleOciObjectsJumpPage',
     inputId: 'ociObjectsPageInput',
     disabled: ociObjectsBatchDeleteLoading
   }) || '';
@@ -329,7 +334,6 @@ export function displayOciObjectsList(data) {
           </tbody>
         </table>
       </div>
-      ${paginationHtml}
     </div>
   `;
 }
@@ -1678,6 +1682,10 @@ window.ociModule = {
   prevPage: handleOciObjectsPrevPage,
   nextPage: handleOciObjectsNextPage,
   jumpToPage: handleOciObjectsJumpPage,
+  // ページネーション関数（別名）
+  handleOciObjectsPrevPage,
+  handleOciObjectsNextPage,
+  handleOciObjectsJumpPage,
   toggleSelection: toggleOciObjectSelectionHandler,
   toggleSelectAll: toggleSelectAllOciObjects,
   selectAll: selectAllOciObjects,
