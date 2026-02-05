@@ -159,19 +159,42 @@ function getAuthenticatedImageUrl(urlOrBucket, objectName) {
 async function switchTab(tabName, event) {
   console.log('switchTab called:', tabName);
   
-  // タブボタンのアクティブ状態を更新
-  document.querySelectorAll('.apex-tab').forEach(tab => {
-    tab.classList.remove('active');
-  });
+  // メインタブのアクティブ状態を更新（サブタブを除外）
+  const mainTabsContainer = document.querySelector('.apex-tabs:not(#adminSubTabs)');
+  if (mainTabsContainer) {
+    mainTabsContainer.querySelectorAll('.apex-tab').forEach(tab => {
+      tab.classList.remove('active');
+    });
+  }
   if (event && event.target) {
     event.target.classList.add('active');
   }
   
-  // タブコンテンツの表示切り替え
-  document.querySelectorAll('.tab-content').forEach(content => {
-    content.style.display = 'none';
-  });
-  document.getElementById(`tab-${tabName}`).style.display = 'block';
+  // サブタブの表示/非表示
+  const adminSubTabs = document.getElementById('adminSubTabs');
+  if (tabName === 'admin') {
+    adminSubTabs.style.display = 'flex';
+    // デフォルトで「DB管理」サブタブを表示（サブタブのアクティブ状態もリセット）
+    const firstSubTab = adminSubTabs.querySelector('.apex-tab:first-child');
+    adminSubTabs.querySelectorAll('.apex-tab').forEach(tab => {
+      tab.classList.remove('active');
+    });
+    if (firstSubTab) {
+      firstSubTab.classList.add('active');
+    }
+    const subTabEvent = { target: firstSubTab };
+    await switchAdminSubTab('database', subTabEvent);
+  } else {
+    adminSubTabs.style.display = 'none';
+    // タブコンテンツの表示切り替え
+    document.querySelectorAll('.tab-content').forEach(content => {
+      content.style.display = 'none';
+    });
+    const tabContent = document.getElementById(`tab-${tabName}`);
+    if (tabContent) {
+      tabContent.style.display = 'block';
+    }
+  }
   
   // ページ全体のスクロールコンテナをトップにスクロール
   const tabScrollContainer = document.querySelector('.tab-scroll-container');
@@ -189,14 +212,57 @@ async function switchTab(tabName, event) {
   
   // タブに応じた初期化処理(バックエンドAPI呼び出し時はオーバーレイ表示)
   // 注: 文書管理タブの自動刷新は無効(🔄 更新ボタンで手動刷新)
+  // adminタブの初期化はswitchAdminSubTabで処理
+  // 注: settings/databaseタブは廃止され、adminサブタブに統合されたため、ここでは何もしない
+}
+
+/**
+ * 管理タブのサブタブ切り替え
+ */
+async function switchAdminSubTab(subTabName, event) {
+  console.log('switchAdminSubTab called:', subTabName);
+  
+  // サブタブボタンのアクティブ状態を更新
+  const adminSubTabs = document.getElementById('adminSubTabs');
+  adminSubTabs.querySelectorAll('.apex-tab').forEach(tab => {
+    tab.classList.remove('active');
+  });
+  if (event && event.target) {
+    event.target.classList.add('active');
+  }
+  
+  // タブコンテンツの表示切り替え
+  document.querySelectorAll('.tab-content').forEach(content => {
+    content.style.display = 'none';
+  });
+  const tabContent = document.getElementById(`tab-${subTabName}`);
+  if (tabContent) {
+    tabContent.style.display = 'block';
+  }
+  
+  // ページ全体のスクロールコンテナをトップにスクロール
+  const tabScrollContainer = document.querySelector('.tab-scroll-container');
+  if (tabScrollContainer) {
+    tabScrollContainer.scrollTop = 0;
+  }
+  
+  // タブ内のすべてのスクロール可能なテーブルもトップにスクロール
+  const scrollableTables = document.querySelectorAll('.table-wrapper-scrollable');
+  scrollableTables.forEach(table => {
+    if (table.offsetParent !== null) { // 表示中のエリアのみ
+      table.scrollTop = 0;
+    }
+  });
+  
+  // サブタブに応じた初期化処理
   try {
-    if (tabName === 'settings') {
+    if (subTabName === 'settings') {
       console.log('Loading OCI settings...');
       utilsShowLoading('OCI設定を読み込み中...');
       await loadOciSettings();
       utilsHideLoading();
       console.log('OCI settings loaded');
-    } else if (tabName === 'database') {
+    } else if (subTabName === 'database') {
       console.log('Loading DB connection settings, ADB OCID, and connection info from .env...');
       utilsShowLoading('データベース設定を読み込み中...');
       
@@ -271,10 +337,10 @@ async function switchTab(tabName, event) {
     }
   } catch (error) {
     // データベースタブの場合は既にエラー処理済みなのでスキップ
-    if (tabName === 'database') {
+    if (subTabName === 'database') {
       return;
     }
-    console.error('Tab initialization error:', error);
+    console.error('SubTab initialization error:', error);
     utilsHideLoading();
     utilsShowToast(`設定読み込みエラー: ${error.message}`, 'error');
   }
@@ -1916,6 +1982,7 @@ window.escapeHtml = escapeHtml;
 
 // タブ切り替え
 window.switchTab = switchTab;
+window.switchAdminSubTab = switchAdminSubTab;
 
 // ファイルアップロード関連
 window.handleFileSelect = handleFileSelect;

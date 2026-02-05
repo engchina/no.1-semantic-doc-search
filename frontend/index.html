@@ -34,8 +34,13 @@
     <div class="apex-tabs" style="flex-shrink: 0; margin: 0;">
       <div class="apex-tab active" onclick="switchTab('search', event)">🔍 検索</div>
       <div class="apex-tab" onclick="switchTab('documents', event)">📁 文書管理</div>
-      <div class="apex-tab" onclick="switchTab('database', event)">🗄️ DB管理</div>
-      <div class="apex-tab" onclick="switchTab('settings', event)">⚙️ OCI設定</div>
+      <div class="apex-tab" onclick="switchTab('admin', event)">⚙️ 設定</div>
+    </div>
+
+    <!-- 設定サブタブ（管理タブがアクティブな時のみ表示） -->
+    <div id="adminSubTabs" class="apex-tabs" style="flex-shrink: 0; margin: 0; display: none; background: #f8fafc; border-top: 1px solid #e2e8f0;">
+      <div class="apex-tab active" onclick="switchAdminSubTab('database', event)" style="font-size: 14px; padding: 12px 20px;">🗄️ DB管理</div>
+      <div class="apex-tab" onclick="switchAdminSubTab('settings', event)" style="font-size: 14px; padding: 12px 20px;">⚙️ OCI設定</div>
     </div>
 
     <!-- AI Assistant 浮動ボタン -->
