@@ -978,6 +978,22 @@ async function processStreamingResponse(response, totalFiles, operationType) {
   let totalPagesAllFiles = 0;
   let totalWorkers = 1; // 並列ワーカー数
   
+  // 各ファイルの進捗状態を追跡（進捗が下がらないようにするため）
+  const fileProgressMap = new Map();
+  
+  /**
+   * ファイルの進捗を更新（単調増加を保証）
+   * @param {number} fileIndex - ファイルインデックス (1始まり)
+   * @param {number} newProgress - 新しい進捗値 (0-100)
+   * @returns {number} - 適用すべき進捗値
+   */
+  const getMonotonicProgress = (fileIndex, newProgress) => {
+    const currentProgress = fileProgressMap.get(fileIndex) || 0;
+    const finalProgress = Math.max(currentProgress, newProgress);
+    fileProgressMap.set(fileIndex, finalProgress);
+    return finalProgress;
+  };
+  
   // 削除・ベクトル化はメインページ進捗UIを使用
   const useProgressUI = operationType === 'delete' || operationType === 'vectorize';
   
@@ -1025,7 +1041,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: '待機中...',
-                  progress: 0,
+                  progress: getMonotonicProgress(currentFileIndex, 0),
                   overallStatus: `処理中: ${currentFileIndex - 1}/${totalFiles}件`,
                   jobId
                 });
@@ -1043,7 +1059,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: '🔍 DB確認中',
-                  progress: 20,
+                  progress: getMonotonicProgress(currentFileIndex, 10),
                   jobId
                 });
               } else {
@@ -1058,7 +1074,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: '🗑️ 既存ベクトルデータ削除中',
-                  progress: 30,
+                  progress: getMonotonicProgress(currentFileIndex, 20),
                   jobId
                 });
               } else {
@@ -1073,7 +1089,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: '🔍 既存画像を確認中',
-                  progress: 15,
+                  progress: getMonotonicProgress(currentFileIndex, 25),
                   jobId
                 });
               } else {
@@ -1088,7 +1104,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: `🗑️ 既存画像 ${data.cleanup_count}件を削除中`,
-                  progress: 25,
+                  progress: getMonotonicProgress(currentFileIndex, 30),
                   jobId
                 });
               } else {
@@ -1103,7 +1119,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: `✓ 既存画像 ${data.deleted_count}件を削除完了`,
-                  progress: 35,
+                  progress: getMonotonicProgress(currentFileIndex, 35),
                   jobId
                 });
               } else {
@@ -1118,7 +1134,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: '📄 自動ページ画像化開始',
-                  progress: 40,
+                  progress: getMonotonicProgress(currentFileIndex, 40),
                   jobId
                 });
               } else {
@@ -1133,7 +1149,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: `📤 ${data.total_pages}ページをアップロード中`,
-                  progress: 50,
+                  progress: getMonotonicProgress(currentFileIndex, 45),
                   jobId
                 });
               } else {
@@ -1147,7 +1163,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: `✓ ページ画像化完了 (${data.total_pages}ページ)`,
-                  progress: 60,
+                  progress: getMonotonicProgress(currentFileIndex, 50),
                   jobId
                 });
               } else {
@@ -1158,11 +1174,13 @@ async function processStreamingResponse(response, totalFiles, operationType) {
             
             case 'vectorize_start':
               // ベクトル化処理開始
+              currentFileIndex = data.file_index || currentFileIndex;
+              totalPages = data.total_pages;
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: `🚀 ベクトル化開始 (${data.total_pages}ページ)`,
-                  progress: 50,
+                  progress: getMonotonicProgress(currentFileIndex, 55),
                   jobId
                 });
               } else {
@@ -1178,7 +1196,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: statusMsg,
-                  progress: 50,
+                  progress: getMonotonicProgress(currentFileIndex, 50),
                   overallStatus: `処理中: ${currentFileIndex}/${totalFiles}件`,
                   jobId
                 });
@@ -1194,7 +1212,9 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               totalPages = data.total_pages;
               const fileIdx = data.file_index || currentFileIndex || 1;
               if (useProgressUI) {
-                const pageProgressPercent = totalPages > 0 ? Math.round((currentPageIndex / totalPages) * 50) + 50 : 50;
+                // ベクトル化進捗: 55%～99%の範囲で計算（完了時に100%になるように余地を残す）
+                const rawProgress = totalPages > 0 ? Math.round((currentPageIndex / totalPages) * 44) + 55 : 55;
+                const pageProgressPercent = getMonotonicProgress(fileIdx, rawProgress);
                 let pageStatusMsg = operationType === 'vectorize' 
                   ? `🔄 ページ ${currentPageIndex}/${totalPages} をベクトル化中`
                   : `🔄 ページ ${currentPageIndex}/${totalPages} を処理中`;
@@ -1221,11 +1241,13 @@ async function processStreamingResponse(response, totalFiles, operationType) {
             case 'file_complete':
               currentFileIndex = data.file_index || currentFileIndex;
               const totalForComplete = data.total_files || totalFiles || 1;
+              // 完了時は確実に100%に設定（getMonotonicProgressを通す）
+              const completeProgress = getMonotonicProgress(currentFileIndex, 100);
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: '✓ 完了',
-                  progress: 100,
+                  progress: completeProgress,
                   isSuccess: true,
                   overallStatus: `処理中: ${currentFileIndex}/${totalForComplete}件 完了`,
                   jobId
@@ -1241,11 +1263,13 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               console.error(`${operationType === 'delete' ? 'オブジェクト' : 'ファイル'} ${data.file_index}/${data.total_files || totalFiles} エラー: ${data.error}`);
               const totalForError = data.total_files || totalFiles || 1;
               const errorFileIdx = data.file_index || currentFileIndex || 1;
+              // エラー時も進捗バーを完了状態にする
+              const errorProgress = getMonotonicProgress(errorFileIdx, 100);
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: errorFileIdx,
                   status: `✗ エラー: ${data.error}`,
-                  progress: 100,
+                  progress: errorProgress,
                   isError: true,
                   overallStatus: `処理中: ${errorFileIdx}/${totalForError}件`,
                   jobId
