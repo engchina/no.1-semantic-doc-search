@@ -360,16 +360,16 @@ function generateObjectRow(obj, allOciObjects, selectedOciObjects, ociObjectsBat
   const isChecked = selectedOciObjects.includes(obj.name);
   
   // ページ画像化状態
-  const hasPageImages = obj.has_page_images || false;
-  const pageImagesStatusHtml = hasPageImages ? 
-    '<span class="badge badge-success">✓ 完了</span>' : 
-    '<span class="badge badge-neutral">未実行</span>';
+  const hasPageImages = obj.has_page_images;
+  const pageImagesStatusHtml = hasPageImages === null ? '' :
+    (hasPageImages ? '<span class="badge badge-success">✓ 完了</span>' : 
+    '<span class="badge badge-neutral">未実行</span>');
   
   // ベクトル化状態
-  const hasEmbeddings = obj.has_embeddings || false;
-  const embeddingsStatusHtml = hasEmbeddings ? 
-    '<span class="badge badge-success">✓ 完了</span>' : 
-    '<span class="badge badge-neutral">未実行</span>';
+  const hasEmbeddings = obj.has_embeddings;
+  const embeddingsStatusHtml = hasEmbeddings === null ? '' :
+    (hasEmbeddings ? '<span class="badge badge-success">✓ 完了</span>' : 
+    '<span class="badge badge-neutral">未実行</span>');
   
   return `
     <tr>

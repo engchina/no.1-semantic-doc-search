@@ -590,7 +590,8 @@ async def list_oci_objects(
                 obj_name = obj["name"]
                 if not obj_name.endswith('/'):
                     obj_name_without_ext = re.sub(r'\.[^.]+$', '', obj_name)
-                    parent_files_map[obj_name_without_ext] = True
+                    # 拡張子なしファイル名から元のファイル名へのマッピングを保存
+                    parent_files_map[obj_name_without_ext] = obj_name
             
             all_objects.extend(objects)
             fetch_count += len(objects)
@@ -643,6 +644,21 @@ async def list_oci_objects(
             file_base_name = re.sub(r'\.[^.]+$', '', object_name)
             return file_base_name in page_images_map
         
+        def get_parent_file_from_page_image(page_image_name: str) -> Optional[str]:
+            """ページ画像から親ファイル名（拡張子付き）を取得
+            例: 'file/page_001.png' -> 'file.pdf'
+            """
+            if not page_image_pattern.search(page_image_name):
+                return None
+            
+            last_slash_index = page_image_name.rfind('/')
+            if last_slash_index == -1:
+                return None
+            
+            folder_name = page_image_name[:last_slash_index]
+            # parent_files_mapから元のファイル名（拡張子付き）を取得
+            return parent_files_map.get(folder_name)
+        
         # 最適化: 1パスで集計とファイル名収集
         file_count = 0
         page_image_count = 0
@@ -674,6 +690,7 @@ async def list_oci_objects(
             is_page_image = not is_folder and is_generated_page_image(obj_name)
             
             if is_folder or is_page_image:
+                # フォルダとページ画像は状態を表示しない
                 obj["has_page_images"] = None
                 obj["has_embeddings"] = None
             else:
