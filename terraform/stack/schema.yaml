@@ -33,7 +33,6 @@ variableGroups:
       - subnet_ai_subnet_id
       - ssh_authorized_keys
       - oci_bucket_name
-      - external_api_keys
       - show_ai_assistant
       - show_search_tab
       - enable_dify
@@ -41,6 +40,7 @@ variableGroups:
   - title: Dify Configuration
     visible: ${enable_dify}
     variables:
+      - external_api_keys
       - dify_branch
       - dify_bucket_name
       - oci_access_key
@@ -141,15 +141,6 @@ variables:
     visible: true
     default: "semantic-doc-search"
 
-  external_api_keys:
-    type: password
-    title: "External API Keys"
-    description: "外部APIアクセス用のAPIキー（カンマ区切りで複数指定可能、例: secred-key-1,secred-key-2,secred-key-3）"
-    required: false
-    visible: true
-    confirmation: false
-    default: ""
-
   show_ai_assistant:
     type: boolean
     required: true
@@ -173,6 +164,15 @@ variables:
     title: "Enable Dify Deployment"
     description: "Enable Dify (Open-source LLM Platform) installation"
     default: false
+
+  external_api_keys:
+    type: password
+    title: "External API Keys"
+    description: "外部APIアクセス用のAPIキー（カンマ区切りで複数指定可能、例: secred-key-1,secred-key-2,secred-key-3）"
+    required: true
+    visible: ${enable_dify}
+    confirmation: false
+    default: "secret"
 
   dify_branch:
     type: string

@@ -534,7 +534,7 @@ export async function loadDbTables() {
         </div>
       `;
       if (statusBadge) {
-        statusBadge.textContent = '未取得';
+        statusBadge.textContent = '0件';
         statusBadge.style.background = '#e2e8f0';
         statusBadge.style.color = '#64748b';
       }
