@@ -938,8 +938,8 @@ async def upload_document(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="無効なファイル名です")
         
         # 環境変数から設定を取得
-        max_size = int(os.getenv("MAX_FILE_SIZE", 100000000))  # 100MB
-        allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,pptx,ppt,docx,txt,md,png,jpg,jpeg")
+        max_size = int(os.getenv("MAX_FILE_SIZE", 200000000))  # 200MB
+        allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,pptx,ppt,png,jpg,jpeg")
         allowed_extensions = [ext.strip() for ext in allowed_extensions_str.split(",")]
         
         # ファイル拡張子チェック
@@ -953,9 +953,6 @@ async def upload_document(file: UploadFile = File(...)):
             'pdf': 'application/pdf',
             'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
             'ppt': 'application/vnd.ms-powerpoint',
-            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'txt': 'text/plain',
-            'md': 'text/markdown',
             'png': 'image/png',
             'jpg': 'image/jpeg',
             'jpeg': 'image/jpeg'
@@ -1065,8 +1062,8 @@ async def upload_multiple_documents(files: List[UploadFile] = File(...)):
                 return
             
             # 環境変数から設定を取得
-            max_size = int(os.getenv("MAX_FILE_SIZE", 100000000))  # 100MB
-            allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,pptx,ppt,docx,txt,md,png,jpg,jpeg")
+            max_size = int(os.getenv("MAX_FILE_SIZE", 200000000))  # 200MB
+            allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,pptx,ppt,png,jpg,jpeg")
             allowed_extensions = [ext.strip() for ext in allowed_extensions_str.split(",")]
             
             # 許可されたMIMEタイプ(品質確保)
@@ -1074,9 +1071,6 @@ async def upload_multiple_documents(files: List[UploadFile] = File(...)):
                 'pdf': 'application/pdf',
                 'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
                 'ppt': 'application/vnd.ms-powerpoint',
-                'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'txt': 'text/plain',
-                'md': 'text/markdown',
                 'png': 'image/png',
                 'jpg': 'image/jpeg',
                 'jpeg': 'image/jpeg'
