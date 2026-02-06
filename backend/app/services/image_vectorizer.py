@@ -7,6 +7,7 @@ import base64
 import io
 import logging
 import os
+import random
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -18,6 +19,12 @@ from pdf2image import convert_from_path
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+# レート制限対応のリトライ設定（OCI Embedding API用）
+EMBEDDING_API_MAX_RETRIES = int(os.environ.get("EMBEDDING_API_MAX_RETRIES", "5"))
+EMBEDDING_API_BASE_DELAY = float(os.environ.get("EMBEDDING_API_BASE_DELAY", "1.5"))  # 秒
+EMBEDDING_API_MAX_DELAY = float(os.environ.get("EMBEDDING_API_MAX_DELAY", "120.0"))   # 秒
+EMBEDDING_API_JITTER = float(os.environ.get("EMBEDDING_API_JITTER", "0.2"))          # ランダム遅延の範囲
 
 
 class ImageVectorizer:
@@ -33,6 +40,103 @@ class ImageVectorizer:
         # 注: self.db_connectionは使用しない（並列処理の競合防止）
         self._initialize_genai_only()
         logger.info("ImageVectorizerを初期化しました（DB接続は各メソッドで取得）")
+    
+    def _is_embedding_rate_limit_error(self, error: Exception) -> bool:
+        """
+        Embedding APIのレート制限エラーを判定
+        
+        Args:
+            error: 発生した例外
+            
+        Returns:
+            bool: レート制限エラーの場合はTrue
+        """
+        error_str = str(error).lower()
+        return (
+            '429' in error_str or 
+            'too many requests' in error_str or 
+            'rate limit exceeded' in error_str or
+            'quota exceeded' in error_str or
+            'embedding model' in error_str and 'busy' in error_str
+        )
+    
+    def _calculate_embedding_backoff_delay(self, attempt: int, is_rate_limit: bool = False) -> float:
+        """
+        Embedding API用の指数バックオフ遅延時間を計算
+        
+        Args:
+            attempt: 試行回数 (0から開始)
+            is_rate_limit: レート制限エラーかどうか
+            
+        Returns:
+            float: 待機時間（秒）
+        """
+        if is_rate_limit:
+            # レート制限の場合はより長い待機時間
+            base_multiplier = 4.0  # Embedding APIはより慎重に
+        else:
+            # 通常のエラーの場合は標準的なバックオフ
+            base_multiplier = 2.5
+        
+        # 指数バックオフ計算
+        delay = EMBEDDING_API_BASE_DELAY * (base_multiplier ** attempt)
+        
+        # 最大遅延時間を制限
+        delay = min(delay, EMBEDDING_API_MAX_DELAY)
+        
+        # ランダムなジッターを追加（スロットリング回避）
+        jitter = random.uniform(-EMBEDDING_API_JITTER, EMBEDDING_API_JITTER) * delay
+        delay = max(0.5, delay + jitter)  # 最小0.5秒を保証（Embedding APIは重いので）
+        
+        return delay
+    
+    def _retry_embedding_api_call(self, func, *args, **kwargs) -> Any:
+        """
+        Embedding API呼び出しにリトライメカニズムを適用
+        
+        Args:
+            func: 実行する関数
+            *args: 関数の引数
+            **kwargs: 関数のキーワード引数
+            
+        Returns:
+            関数の戻り値
+            
+        Raises:
+            Exception: 最大リトライ回数に達した場合
+        """
+        last_exception = None
+        
+        for attempt in range(EMBEDDING_API_MAX_RETRIES):
+            try:
+                result = func(*args, **kwargs)
+                if attempt > 0:
+                    logger.info(f"Embedding API呼び出し成功（リトライ {attempt}回目後）")
+                return result
+                
+            except Exception as e:
+                last_exception = e
+                is_rate_limit = self._is_embedding_rate_limit_error(e)
+                
+                if attempt == EMBEDDING_API_MAX_RETRIES - 1:
+                    # 最終リトライでも失敗
+                    logger.error(f"Embedding API呼び出し最終リトライ失敗（{EMBEDDING_API_MAX_RETRIES}回）: {e}")
+                    raise
+                
+                # 待機時間計算
+                delay = self._calculate_embedding_backoff_delay(attempt, is_rate_limit)
+                
+                error_type = "レート制限" if is_rate_limit else "エラー"
+                logger.warning(
+                    f"Embedding API {error_type}（リトライ {attempt + 1}/{EMBEDDING_API_MAX_RETRIES}）: "
+                    f"{delay:.1f}秒後に再試行 - {str(e)[:100]}"
+                )
+                
+                time.sleep(delay)
+        
+        # 到達しないはずだが、念のため
+        if last_exception:
+            raise last_exception
     
     def _initialize_genai_only(self):
         """OCIクライアントのみを初期化（DB接続は遅延作成）"""
@@ -178,7 +282,16 @@ class ImageVectorizer:
         return f"data:{content_type};base64,{base64_string}"
     
     def generate_embedding(self, image_data: io.BytesIO, content_type: str = "image/png") -> Optional[np.ndarray]:
-        """画像からembeddingベクトルを生成"""
+        """
+        画像からembeddingベクトルを生成（リトライ対応）
+        
+        Args:
+            image_data: 画像データ（BytesIO）
+            content_type: 画像のContent-Type
+            
+        Returns:
+            embeddingベクトル（numpy array）、失敗時はNone
+        """
         # GenAIクライアントが初期化されていない場合、リトライして初期化を試みる
         if not self.genai_client:
             max_init_retries = 3
@@ -209,40 +322,36 @@ class ImageVectorizer:
             embed_detail.truncate = os.getenv("OCI_EMBEDDING_TRUNCATE", "END")
             embed_detail.compartment_id = os.getenv("OCI_COMPARTMENT_OCID")
             
-            # リトライロジック
-            max_retries = int(os.getenv("OCI_EMBEDDING_MAX_RETRIES", "3"))
-            retry_delay = int(os.getenv("OCI_EMBEDDING_RETRY_DELAY", "1"))
+            # Embedding API呼び出し（リトライ対応）
+            response = self._retry_embedding_api_call(
+                self.genai_client.embed_text,
+                embed_detail
+            )
             
-            for retry in range(max_retries):
-                try:
-                    response = self.genai_client.embed_text(embed_detail)
-                    
-                    if response.data.embeddings:
-                        embedding = response.data.embeddings[0]
-                        embedding_array = np.array(embedding, dtype=np.float32)
-                        
-                        logger.info(f"画像embedding生成成功: shape={embedding_array.shape}")
-                        return embedding_array
-                    else:
-                        logger.error("Embeddingが空です")
-                        return None
+            if response.data.embeddings:
+                embedding = response.data.embeddings[0]
+                embedding_array = np.array(embedding, dtype=np.float32)
                 
-                except Exception as e:
-                    if retry < max_retries - 1:
-                        logger.warning(f"Embedding生成失敗 (リトライ {retry + 1}/{max_retries}): {e}")
-                        time.sleep(retry_delay)
-                    else:
-                        logger.error(f"Embedding生成失敗（最大リトライ回数到達）: {e}")
-                        return None
-            
-            return None
-            
+                logger.info(f"画像embedding生成成功: shape={embedding_array.shape}")
+                return embedding_array
+            else:
+                logger.error("Embeddingが空です")
+                return None
+                
         except Exception as e:
             logger.error(f"予期しないエラー: {e}")
             return None
     
     def generate_text_embedding(self, text: str) -> Optional[np.ndarray]:
-        """テキストからembeddingベクトルを生成（検索クエリ用）"""
+        """
+        テキストからembeddingベクトルを生成（検索クエリ用、リトライ対応）
+        
+        Args:
+            text: 入力テキスト
+            
+        Returns:
+            embeddingベクトル（numpy array）、失敗時はNone
+        """
         # GenAIクライアントが初期化されていない場合、リトライして初期化を試みる
         if not self.genai_client:
             max_init_retries = 3
@@ -270,36 +379,24 @@ class ImageVectorizer:
             embed_detail.truncate = os.getenv("OCI_EMBEDDING_TRUNCATE", "END")
             embed_detail.compartment_id = os.getenv("OCI_COMPARTMENT_OCID")
             
-            # リトライロジック
-            max_retries = int(os.getenv("OCI_EMBEDDING_MAX_RETRIES", "3"))
-            retry_delay = int(os.getenv("OCI_EMBEDDING_RETRY_DELAY", "1"))
+            # Embedding API呼び出し（リトライ対応）
+            response = self._retry_embedding_api_call(
+                self.genai_client.embed_text,
+                embed_detail
+            )
             
-            for retry in range(max_retries):
-                try:
-                    response = self.genai_client.embed_text(embed_detail)
-                    
-                    if response.data.embeddings:
-                        embedding = response.data.embeddings[0]
-                        embedding_array = np.array(embedding, dtype=np.float32)
-                        
-                        logger.info(f"テキストembedding生成成功: text_len={len(text)}, shape={embedding_array.shape}")
-                        return embedding_array
-                    else:
-                        logger.error("Embeddingが空です")
-                        return None
+            if response.data.embeddings:
+                embedding = response.data.embeddings[0]
+                embedding_array = np.array(embedding, dtype=np.float32)
                 
-                except Exception as e:
-                    if retry < max_retries - 1:
-                        logger.warning(f"テキストembedding生成失敗 (リトライ {retry + 1}/{max_retries}): {e}")
-                        time.sleep(retry_delay)
-                    else:
-                        logger.error(f"テキストembedding生成失敗（最大リトライ回数到達）: {e}")
-                        return None
-            
-            return None
-            
+                logger.info(f"テキストembedding生成成功: text_len={len(text)}, shape={embedding_array.shape}")
+                return embedding_array
+            else:
+                logger.error("Embeddingが空です")
+                return None
+                
         except Exception as e:
-            logger.error(f"予期しないエラー: {e}")
+            logger.error(f"テキストembedding生成エラー: {e}")
             return None
     
     def save_file_info(self, bucket: str, object_name: str, original_filename: str, 

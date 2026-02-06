@@ -116,11 +116,13 @@ async function sendCopilotMessage() {
   
   try {
     // API呼び出しでストリーミング受信
+    // トークンを確認（localStorageから直接取得 - referenceプロジェクトに準拠）
+    const loginToken = localStorage.getItem('loginToken');
     const response = await fetch('/ai/api/copilot/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(appState.get('loginToken') ? { 'Authorization': `Bearer ${appState.get('loginToken')}` } : {})
+        ...(loginToken ? { 'Authorization': `Bearer ${loginToken}` } : {})
       },
       body: JSON.stringify({
         message: message,
@@ -131,6 +133,15 @@ async function sendCopilotMessage() {
     });
     
     if (!response.ok) {
+      // 401エラーの場合は強制ログアウト（referenceプロジェクトに準拠）
+      if (response.status === 401) {
+        const { forceLogout: authForceLogout } = await import('./auth.js');
+        const requireLogin = appState.get('requireLogin');
+        if (requireLogin) {
+          authForceLogout();
+          throw new Error('無効または期限切れのトークンです');
+        }
+      }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     

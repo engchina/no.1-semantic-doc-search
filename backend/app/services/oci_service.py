@@ -3,6 +3,8 @@ import configparser
 import json
 import logging
 import os
+import random
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -26,12 +28,116 @@ OCI_CONFIG_FILE = os.environ.get("OCI_CONFIG_FILE", os.path.expanduser("~/.oci/c
 # キーファイルのパスは設定ファイルと同じディレクトリ内の oci_api_key.pem をデフォルトとする
 OCI_KEY_FILE = os.environ.get("OCI_KEY_FILE", os.path.join(os.path.dirname(OCI_CONFIG_FILE), "oci_api_key.pem"))
 
+# レート制限対応のリトライ設定
+OCI_API_MAX_RETRIES = int(os.environ.get("OCI_API_MAX_RETRIES", "5"))
+OCI_API_BASE_DELAY = float(os.environ.get("OCI_API_BASE_DELAY", "1.0"))  # 秒
+OCI_API_MAX_DELAY = float(os.environ.get("OCI_API_MAX_DELAY", "60.0"))   # 秒
+OCI_API_JITTER = float(os.environ.get("OCI_API_JITTER", "0.1"))          # ランダム遅延の範囲
+
+
 class OCIService:
     def __init__(self):
         self.config_file = OCI_CONFIG_FILE
         self.key_file = OCI_KEY_FILE
         self._oci_config = None
         self._object_storage_client = None
+    
+    def _is_rate_limit_error(self, error: Exception) -> bool:
+        """
+        エラーがレート制限関連かどうかを判定
+        
+        Args:
+            error: 発生した例外
+            
+        Returns:
+            bool: レート制限エラーの場合はTrue
+        """
+        error_str = str(error).lower()
+        return (
+            '429' in error_str or 
+            'too many requests' in error_str or 
+            'rate limit exceeded' in error_str or
+            'quota exceeded' in error_str or
+            'request limit' in error_str
+        )
+    
+    def _calculate_backoff_delay(self, attempt: int, is_rate_limit: bool = False) -> float:
+        """
+        指数バックオフ遅延時間を計算
+        
+        Args:
+            attempt: 試行回数 (0から開始)
+            is_rate_limit: レート制限エラーかどうか
+            
+        Returns:
+            float: 待機時間（秒）
+        """
+        if is_rate_limit:
+            # レート制限の場合はより長い待機時間
+            base_multiplier = 3.0
+        else:
+            # 通常のエラーの場合は標準的なバックオフ
+            base_multiplier = 2.0
+        
+        # 指数バックオフ計算
+        delay = OCI_API_BASE_DELAY * (base_multiplier ** attempt)
+        
+        # 最大遅延時間を制限
+        delay = min(delay, OCI_API_MAX_DELAY)
+        
+        # ランダムなジッターを追加（スロットリング回避）
+        jitter = random.uniform(-OCI_API_JITTER, OCI_API_JITTER) * delay
+        delay = max(0.1, delay + jitter)  # 最小0.1秒を保証
+        
+        return delay
+    
+    def _retry_api_call(self, func, *args, **kwargs) -> Any:
+        """
+        OCI API呼び出しにリトライメカニズムを適用
+        
+        Args:
+            func: 実行する関数
+            *args: 関数の引数
+            **kwargs: 関数のキーワード引数
+            
+        Returns:
+            関数の戻り値
+            
+        Raises:
+            Exception: 最大リトライ回数に達した場合
+        """
+        last_exception = None
+        
+        for attempt in range(OCI_API_MAX_RETRIES):
+            try:
+                result = func(*args, **kwargs)
+                if attempt > 0:
+                    logger.info(f"OCI API呼び出し成功（リトライ {attempt}回目後）")
+                return result
+                
+            except Exception as e:
+                last_exception = e
+                is_rate_limit = self._is_rate_limit_error(e)
+                
+                if attempt == OCI_API_MAX_RETRIES - 1:
+                    # 最終リトライでも失敗
+                    logger.error(f"OCI API呼び出し最終リトライ失敗（{OCI_API_MAX_RETRIES}回）: {e}")
+                    raise
+                
+                # 待機時間計算
+                delay = self._calculate_backoff_delay(attempt, is_rate_limit)
+                
+                error_type = "レート制限" if is_rate_limit else "エラー"
+                logger.warning(
+                    f"OCI API {error_type}（リトライ {attempt + 1}/{OCI_API_MAX_RETRIES}）: "
+                    f"{delay:.1f}秒後に再試行 - {str(e)[:100]}"
+                )
+                
+                time.sleep(delay)
+        
+        # 到達しないはずだが、念のため
+        if last_exception:
+            raise last_exception
 
     def get_settings(self) -> OCISettings:
         """保存された設定を読み込む"""
@@ -353,7 +459,7 @@ class OCIService:
     
     def list_objects(self, bucket_name: str, namespace: str, prefix: str = "", page_size: int = 50, page_token: Optional[str] = None, include_metadata: bool = False) -> Dict[str, Any]:
         """
-        Object Storage内のオブジェクト一覧を取得
+        Object Storage内のオブジェクト一覧を取得（リトライ対応）
         
         Args:
             bucket_name: バケット名
@@ -371,7 +477,7 @@ class OCIService:
             if not client:
                 raise Exception("Object Storage Clientの取得に失敗しました")
             
-            # オブジェクト一覧を取得
+            # オブジェクト一覧を取得（リトライ対応）
             kwargs = {
                 "namespace_name": namespace,
                 "bucket_name": bucket_name,
@@ -383,7 +489,7 @@ class OCIService:
             if page_token:
                 kwargs["start"] = page_token
                 
-            response = client.list_objects(**kwargs)
+            response = self._retry_api_call(client.list_objects, **kwargs)
             
             # レスポンスを整形
             objects = []
@@ -447,7 +553,6 @@ class OCIService:
                 "prefixes": []
             }
     
-    
     def upload_file(self, file_content, object_name: str, content_type: str = None, original_filename: str = None, file_size: int = None) -> bool:
         """
         ファイルをObject Storageにアップロード（メタデータ付き）
@@ -472,8 +577,8 @@ class OCIService:
             if not bucket_name:
                 raise Exception("OCI_BUCKETが設定されていません")
             
-            # Namespaceを取得
-            namespace_result = self.get_namespace()
+            # Namespaceを取得（リトライ対応）
+            namespace_result = self._retry_api_call(self.get_namespace)
             if not namespace_result.get("success"):
                 raise Exception(namespace_result.get("message", "Namespace取得失敗"))
             
@@ -499,7 +604,7 @@ class OCIService:
             opc_meta['upload-source'] = 'file'
             opc_meta['uploaded-at'] = datetime.now().isoformat()
             
-            # Object Storageにアップロード
+            # Object Storageにアップロード（リトライ対応）
             put_object_kwargs = {
                 "namespace_name": namespace,
                 "bucket_name": bucket_name,
@@ -511,7 +616,10 @@ class OCIService:
             if content_type:
                 put_object_kwargs["content_type"] = content_type
             
-            client.put_object(**put_object_kwargs)
+            self._retry_api_call(
+                client.put_object,
+                **put_object_kwargs
+            )
             
             logger.info(f"Object Storageアップロード成功: {object_name} (原始ファイル名: {original_filename})")
             return True
@@ -586,7 +694,7 @@ class OCIService:
     
     def delete_objects(self, bucket_name: str, namespace: str, object_names: list) -> Dict[str, Any]:
         """
-        Object Storage内のオブジェクトを削除
+        Object Storage内のオブジェクトを削除（リトライ対応）
         削除順序：画像ファイル → 画像フォルダ → ファイル本体
         
         Args:
@@ -610,7 +718,8 @@ class OCIService:
                     # フォルダの場合は配下のオブジェクトも削除
                     if obj_name.endswith('/'):
                         # フォルダ配下のオブジェクトを取得（メタデータ不要）
-                        prefix_objects = self.list_objects(
+                        prefix_objects = self._retry_api_call(
+                            self.list_objects,
                             bucket_name, 
                             namespace, 
                             prefix=obj_name, 
@@ -620,7 +729,8 @@ class OCIService:
                         if prefix_objects.get("success"):
                             for sub_obj in prefix_objects.get("objects", []):
                                 try:
-                                    client.delete_object(
+                                    self._retry_api_call(
+                                        client.delete_object,
                                         namespace_name=namespace,
                                         bucket_name=bucket_name,
                                         object_name=sub_obj["name"]
@@ -635,7 +745,8 @@ class OCIService:
                         
                         # フォルダ自体も削除
                         try:
-                            client.delete_object(
+                            self._retry_api_call(
+                                client.delete_object,
                                 namespace_name=namespace,
                                 bucket_name=bucket_name,
                                 object_name=obj_name
@@ -660,7 +771,8 @@ class OCIService:
                         logger.info(f"画像フォルダ名: {image_folder_name} (元のファイル: {obj_name})")
                         try:
                             # 画像フォルダ配下のファイルを検索
-                            image_objects = self.list_objects(
+                            image_objects = self._retry_api_call(
+                                self.list_objects,
                                 bucket_name,
                                 namespace,
                                 prefix=image_folder_name,
@@ -677,7 +789,8 @@ class OCIService:
                                     for img_obj in image_files:
                                         try:
                                             logger.debug(f"画像ファイル削除中: {img_obj['name']}")
-                                            client.delete_object(
+                                            self._retry_api_call(
+                                                client.delete_object,
                                                 namespace_name=namespace,
                                                 bucket_name=bucket_name,
                                                 object_name=img_obj["name"]
@@ -698,7 +811,8 @@ class OCIService:
                         
                         # ステップ2: 画像フォルダを削除
                         try:
-                            client.delete_object(
+                            self._retry_api_call(
+                                client.delete_object,
                                 namespace_name=namespace,
                                 bucket_name=bucket_name,
                                 object_name=image_folder_name
@@ -715,7 +829,8 @@ class OCIService:
                                 failed_objects.append(image_folder_name)
                         
                         # ステップ3: ファイル本体を削除
-                        client.delete_object(
+                        self._retry_api_call(
+                            client.delete_object,
                             namespace_name=namespace,
                             bucket_name=bucket_name,
                             object_name=obj_name

@@ -3,7 +3,7 @@
 // ========================================
 import { appState, setAuthState } from './src/state.js';
 import { apiCall as authApiCall, loadConfig as authLoadConfig, showLoginModal as authShowLoginModal, 
-         checkLoginStatus as authCheckLoginStatus } from './src/modules/auth.js';
+         checkLoginStatus as authCheckLoginStatus, forceLogout as authForceLogout } from './src/modules/auth.js';
 import { 
   showToast as utilsShowToast, 
   showLoading as utilsShowLoading, 
@@ -534,6 +534,16 @@ async function uploadMultipleDocuments() {
     return;
   }
   
+  // トークンを確認（debugModeではスキップ）
+  const loginToken = localStorage.getItem('loginToken');
+  const debugMode = appState.get('debugMode');
+  
+  if (!loginToken && !debugMode) {
+    utilsShowToast('認証が必要です。ログインしてください', 'warning');
+    authShowLoginModal();
+    return;
+  }
+  
   try {
     // ボタンを無効化
     const uploadBtn = document.getElementById('uploadMultipleBtn');
@@ -554,8 +564,7 @@ async function uploadMultipleDocuments() {
       formData.append('files', file);
     });
     
-    // トークンを取得
-    const loginToken = localStorage.getItem('loginToken');
+    // 認証ヘッダーを設定
     const headers = {};
     if (loginToken) {
       headers['Authorization'] = `Bearer ${loginToken}`;
@@ -569,6 +578,18 @@ async function uploadMultipleDocuments() {
     });
     
     if (!response.ok) {
+      // 401エラーの場合は強制ログアウト（referenceプロジェクトに準拠）
+      if (response.status === 401) {
+        hideUploadProgressUI();
+        const uploadBtn = document.getElementById('uploadMultipleBtn');
+        if (uploadBtn) uploadBtn.disabled = false;
+        
+        const requireLogin = appState.get('requireLogin');
+        if (requireLogin) {
+          authForceLogout();
+          throw new Error('無効または期限切れのトークンです');
+        }
+      }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
@@ -1235,6 +1256,16 @@ window.cancelCurrentJob = async function(jobId) {
     return;
   }
   
+  // トークンを確認（debugModeではスキップ）
+  const token = localStorage.getItem('loginToken');
+  const debugMode = appState.get('debugMode');
+  
+  if (!token && !debugMode) {
+    utilsShowToast('認証が必要です。ログインしてください', 'warning');
+    authShowLoginModal();
+    return;
+  }
+  
   const confirmed = await utilsShowConfirmModal(
     '実行中の処理をキャンセルしますか？\n\n進行中のファイルは処理が完了してから停止します。',
     'キャンセル確認',
@@ -1246,7 +1277,6 @@ window.cancelCurrentJob = async function(jobId) {
   }
   
   try {
-    const token = localStorage.getItem('loginToken');
     const headers = {
       'Content-Type': 'application/json'
     };
@@ -1258,6 +1288,16 @@ window.cancelCurrentJob = async function(jobId) {
       method: 'POST',
       headers: headers
     });
+    
+    // 401エラーの場合は強制ログアウト（referenceプロジェクトに準拠）
+    if (response.status === 401) {
+      const requireLogin = appState.get('requireLogin');
+      if (requireLogin) {
+        authForceLogout();
+        utilsShowToast('無効または期限切れのトークンです', 'error');
+        return;
+      }
+    }
     
     if (response.ok) {
       utilsShowToast('キャンセルリクエストを送信しました', 'info');
@@ -1324,6 +1364,16 @@ function displayDocumentsList(documents) {
 }
 
 async function deleteDocument(documentId, filename) {
+  // トークンを確認（debugModeではスキップ）
+  const loginToken = localStorage.getItem('loginToken');
+  const debugMode = appState.get('debugMode');
+  
+  if (!loginToken && !debugMode) {
+    utilsShowToast('認証が必要です。ログインしてください', 'warning');
+    authShowLoginModal();
+    return;
+  }
+  
   const confirmed = await utilsShowConfirmModal(
     `文書「${filename}」を削除してもよろしいですか?
 
@@ -1344,23 +1394,24 @@ async function deleteDocument(documentId, filename) {
   try {
     utilsShowLoading('文書を削除中...');
     
-    // 認証トークンを取得
-    const loginToken = localStorage.getItem('loginToken');
-    const headers = {
-      'Authorization': `Bearer ${loginToken}`
-    };
+    // リクエストヘッダーを構築
+    const headers = {};
+    if (loginToken) {
+      headers['Authorization'] = `Bearer ${loginToken}`;
+    }
     
     const response = await fetch(`/ai/api/documents/${documentId}`, {
       method: 'DELETE',
       headers: headers
     });
     
-    // 401エラーの場合は認証エラー
+    // 401エラーの場合は強制ログアウト（referenceプロジェクトに準拠）
     if (response.status === 401) {
       utilsHideLoading();
-      utilsShowToast('認証が必要です', 'error');
-      if (window.authModule && window.authModule.forceLogout) {
-        window.authModule.forceLogout();
+      const requireLogin = appState.get('requireLogin');
+      if (requireLogin) {
+        authForceLogout();
+        utilsShowToast('無効または期限切れのトークンです', 'error');
       }
       return;
     }

@@ -227,12 +227,13 @@ class ParallelProcessor:
         Args:
             image_workers: ページ画像化の最大プロセス数（デフォルト: CPU数）
             vector_workers: ベクトル化の最大スレッド数（デフォルト: min(8, CPU数*2)）
-            api_semaphore_limit: OCI API同時呼び出し数（デフォルト: 5）
+            api_semaphore_limit: OCI API同時呼び出し数（デフォルト: 5、レート制限対応で調整）
         """
         # 環境変数から設定を読み込み
         cpu_count = os.cpu_count() or 4
         self.image_workers = image_workers or int(os.getenv('CONVERT_MAX_WORKERS', cpu_count))
         self.vector_workers = vector_workers or int(os.getenv('VECTORIZE_MAX_WORKERS', min(8, cpu_count * 2)))
+        # レート制限対応のAPI同時呼び出し数制限（デフォルトをより保守的に設定）
         self.api_semaphore_limit = int(os.getenv('API_CONCURRENT_LIMIT', api_semaphore_limit))
         
         # リトライ設定
@@ -1617,7 +1618,9 @@ class ParallelProcessor:
                 # Rate Limitエラーの場合は長めに待機
                 error_str = str(e).lower()
                 if '429' in error_str or 'too many' in error_str or 'rate' in error_str:
-                    delay = base_delay * (3 ** attempt) + random.uniform(0, 1)
+                    # レート制限エラーの場合は指数バックオフを強化
+                    delay = base_delay * (4 ** attempt) + random.uniform(0, 2)
+                    logger.warning(f"レート制限エラー検出、長めの待機時間: {delay:.1f}秒")
                 else:
                     delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
                 

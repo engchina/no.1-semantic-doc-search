@@ -932,6 +932,16 @@ export async function deleteSelectedOciObjects() {
     });
     
     if (!response.ok) {
+      // 401エラーの場合は強制ログアウト（referenceプロジェクトに準拠）
+      if (response.status === 401) {
+        hideProcessProgressUI();
+        appState.set('ociObjectsBatchDeleteLoading', false);
+        const requireLogin = appState.get('requireLogin');
+        if (requireLogin) {
+          authForceLogout();
+        }
+        throw new Error('無効または期限切れのトークンです');
+      }
       hideProcessProgressUI();
       appState.set('ociObjectsBatchDeleteLoading', false);
       const errorData = await response.json();

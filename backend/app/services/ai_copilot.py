@@ -34,6 +34,11 @@ else:
     else:
         logger.warning(".envファイルが見つかりません。環境変数はシステムから読み込みます。")
 
+# レート制限対応のリトライ設定（Generative AI API用）
+GENAI_API_MAX_RETRIES = int(os.environ.get("GENAI_API_MAX_RETRIES", "5"))
+GENAI_API_BASE_DELAY = float(os.environ.get("GENAI_API_BASE_DELAY", "2.0"))  # 秒
+GENAI_API_MAX_DELAY = float(os.environ.get("GENAI_API_MAX_DELAY", "180.0"))   # 秒
+GENAI_API_JITTER = float(os.environ.get("GENAI_API_JITTER", "0.15"))         # ランダム遅延の範囲
 
 class AICopilotService:
     """AI Copilot サービスクラス"""
@@ -50,6 +55,104 @@ class AICopilotService:
         
         if not self.compartment_id:
             logger.warning("OCI_COMPARTMENT_OCID が設定されていません")
+    
+    def _is_genai_rate_limit_error(self, error: Exception) -> bool:
+        """
+        Generative AI APIのレート制限エラーを判定
+        
+        Args:
+            error: 発生した例外
+            
+        Returns:
+            bool: レート制限エラーの場合はTrue
+        """
+        error_str = str(error).lower()
+        return (
+            '429' in error_str or 
+            'too many requests' in error_str or 
+            'rate limit exceeded' in error_str or
+            'quota exceeded' in error_str or
+            'model' in error_str and ('busy' in error_str or 'unavailable' in error_str) or
+            'service temporarily unavailable' in error_str
+        )
+    
+    def _calculate_genai_backoff_delay(self, attempt: int, is_rate_limit: bool = False) -> float:
+        """
+        Generative AI API用の指数バックオフ遅延時間を計算
+        
+        Args:
+            attempt: 試行回数 (0から開始)
+            is_rate_limit: レート制限エラーかどうか
+            
+        Returns:
+            float: 待機時間（秒）
+        """
+        if is_rate_limit:
+            # レート制限の場合はより長い待機時間
+            base_multiplier = 3.5  # Generative AIはモデルがBusyになる可能性が高い
+        else:
+            # 通常のエラーの場合は標準的なバックオフ
+            base_multiplier = 2.0
+        
+        # 指数バックオフ計算
+        delay = GENAI_API_BASE_DELAY * (base_multiplier ** attempt)
+        
+        # 最大遅延時間を制限
+        delay = min(delay, GENAI_API_MAX_DELAY)
+        
+        # ランダムなジッターを追加（スロットリング回避）
+        jitter = random.uniform(-GENAI_API_JITTER, GENAI_API_JITTER) * delay
+        delay = max(1.0, delay + jitter)  # 最小1秒を保証（Generative AI APIは重いので）
+        
+        return delay
+    
+    def _retry_genai_api_call(self, func, *args, **kwargs) -> Any:
+        """
+        Generative AI API呼び出しにリトライメカニズムを適用
+        
+        Args:
+            func: 実行する関数
+            *args: 関数の引数
+            **kwargs: 関数のキーワード引数
+            
+        Returns:
+            関数の戻り値
+            
+        Raises:
+            Exception: 最大リトライ回数に達した場合
+        """
+        last_exception = None
+        
+        for attempt in range(GENAI_API_MAX_RETRIES):
+            try:
+                result = func(*args, **kwargs)
+                if attempt > 0:
+                    logger.info(f"Generative AI API呼び出し成功（リトライ {attempt}回目後）")
+                return result
+                
+            except Exception as e:
+                last_exception = e
+                is_rate_limit = self._is_genai_rate_limit_error(e)
+                
+                if attempt == GENAI_API_MAX_RETRIES - 1:
+                    # 最終リトライでも失敗
+                    logger.error(f"Generative AI API呼び出し最終リトライ失敗（{GENAI_API_MAX_RETRIES}回）: {e}")
+                    raise
+                
+                # 待機時間計算
+                delay = self._calculate_genai_backoff_delay(attempt, is_rate_limit)
+                
+                error_type = "レート制限" if is_rate_limit else "エラー"
+                logger.warning(
+                    f"Generative AI API {error_type}（リトライ {attempt + 1}/{GENAI_API_MAX_RETRIES}）: "
+                    f"{delay:.1f}秒後に再試行 - {str(e)[:100]}"
+                )
+                
+                time.sleep(delay)
+        
+        # 到達しないはずだが、念のため
+        if last_exception:
+            raise last_exception
     
     async def chat_stream(
         self,
@@ -311,7 +414,8 @@ class AICopilotService:
 
         logger.info("client.chat()呼び出し開始")
         try:
-            response = client.chat(chat_detail)
+            # Generative AI API呼び出し（リトライ対応）
+            response = self._retry_genai_api_call(client.chat, chat_detail)
             logger.info(f"client.chat()レスポンス取得, type={type(response)}")
             logger.info(f"response.data type={type(response.data)}")
             
@@ -419,7 +523,8 @@ class AICopilotService:
             chat_request=chat_request,
         )
 
-        response = client.chat(chat_detail)
+        # Generative AI API呼び出し（リトライ対応）
+        response = self._retry_genai_api_call(client.chat, chat_detail)
         data = oci.util.to_dict(getattr(response, "data", response))
         
         # レスポンス情報をログ出力

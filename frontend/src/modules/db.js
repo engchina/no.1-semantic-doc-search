@@ -245,7 +245,9 @@ export async function uploadWalletFile(file) {
     const formData = new FormData();
     formData.append('file', file);
     
-    const headers = {}
+    // トークンを確認（localStorageから直接取得 - referenceプロジェクトに準拠）
+    const loginToken = localStorage.getItem('loginToken');
+    const headers = {};
     if (loginToken) {
       headers['Authorization'] = `Bearer ${loginToken}`;
     }
@@ -260,6 +262,15 @@ export async function uploadWalletFile(file) {
     utilsHideLoading();
     
     if (!response.ok) {
+      // 401エラーの場合は強制ログアウト（referenceプロジェクトに準拠）
+      if (response.status === 401) {
+        const { forceLogout: authForceLogout } = await import('./auth.js');
+        const requireLogin = appState.get('requireLogin');
+        if (requireLogin) {
+          authForceLogout();
+          throw new Error('無効または期限切れのトークンです');
+        }
+      }
       const error = await response.json();
       throw new Error(error.detail || 'Walletアップロードに失敗しました');
     }
