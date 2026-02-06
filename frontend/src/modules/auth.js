@@ -214,9 +214,10 @@ export async function handleLogin(event) {
       // UI更新
       updateUserInfo();
       
-      // AI Assistantボタンを表示
+      // AI Assistantボタンの表示制御（設定に応じて）
+      const showAiAssistant = appState.get('showAiAssistant');
       const copilotBtn = document.getElementById('copilotToggleBtn');
-      if (copilotBtn) {
+      if (copilotBtn && showAiAssistant) {
         copilotBtn.style.display = 'flex';
       }
     }
@@ -306,9 +307,10 @@ export async function checkLoginStatus() {
     setAuthState(true, token, user);
     updateUserInfo();
     
-    // AI Assistantボタンを表示
+    // AI Assistantボタンの表示制御（設定に応じて）
+    const showAiAssistant = appState.get('showAiAssistant');
     const copilotBtn = document.getElementById('copilotToggleBtn');
-    if (copilotBtn) {
+    if (copilotBtn && showAiAssistant) {
       copilotBtn.style.display = 'flex';
     }
   } else {
@@ -317,9 +319,10 @@ export async function checkLoginStatus() {
       // ログインが必要な場合はログイン画面を表示
       showLoginModal();
     } else {
-      // デバッグモードでログイン不要の場合もAI Assistantボタンを表示
+      // デバッグモードでログイン不要の場合も、設定に応じてAI Assistantボタンを表示
+      const showAiAssistant = appState.get('showAiAssistant');
       const copilotBtn = document.getElementById('copilotToggleBtn');
-      if (copilotBtn) {
+      if (copilotBtn && showAiAssistant) {
         copilotBtn.style.display = 'flex';
       }
     }

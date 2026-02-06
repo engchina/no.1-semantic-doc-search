@@ -680,8 +680,14 @@ function hideUploadProgressUI() {
  * アップロード進捗UIを手動で閉じる
  */
 function closeUploadProgress() {
-  clearMultipleFileSelection();
+  // 進捗UIのみを非表示にし、選択されたファイルリストは保持する
   hideUploadProgressUI();
+  
+  // 選択されたファイルリストを再表示
+  const selectedFilesList = document.getElementById('selectedFilesList');
+  if (selectedFilesList && selectedMultipleFiles.length > 0) {
+    selectedFilesList.style.display = 'block';
+  }
 }
 
 /**
