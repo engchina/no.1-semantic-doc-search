@@ -1,0 +1,488 @@
+app:
+  description: ''
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  mode: advanced-chat
+  name: ★検索アプリv5
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.5.0
+workflow:
+  conversation_variables:
+  - description: ''
+    id: 4c7690f2-435d-460b-878d-426b79df21ec
+    name: output_array
+    selector:
+    - conversation
+    - output_array
+    value: []
+    value_type: array[string]
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        attachment_image_file_size_limit: 2
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 100
+        file_upload_limit: 20
+        image_file_batch_limit: 10
+        image_file_size_limit: 10
+        single_chunk_attachment_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 10
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInLoop: false
+        sourceType: start
+        targetType: http-request
+      id: 1755676467814-source-1757826211520-target
+      source: '1755676467814'
+      sourceHandle: source
+      target: '1757826211520'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: http-request
+        targetType: code
+      id: 1757826211520-source-1769778791889-target
+      source: '1757826211520'
+      sourceHandle: source
+      target: '1769778791889'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: iteration
+      id: 1769778791889-source-1769782657385-target
+      source: '1769778791889'
+      sourceHandle: source
+      target: '1769782657385'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        sourceType: template-transform
+        targetType: template-transform
+      id: 1769782766997-source-1769782731963-target
+      source: '1769782766997'
+      sourceHandle: source
+      target: '1769782731963'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        sourceType: iteration-start
+        targetType: template-transform
+      id: 1769782657385start-source-1769782770648-target
+      source: 1769782657385start
+      sourceHandle: source
+      target: '1769782770648'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        sourceType: template-transform
+        targetType: template-transform
+      id: 1769782770648-source-1769782766997-target
+      source: '1769782770648'
+      sourceHandle: source
+      target: '1769782766997'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        sourceType: template-transform
+        targetType: variable-aggregator
+      id: 1769782731963-source-1769782668763-target
+      source: '1769782731963'
+      sourceHandle: source
+      target: '1769782668763'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        sourceType: variable-aggregator
+        targetType: answer
+      id: 1769782668763-source-1769782864770-target
+      source: '1769782668763'
+      sourceHandle: source
+      target: '1769782864770'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    nodes:
+    - data:
+        desc: ''
+        selected: false
+        title: 開始
+        type: start
+        variables:
+        - hint: ''
+          label: API_ENDPOINT
+          max_length: 120
+          options: []
+          placeholder: ''
+          required: true
+          type: text-input
+          variable: API_ENDPOINT
+      height: 108
+      id: '1755676467814'
+      position:
+        x: 0
+        y: 76
+      positionAbsolute:
+        x: 0
+        y: 76
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        authorization:
+          config: null
+          type: no-auth
+        body:
+          data:
+          - id: key-value-41
+            key: ''
+            type: text
+            value: "{\n    \"query\": \"{{#sys.query#}}\",\n    \"top_k\": 10,\n \
+              \   \"min_score\": 0.7\n  }"
+          type: json
+        headers: 'Authorization:ApiKey secret
+
+          Content-Type:application/json'
+        method: POST
+        params: ''
+        retry_config:
+          max_retries: 3
+          retry_enabled: true
+          retry_interval: 100
+        selected: false
+        ssl_verify: true
+        timeout:
+          max_connect_timeout: 0
+          max_read_timeout: 0
+          max_write_timeout: 0
+        title: Search Images
+        type: http-request
+        url: '{{#1755676467814.API_ENDPOINT#}}/ai/api/search'
+        variables: []
+      height: 139
+      id: '1757826211520'
+      position:
+        x: 342
+        y: 60
+      positionAbsolute:
+        x: 342
+        y: 60
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        code: "def main(json_string: str):\n    import json\n\n    # JSONをパース\n  \
+          \  data = json.loads(json_string)\n    \n    # 結果が空の場合の処理\n    if not data.get(\"\
+          success\") or not data.get(\"results\"):\n        return {\"result\": []}\n\
+          \    \n    # ファイルごとにグループ化\n    result = []\n    for file_result in data[\"\
+          results\"]:\n        file_url = file_result.get(\"url\", \"\")\n       \
+          \ original_filename = file_result.get(\"original_filename\", \"\")\n   \
+          \     matched_images = file_result.get(\"matched_images\", [])\n       \
+          \ \n        if not matched_images:\n            continue\n        \n   \
+          \     # image_urlsを生成\n        image_urls = []\n        pages = []\n   \
+          \     \n        for img in matched_images:\n            # 直接キーでアクセス\n  \
+          \          if \"url\" in img:\n                url = img[\"url\"]\n    \
+          \            page_num = img[\"page_number\"]\n                image_urls.append(f\"\
+          ![]({url})\")\n                pages.append(page_num)\n        \n      \
+          \  result.append({\n            \"file\": f\"[{original_filename}]({file_url})\"\
+          ,\n            \"pages\": pages,\n            \"images\": image_urls,\n\
+          \        })\n    \n    return {\"result\": result}"
+        code_language: python3
+        outputs:
+          result:
+            children: null
+            type: array[object]
+        selected: false
+        title: FORMAT HTTP RESULT
+        type: code
+        variables:
+        - value_selector:
+          - '1757826211520'
+          - body
+          value_type: string
+          variable: json_string
+      height: 51
+      id: '1769778791889'
+      position:
+        x: 683
+        y: 104
+      positionAbsolute:
+        x: 683
+        y: 104
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        error_handle_mode: terminated
+        flatten_output: true
+        height: 260
+        is_parallel: false
+        iterator_input_type: array[object]
+        iterator_selector:
+        - '1769778791889'
+        - result
+        output_selector:
+        - '1769782668763'
+        - output
+        output_type: array[string]
+        parallel_nums: 10
+        selected: false
+        start_node_id: 1769782657385start
+        title: LOOP FORMATTED RESULT
+        type: iteration
+        width: 1804
+      height: 260
+      id: '1769782657385'
+      position:
+        x: 1024
+        y: 0
+      positionAbsolute:
+        x: 1024
+        y: 0
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 1804
+      zIndex: 1
+    - data:
+        desc: ''
+        isInIteration: true
+        selected: false
+        title: ''
+        type: iteration-start
+      draggable: false
+      height: 48
+      id: 1769782657385start
+      parentId: '1769782657385'
+      position:
+        x: 60
+        y: 106
+      positionAbsolute:
+        x: 1084
+        y: 106
+      selectable: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom-iteration-start
+      width: 44
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        output_type: array[string]
+        selected: false
+        title: OUTPUT
+        type: variable-aggregator
+        variables:
+        - - conversation
+          - output_array
+      height: 108
+      id: '1769782668763'
+      parentId: '1769782657385'
+      position:
+        x: 1147
+        y: 76
+      positionAbsolute:
+        x: 2171
+        y: 76
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        selected: false
+        template: '{{ item.images | join(''\n'') }}'
+        title: images
+        type: template-transform
+        variables:
+        - value_selector:
+          - '1769782657385'
+          - item
+          value_type: object
+          variable: item
+      height: 51
+      id: '1769782731963'
+      parentId: '1769782657385'
+      position:
+        x: 826
+        y: 104
+      positionAbsolute:
+        x: 1850
+        y: 104
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        selected: false
+        template: '{{ item.pages }}'
+        title: pages
+        type: template-transform
+        variables:
+        - value_selector:
+          - '1769782657385'
+          - item
+          value_type: object
+          variable: item
+      height: 51
+      id: '1769782766997'
+      parentId: '1769782657385'
+      position:
+        x: 505
+        y: 104
+      positionAbsolute:
+        x: 1529
+        y: 104
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        selected: false
+        template: '{{ item.file }}'
+        title: file
+        type: template-transform
+        variables:
+        - value_selector:
+          - '1769782657385'
+          - item
+          value_type: object
+          variable: item
+      height: 51
+      id: '1769782770648'
+      parentId: '1769782657385'
+      position:
+        x: 184
+        y: 104
+      positionAbsolute:
+        x: 1208
+        y: 104
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        answer: '{{#1769782770648.output#}}
+
+
+          {{#1769782766997.output#}}
+
+
+          {{#1769782731963.output#}}'
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        selected: false
+        title: 回答
+        type: answer
+        variables: []
+      height: 140
+      id: '1769782864770'
+      parentId: '1769782657385'
+      position:
+        x: 1468
+        y: 60
+      positionAbsolute:
+        x: 2492
+        y: 60
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    viewport:
+      x: -2.9500000000000455
+      y: 286.34999999999997
+      zoom: 0.7
+  rag_pipeline_variables: []
