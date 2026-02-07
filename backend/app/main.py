@@ -71,7 +71,8 @@ from app.models.adb import (
 
 # サービスのインポート
 from app.services.oci_service import oci_service
-from app.services.document_processor import document_processor
+# @deprecated: document_processor は非推奨（テキストベース検索は未実装・実装予定なし）
+# from app.services.document_processor import document_processor
 from app.services.database_service import database_service
 from app.services.adb_service import adb_service
 from app.services.ai_copilot import get_copilot_service
@@ -939,7 +940,7 @@ async def upload_document(file: UploadFile = File(...)):
         
         # 環境変数から設定を取得
         max_size = int(os.getenv("MAX_FILE_SIZE", 200000000))  # 200MB
-        allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,pptx,ppt,png,jpg,jpeg")
+        allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,docx,doc,pptx,ppt,png,jpg,jpeg")
         allowed_extensions = [ext.strip() for ext in allowed_extensions_str.split(",")]
         
         # ファイル拡張子チェック
@@ -951,6 +952,8 @@ async def upload_document(file: UploadFile = File(...)):
         # 許可されたMIMEタイプ
         allowed_mime_types = {
             'pdf': 'application/pdf',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'doc': 'application/msword',
             'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
             'ppt': 'application/vnd.ms-powerpoint',
             'png': 'image/png',
@@ -1063,12 +1066,14 @@ async def upload_multiple_documents(files: List[UploadFile] = File(...)):
             
             # 環境変数から設定を取得
             max_size = int(os.getenv("MAX_FILE_SIZE", 200000000))  # 200MB
-            allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,pptx,ppt,png,jpg,jpeg")
+            allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,docx,doc,pptx,ppt,png,jpg,jpeg")
             allowed_extensions = [ext.strip() for ext in allowed_extensions_str.split(",")]
             
             # 許可されたMIMEタイプ(品質確保)
             allowed_mime_types = {
                 'pdf': 'application/pdf',
+                'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'doc': 'application/msword',
                 'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
                 'ppt': 'application/vnd.ms-powerpoint',
                 'png': 'image/png',

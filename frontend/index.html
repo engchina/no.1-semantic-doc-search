@@ -328,7 +328,7 @@
         </div>
         <div style="padding: 24px;">
           <div style="margin-bottom: 16px;">
-            <label class="form-label">ファイル選択 (PDF, PPT, PPTX, PNG, JPG, JPEG) - 最大10ファイル</label>
+            <label class="form-label">ファイル選択 (PDF, DOCX, DOC, PPT, PPTX, PNG, JPG, JPEG) - 最大10ファイル</label>
             <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-purple-400 transition cursor-pointer" 
                  onclick="document.getElementById('fileInputMultiple').click()"
                  ondragover="handleDragOver(event)"
@@ -338,9 +338,9 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
               </svg>
               <p class="text-gray-600 font-medium mb-2">ファイルをドラッグ＆ドロップまたはクリックしてアップロード</p>
-              <p class="text-sm text-gray-500">対応形式: PDF, PPT, PPTX, PNG, JPG, JPEG</p>
+              <p class="text-sm text-gray-500">対応形式: PDF, DOCX, DOC, PPT, PPTX, PNG, JPG, JPEG</p>
               <p class="text-xs text-purple-600 font-semibold mt-2">☆ 最大10ファイルまで同時アップロード可能</p>
-              <input type="file" id="fileInputMultiple" class="hidden" accept=".pdf,.ppt,.pptx,.png,.jpg,.jpeg" multiple onchange="handleMultipleFileSelect(event)">
+              <input type="file" id="fileInputMultiple" class="hidden" accept=".pdf,.docx,.doc,.ppt,.pptx,.png,.jpg,.jpeg" multiple onchange="handleMultipleFileSelect(event)">
             </div>
           </div>
           

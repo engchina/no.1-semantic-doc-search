@@ -169,14 +169,21 @@ def _convert_file_to_images_worker(
         if file_ext == 'pdf':
             pil_images = convert_from_path(str(temp_file), dpi=200, fmt='PNG')
             images = pil_images
-        elif file_ext in ['ppt', 'pptx']:
+        elif file_ext in ['ppt', 'pptx', 'doc', 'docx']:
             # LibreOfficeでPDFに変換
             subprocess.run(
                 ['soffice', '--headless', '--convert-to', 'pdf', '--outdir', str(temp_dir), str(temp_file)],
                 check=True,
                 timeout=300
             )
+            # 変換されたPDFファイルを検索（元のファイル名をベースに生成される）
             pdf_path = Path(temp_dir) / "temp.pdf"
+            if not pdf_path.exists():
+                # フォールバック: ディレクトリ内のPDFファイルを検索
+                pdf_files = list(Path(temp_dir).glob("*.pdf"))
+                if pdf_files:
+                    pdf_path = pdf_files[0]
+                    logger.info(f"フォールバックPDFファイル使用: {pdf_path.name}")
             if pdf_path.exists():
                 images = convert_from_path(str(pdf_path), dpi=200, fmt='PNG')
             else:
