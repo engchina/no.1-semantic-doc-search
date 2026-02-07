@@ -65,6 +65,7 @@ retry_command apt-get install -y \
     gnupg \
     nginx \
     libreoffice \
+    poppler-utils \
     fonts-ipafont-gothic \
     fonts-ipafont-mincho \
     fonts-noto-cjk \
@@ -73,6 +74,34 @@ retry_command apt-get install -y \
     fonts-takao \
     fonts-wqy-microhei \
     fonts-wqy-zenhei
+
+# フォントキャッシュを更新
+echo "フォントキャッシュを更新中..."
+fc-cache -fv
+
+# 日本語フォントの検証（TXT/MD変換に必要）
+echo "日本語フォントを検証中..."
+REQUIRED_FONTS=(
+    "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf:fonts-ipafont-gothic"
+    "/usr/share/fonts/truetype/takao-gothic/TakaoGothic.ttf:fonts-takao"
+)
+
+FONT_FOUND=false
+for font_info in "${REQUIRED_FONTS[@]}"; do
+    font_path="${font_info%%:*}"
+    package_name="${font_info##*:}"
+    if [ -f "$font_path" ]; then
+        echo "✓ 日本語フォント検証成功: $font_path"
+        FONT_FOUND=true
+        break
+    fi
+done
+
+if [ "$FONT_FOUND" = "false" ]; then
+    echo "警告: 推奨される日本語フォントが見つかりません。TXT/MD変換で日本語が正しく表示されない可能性があります。"
+    echo "  以下のコマンドでインストールしてください:"
+    echo "  apt-get install -y fonts-ipafont-gothic fonts-takao"
+fi
 
 # Install Node.js
 echo "Node.js $NODE_VERSION LTS をインストール中..."

@@ -29,6 +29,10 @@ from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 from pdf2image import convert_from_path
 from PIL import Image as PILImage
 
+# TXT/Markdown変換用
+from fpdf import FPDF
+import markdown2
+
 logger = logging.getLogger(__name__)
 
 
@@ -139,6 +143,111 @@ class JobManager:
 
 
 # ========================================
+# TXT/Markdown → PDF変換ヘルパー
+# ========================================
+
+def _convert_text_to_pdf(temp_file: Path, file_ext: str, temp_dir: str) -> Optional[Path]:
+    """
+    TXTまたはMarkdownファイルをPDFに変換
+    
+    Args:
+        temp_file: 入力ファイルパス
+        file_ext: ファイル拡張子 ('txt' または 'md')
+        temp_dir: 一時ディレクトリ
+        
+    Returns:
+        生成されたPDFファイルのパス、失敗時はNone
+    """
+    try:
+        # ファイル内容を読み込み
+        with open(temp_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # PDFを生成
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        
+        # 日本語フォント設定（ページ追加前にフォントを登録）
+        # ベストプラクティス:
+        # - ゴシック体（サンセリフ）を優先: デジタル表示・画像化に最適
+        # - IPA/Takao フォント: .ttf形式でfpdf2との互換性が高い
+        # - 複数のパスを試行: 異なるLinuxディストリビューションに対応
+        # - Noto Sans CJK: 理想的だが.ttc形式のためfpdf2では問題が発生する可能性あり
+        japanese_fonts = [
+            # ゴシック体（推奨：読みやすさが高い）
+            '/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf',       # IPAゴシック (Ubuntu/Debian)
+            '/usr/share/fonts/truetype/takao-gothic/TakaoGothic.ttf',  # Takaoゴシック (Ubuntu/Debian)
+            '/usr/share/fonts/ipa-gothic/ipag.ttf',                    # IPAゴシック (CentOS/RHEL)
+            '/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc',# Noto Sans CJK (CentOS/RHEL)
+            # 明朝体（フォールバック）
+            '/usr/share/fonts/truetype/takao-mincho/TakaoPMincho.ttf', # Takao明朝 (Ubuntu/Debian)
+            '/usr/share/fonts/opentype/ipafont-mincho/ipam.ttf',       # IPA明朝 (Ubuntu/Debian)
+            '/usr/share/fonts/ipa-mincho/ipam.ttf',                    # IPA明朝 (CentOS/RHEL)
+        ]
+        
+        font_name = 'Helvetica'
+        font_loaded = False
+        for font_path in japanese_fonts:
+            if Path(font_path).exists():
+                try:
+                    pdf.add_font('Japanese', '', font_path)
+                    font_name = 'Japanese'
+                    font_loaded = True
+                    logger.debug(f"日本語フォント読み込み成功: {font_path}")
+                    break
+                except Exception as font_error:
+                    logger.warning(f"フォント読み込みエラー ({font_path}): {font_error}")
+                    continue
+        
+        if not font_loaded:
+            # 警告: 日本語フォントが見つからない場合、日本語テキストは正しく表示されない
+            logger.warning(
+                "日本語フォントが見つかりません。日本語テキストは正しく表示されない可能性があります。"
+                "init_script.sh で fonts-ipafont-gothic または fonts-takao をインストールしてください。"
+            )
+        
+        # ページを追加してフォントを設定
+        pdf.add_page()
+        pdf.set_font(font_name, size=10)
+        
+        if file_ext == 'md':
+            # Markdown → HTML → プレーンテキストとして処理
+            # fpdf2はHTMLタグを直接サポートしないため、テキストとして処理
+            html_content = markdown2.markdown(
+                content,
+                extras=['fenced-code-blocks', 'tables', 'header-ids']
+            )
+            # HTMLタグを除去してプレーンテキスト化
+            import re
+            plain_text = re.sub(r'<[^>]+>', '', html_content)
+            plain_text = plain_text.replace('&lt;', '<').replace('&gt;', '>')
+            plain_text = plain_text.replace('&amp;', '&').replace('&nbsp;', ' ')
+            content = plain_text
+        
+        # 行単位で処理（長い行は自動折り返し）
+        # A4サイズ（210mm）から左右マージン（10mm×2）を引いた有効幅
+        effective_width = 190
+        for line in content.split('\n'):
+            if line.strip():
+                # multi_cellで自動折り返し（明示的な幅指定が必要）
+                pdf.multi_cell(effective_width, 6, line.rstrip())
+            else:
+                # 空行
+                pdf.ln(4)
+        
+        # PDFを保存
+        pdf_path = Path(temp_dir) / "temp_text.pdf"
+        pdf.output(str(pdf_path))
+        
+        logger.info(f"TXT/Markdown → PDF変換成功: {temp_file.name}")
+        return pdf_path
+        
+    except Exception as e:
+        logger.error(f"TXT/Markdown → PDF変換エラー: {e}")
+        return None
+
+
+# ========================================
 # ワーカー関数（ProcessPoolで実行）
 # ========================================
 
@@ -193,6 +302,13 @@ def _convert_file_to_images_worker(
             img_copy = img.copy()
             img.close()
             images = [img_copy]
+        elif file_ext in ['txt', 'md']:
+            # TXT/Markdown → PDF変換
+            pdf_path = _convert_text_to_pdf(temp_file, file_ext, temp_dir)
+            if pdf_path and pdf_path.exists():
+                images = convert_from_path(str(pdf_path), dpi=200, fmt='PNG')
+            else:
+                return False, [], "TXT/Markdown変換に失敗しました"
         else:
             return False, [], f"サポートされていないファイル形式: {file_ext}"
         

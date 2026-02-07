@@ -940,7 +940,7 @@ async def upload_document(file: UploadFile = File(...)):
         
         # 環境変数から設定を取得
         max_size = int(os.getenv("MAX_FILE_SIZE", 200000000))  # 200MB
-        allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,xlsx,xls,docx,doc,pptx,ppt,png,jpg,jpeg")
+        allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,xlsx,xls,docx,doc,pptx,ppt,png,jpg,jpeg,txt,md")
         allowed_extensions = [ext.strip() for ext in allowed_extensions_str.split(",")]
         
         # ファイル拡張子チェック
@@ -960,7 +960,9 @@ async def upload_document(file: UploadFile = File(...)):
             'ppt': 'application/vnd.ms-powerpoint',
             'png': 'image/png',
             'jpg': 'image/jpeg',
-            'jpeg': 'image/jpeg'
+            'jpeg': 'image/jpeg',
+            'txt': 'text/plain',
+            'md': 'text/markdown'
         }
         
         # MIMEタイプ検証
@@ -1068,7 +1070,7 @@ async def upload_multiple_documents(files: List[UploadFile] = File(...)):
             
             # 環境変数から設定を取得
             max_size = int(os.getenv("MAX_FILE_SIZE", 200000000))  # 200MB
-            allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,xlsx,xls,docx,doc,pptx,ppt,png,jpg,jpeg")
+            allowed_extensions_str = os.getenv("ALLOWED_EXTENSIONS", "pdf,xlsx,xls,docx,doc,pptx,ppt,png,jpg,jpeg,txt,md")
             allowed_extensions = [ext.strip() for ext in allowed_extensions_str.split(",")]
             
             # 許可されたMIMEタイプ(品質確保)
@@ -1082,7 +1084,9 @@ async def upload_multiple_documents(files: List[UploadFile] = File(...)):
                 'ppt': 'application/vnd.ms-powerpoint',
                 'png': 'image/png',
                 'jpg': 'image/jpeg',
-                'jpeg': 'image/jpeg'
+                'jpeg': 'image/jpeg',
+                'txt': 'text/plain',
+                'md': 'text/markdown'
             }
             
             results = []

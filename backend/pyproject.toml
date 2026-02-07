@@ -20,6 +20,9 @@ dependencies = [
     "oci-openai>=1.0.0",
     "oracledb>=3.4.1",
     "pdf2image>=1.17.0",
+    # TXT/Markdown変換用ライブラリ
+    "markdown2>=2.5.4",
+    "fpdf2>=2.8.5",
 ]
 
 [tool.uv]
