@@ -84,7 +84,7 @@ variable "dify_bucket_name" {
 variable "dify_branch" {
   description = "Difyリポジトリのブランチまたはタグ名"
   type        = string
-  default     = "1.11.4"
+  default     = "1.12.1"
 }
 
 variable "oci_access_key" {
