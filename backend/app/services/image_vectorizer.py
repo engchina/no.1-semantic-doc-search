@@ -1,6 +1,15 @@
 """
 画像ベクトル化サービス
-OCI Generative AI Embedding Modelを使用して画像をベクトル化し、DBに保存
+
+OCI Generative AI Embedding Modelを使用して画像をベクトル化し、DBに保存するサービスです。
+Cohere Embed v4.0モデルを利用して、画像の特徴を数値ベクトルに変換します。
+
+主な機能:
+- OCI Generative AIクライアントの初期化と管理
+- 画像ファイルのベクトル化処理
+- ベクトルデータのデータベース保存
+- 類似画像検索機能
+- レート制限対応のリトライ処理
 """
 import array
 import base64

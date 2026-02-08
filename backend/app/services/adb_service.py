@@ -1,12 +1,31 @@
 """
 Autonomous Database 管理サービス
 """
+"""
+Autonomous Database サービス
+
+Oracle Autonomous Databaseの管理を行うサービスです。
+データベースの起動・停止、情報取得、状態監視などの機能を提供します。
+
+主な機能:
+- Autonomous Databaseクライアントの初期化
+- データベース情報の取得
+- データベースの起動・停止操作
+- データベース状態の監視
+- OCI APIとの連携
+
+設計原則:
+- OCI設定の検証とエラーハンドリング
+- 非同期処理による応答性の向上
+- 状態遷移の適切な管理
+"""
+
 import logging
 import os
 from typing import Optional
 
 import oci
-from app.models.adb import ADBGetResponse, ADBInfo, ADBOperationResponse
+from app.models.adb import ADBGetResponse, ADBOperationResponse
 from app.services.oci_service import oci_service
 
 logger = logging.getLogger(__name__)

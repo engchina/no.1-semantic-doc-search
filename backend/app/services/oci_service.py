@@ -47,6 +47,25 @@ OCI_API_JITTER = float(os.environ.get("OCI_API_JITTER", "0.1"))          # ラ�
 
 
 class OCIService:
+    """
+    Oracle Cloud Infrastructure サービス
+    
+    OCIとの連携を管理するサービスクラスです。
+    Object Storage操作、認証設定、APIクライアント管理などの機能を提供します。
+    
+    主な機能:
+    - OCI認証設定の管理と検証
+    - Object Storageクライアントの初期化
+    - ファイルのアップロード/ダウンロード/削除
+    - バケット操作（一覧取得、作成、削除）
+    - レート制限対応のリトライ処理
+    
+    設計原則:
+    - 設定ファイルと環境変数の柔軟な読み込み
+    - エラーハンドリングとリトライロジック
+    - リソースの適切な解放
+    - ログ出力による動作追跡
+    """
     def __init__(self):
         self.config_file = OCI_CONFIG_FILE
         self.key_file = OCI_KEY_FILE

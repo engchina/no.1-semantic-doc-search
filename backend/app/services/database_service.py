@@ -268,6 +268,26 @@ def _execute_db_operation(func_name: str, **kwargs) -> Dict[str, Any]:
         return {'success': False, 'message': user_msg}
     
 class DatabaseService:
+    """
+    データベース管理サービス
+    
+    Oracle Databaseとの接続と操作を管理するサービスクラスです。
+    接続プール管理、SQL実行、テーブル操作、Autonomous Database管理などの機能を提供します。
+    
+    主な機能:
+    - データベース接続設定の管理
+    - 接続プールの初期化と管理
+    - SQLクエリの実行と結果取得
+    - Autonomous Database Walletの管理
+    - テーブル情報の取得と管理
+    - データベースメタデータの操作
+    
+    設計原則:
+    - 接続プールによるリソース効率化
+    - トランザクションの適切な管理
+    - エラーハンドリングとリカバリ
+    - パフォーマンスモニタリング
+    """
     """データベース管理サービス（単例モード）
     
     接続プール方式:
