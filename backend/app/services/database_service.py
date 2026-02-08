@@ -1,7 +1,15 @@
-"""  
+"""
 データベース管理サービス
-Oracle Database接続とクエリ実行を管理
-接続プール経由でDB操作を実行（Thin mode対応）
+
+Oracle Database接続とクエリ実行を管理するサービスです。
+接続プール経由でDB操作を実行し、Thin modeに対応しています。
+
+主な機能:
+- データベース接続設定の管理
+- 接続プールの初期化と管理
+- SQLクエリの実行
+- Autonomous Database Walletの管理
+- テーブル情報の取得と管理
 """
 import asyncio
 import json

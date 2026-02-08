@@ -1,4 +1,15 @@
-import base64
+"""
+OCI (Oracle Cloud Infrastructure) サービス
+
+このモジュールは、Oracle Cloud Infrastructureとの連携を管理します。
+Object Storageへのファイルアップロード、ダウンロード、およびOCI API操作を提供します。
+
+主な機能:
+- OCI認証設定の管理
+- Object Storageクライアントの初期化
+- ファイルのアップロード/ダウンロード
+- レート制限対応のリトライ処理
+"""
 import configparser
 import json
 import logging
