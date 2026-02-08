@@ -611,8 +611,8 @@ async def list_oci_objects(
         
         total_pages = (total + page_size - 1) // page_size if total > 0 else 1
         
-        # 最適化: 正規表現パターンを事前コンパイル
-        page_image_pattern = re.compile(r'/page_\d{3}\.png$')
+        # 最適化: 正規表現パターンを事前コンパイル（3桁または6桁に対応）
+        page_image_pattern = re.compile(r'/page_(\d{3}|\d{6})\.png$')
         
         # 最適化: O(1)高速検索用のマップを構築
         page_images_map = {}  # {file_base_name: True}
@@ -760,6 +760,36 @@ async def list_oci_objects(
                 # ファイルの場合、フィルター条件に一致しているかチェック
                 if obj_name in filtered_file_names:
                     filtered_objects.append(obj)
+        
+        # ソートロジック: ファイル先 → ページ画像後、ページ画像は数値順
+        # 期待順序: ファイルA → ファイルAのページ画像(001,002,...,010,011,...) → ファイルB → ...
+        def get_sort_key(obj):
+            """ソートキーを生成"""
+            obj_name = obj["name"]
+            if is_generated_page_image(obj_name):
+                # ページ画像の場合: (親ファイル名, 1, ページ番号)
+                last_slash_index = obj_name.rfind('/')
+                parent_folder = obj_name[:last_slash_index] if last_slash_index != -1 else ""
+                # ページ番号を抽出
+                match = page_image_pattern.search(obj_name)
+                page_num = int(match.group(1)) if match else 0
+                return (parent_folder, 1, page_num)
+            else:
+                # ファイルの場合: (ファイル名（拡張子なし）, 0, 0)
+                file_base_name = re.sub(r'\.[^.]+$', '', obj_name)
+                return (file_base_name, 0, 0)
+        
+        # ソートキーを事前計算してキャッシュ（パフォーマンス最適化）
+        sort_key_cache = {id(obj): get_sort_key(obj) for obj in filtered_objects}
+        
+        # 2段階ソート（Pythonの安定ソートを利用）
+        # 1. まずタイプ（ファイル先）とページ番号（昇順）でソート
+        filtered_objects.sort(key=lambda obj: (
+            sort_key_cache[id(obj)][1],  # タイプ (0=ファイル, 1=ページ画像)
+            sort_key_cache[id(obj)][2]   # ページ番号（昇順）
+        ))
+        # 2. 次に基準名で降順ソート（安定ソートなので、同じ基準名内の順序は維持される）
+        filtered_objects.sort(key=lambda obj: sort_key_cache[id(obj)][0], reverse=True)
         
         # フィルタリング後のページネーション情報を計算
         filtered_total = len(filtered_objects)
