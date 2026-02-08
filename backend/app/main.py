@@ -1044,6 +1044,7 @@ async def upload_document(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"文書アップロードエラー: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/documents/upload/multiple")
 async def upload_multiple_documents(files: List[UploadFile] = File(...)):
     """

@@ -44,13 +44,13 @@ class OCIService:
     
     def _is_rate_limit_error(self, error: Exception) -> bool:
         """
-        エラーがレート制限関連かどうかを判定
+        エラーがレート制限関連かどうかを判定します。
         
         Args:
-            error: 発生した例外
+            error (Exception): 判定対象の例外オブジェクト
             
         Returns:
-            bool: レート制限エラーの場合はTrue
+            bool: レート制限エラーの場合はTrue、それ以外はFalse
         """
         error_str = str(error).lower()
         return (
@@ -63,14 +63,14 @@ class OCIService:
     
     def _calculate_backoff_delay(self, attempt: int, is_rate_limit: bool = False) -> float:
         """
-        指数バックオフ遅延時間を計算
+        指数バックオフ遅延時間を計算します。
         
         Args:
-            attempt: 試行回数 (0から開始)
-            is_rate_limit: レート制限エラーかどうか
+            attempt (int): 現在の試行回数 (0から開始)
+            is_rate_limit (bool): レート制限エラーによるリトライかどうか
             
         Returns:
-            float: 待機時間（秒）
+            float: 次のリトライまでの待機時間（秒）
         """
         if is_rate_limit:
             # レート制限の場合はより長い待機時間
@@ -93,18 +93,18 @@ class OCIService:
     
     def _retry_api_call(self, func, *args, **kwargs) -> Any:
         """
-        OCI API呼び出しにリトライメカニズムを適用
+        OCI API呼び出しにリトライメカニズムを適用して実行します。
         
         Args:
-            func: 実行する関数
-            *args: 関数の引数
-            **kwargs: 関数のキーワード引数
+            func (Callable): 実行するAPI関数
+            *args: 関数への位置引数
+            **kwargs: 関数へのキーワード引数
             
         Returns:
-            関数の戻り値
+            Any: API関数の実行結果
             
         Raises:
-            Exception: 最大リトライ回数に達した場合
+            Exception: 最大リトライ回数に達しても成功しなかった場合に送出されます
         """
         last_exception = None
         
@@ -140,7 +140,15 @@ class OCIService:
             raise last_exception
 
     def get_settings(self) -> OCISettings:
-        """保存された設定を読み込む"""
+        """
+        保存された設定を読み込みます。
+        
+        環境変数、設定ファイル（~/.oci/config）の順に設定を確認し、
+        OCISettingsオブジェクトを返します。
+        
+        Returns:
+            OCISettings: OCI設定オブジェクト
+        """
         # 環境変数から基本設定を取得
         bucket_name = os.environ.get("OCI_BUCKET")
         namespace = os.environ.get("OCI_NAMESPACE", "")  # 空でもOK
@@ -198,7 +206,17 @@ class OCIService:
             )
 
     def save_settings(self, settings: OCISettings) -> bool:
-        """設定を保存する"""
+        """
+        設定を保存します。
+        
+        秘密鍵ファイル（oci_api_key.pem）と設定ファイル（config）を更新します。
+        
+        Args:
+            settings (OCISettings): 保存するOCI設定
+            
+        Returns:
+            bool: 保存成功時はTrue、失敗時はFalse
+        """
         try:
             # ディレクトリを作成
             config_dir = os.path.dirname(self.config_file)
@@ -243,10 +261,13 @@ class OCIService:
 
     def test_connection(self, settings: Optional[OCISettings] = None) -> Dict[str, Any]:
         """
-        OCI接続テストを実行
+        OCI接続テストを実行します。
         
         Args:
-            settings: OCI設定(認証情報)
+            settings (Optional[OCISettings]): OCI設定(認証情報)。指定がない場合は保存済みの設定を使用します。
+            
+        Returns:
+            Dict[str, Any]: テスト結果を含む辞書
         """
         try:
             # 設定が渡されていない場合は保存済み設定を使用
@@ -300,7 +321,12 @@ class OCIService:
             }
     
     def get_oci_config(self) -> Dict[str, Any]:
-        """OCI設定を取得"""
+        """
+        OCI設定を取得します。
+        
+        Returns:
+            Dict[str, Any]: OCI設定の辞書
+        """
         if self._oci_config is None:
             settings = self.get_settings()
             if settings.key_content and settings.key_content != '[CONFIGURED]':
@@ -314,7 +340,12 @@ class OCIService:
         return self._oci_config
     
     def get_object_storage_client(self) -> oci.object_storage.ObjectStorageClient:
-        """Object Storage Clientを取得（OCI_REGION_DEPLOYを使用）"""
+        """
+        Object Storage Clientを取得します（OCI_REGION_DEPLOYを使用）。
+        
+        Returns:
+            oci.object_storage.ObjectStorageClient: Object Storageクライアントインスタンス
+        """
         if self._object_storage_client is None:
             config = self.get_oci_config()
             if config:
@@ -334,11 +365,11 @@ class OCIService:
     
     def get_namespace(self) -> Dict[str, Any]:
         """
-        Object StorageのNamespaceを取得
-        環境変数から優先、空ならOCI SDKで取得
+        Object StorageのNamespaceを取得します。
+        環境変数から優先的に取得し、空の場合はOCI SDKを使用して取得します。
         
         Returns:
-            namespace情報
+            Dict[str, Any]: namespace情報を含む辞書
         """
         try:
             # 環境変数から取得を試みる
@@ -357,7 +388,7 @@ class OCIService:
                 raise Exception("Object Storage Clientの取得に失敗しました")
             
             # Namespaceを取得
-            namespace = client.get_namespace().data
+            namespace = self._retry_api_call(client.get_namespace).data
             logger.info(f"NamespaceをOCI SDKから取得: {namespace}")
             
             return {
@@ -375,14 +406,14 @@ class OCIService:
     
     def save_object_storage_settings(self, bucket_name: str, namespace: str) -> Dict[str, Any]:
         """
-        Object Storage設定を.envファイルに保存
+        Object Storage設定を.envファイルに保存します。
         
         Args:
-            bucket_name: バケット名
-            namespace: ネームスペース
+            bucket_name (str): バケット名
+            namespace (str): ネームスペース
             
         Returns:
-            保存結果
+            Dict[str, Any]: 保存結果を含む辞書
         """
         try:
             # .envファイルのパスを取得
@@ -459,18 +490,18 @@ class OCIService:
     
     def list_objects(self, bucket_name: str, namespace: str, prefix: str = "", page_size: int = 50, page_token: Optional[str] = None, include_metadata: bool = False) -> Dict[str, Any]:
         """
-        Object Storage内のオブジェクト一覧を取得（リトライ対応）
+        Object Storage内のオブジェクト一覧を取得します（リトライ対応）。
         
         Args:
-            bucket_name: バケット名
-            namespace: ネームスペース
-            prefix: プレフィックス（フォルダパス）
-            page_size: ページサイズ
-            page_token: ページトークン（次ページ取得用）
-            include_metadata: メタデータ（原始ファイル名など）を含めるか
+            bucket_name (str): バケット名
+            namespace (str): ネームスペース
+            prefix (str): プレフィックス（フォルダパス）
+            page_size (int): ページサイズ
+            page_token (Optional[str]): ページトークン（次ページ取得用）
+            include_metadata (bool): メタデータ（原始ファイル名など）を含めるか
             
         Returns:
-            オブジェクト一覧とページ情報（階層構造情報付き）
+            Dict[str, Any]: オブジェクト一覧とページ情報（階層構造情報付き）
         """
         try:
             client = self.get_object_storage_client()
@@ -555,17 +586,17 @@ class OCIService:
     
     def upload_file(self, file_content, object_name: str, content_type: str = None, original_filename: str = None, file_size: int = None) -> bool:
         """
-        ファイルをObject Storageにアップロード（メタデータ付き）
+        ファイルをObject Storageにアップロードします（メタデータ付き）。
         
         Args:
             file_content: ファイル内容（バイナリデータまたはBytesIO）
-            object_name: Object名（パス含む）
-            content_type: Content-Type
-            original_filename: 原始ファイル名（日本語・スペース対応）
-            file_size: ファイルサイズ
+            object_name (str): Object名（パス含む）
+            content_type (str): Content-Type
+            original_filename (str): 原始ファイル名（日本語・スペース対応）
+            file_size (int): ファイルサイズ
             
         Returns:
-            成功した場合True
+            bool: 成功した場合True、失敗時はFalse
         """
         try:
             client = self.get_object_storage_client()
@@ -630,23 +661,24 @@ class OCIService:
     
     def get_object_metadata(self, bucket_name: str, namespace: str, object_name: str) -> Dict[str, Any]:
         """
-        Object Storage内のオブジェクトのメタデータを取得
+        Object Storage内のオブジェクトのメタデータを取得します。
         
         Args:
-            bucket_name: バケット名
-            namespace: ネームスペース
-            object_name: オブジェクト名
+            bucket_name (str): バケット名
+            namespace (str): ネームスペース
+            object_name (str): オブジェクト名
             
         Returns:
-            メタデータ情報
+            Dict[str, Any]: メタデータ情報を含む辞書
         """
         try:
             client = self.get_object_storage_client()
             if not client:
                 raise Exception("Object Storage Clientの取得に失敗しました")
             
-            # HEADリクエストでメタデータを取得
-            response = client.head_object(
+            # HEADリクエストでメタデータを取得（リトライ対応）
+            response = self._retry_api_call(
+                client.head_object,
                 namespace_name=namespace,
                 bucket_name=bucket_name,
                 object_name=object_name
@@ -694,16 +726,17 @@ class OCIService:
     
     def delete_objects(self, bucket_name: str, namespace: str, object_names: list) -> Dict[str, Any]:
         """
-        Object Storage内のオブジェクトを削除（リトライ対応）
+        Object Storage内のオブジェクトを削除します（リトライ対応）。
+        
         削除順序：画像ファイル → 画像フォルダ → ファイル本体
         
         Args:
-            bucket_name: バケット名
-            namespace: ネームスペース
-            object_names: 削除するオブジェクト名のリスト
+            bucket_name (str): バケット名
+            namespace (str): ネームスペース
+            object_names (list): 削除するオブジェクト名のリスト
             
         Returns:
-            削除結果
+            Dict[str, Any]: 削除結果を含む辞書
         """
         try:
             client = self.get_object_storage_client()
@@ -867,13 +900,13 @@ class OCIService:
     
     def download_object(self, object_name: str) -> Optional[bytes]:
         """
-        Object Storageからオブジェクトをダウンロード
+        Object Storageからオブジェクトをダウンロードします。
         
         Args:
-            object_name: オブジェクト名
+            object_name (str): オブジェクト名
             
         Returns:
-            オブジェクトのバイナリデータ、失敗時はNone
+            Optional[bytes]: オブジェクトのバイナリデータ、失敗時はNone
         """
         try:
             client = self.get_object_storage_client()
@@ -892,8 +925,9 @@ class OCIService:
             
             namespace = namespace_result.get("namespace")
             
-            # オブジェクトを取得
-            response = client.get_object(
+            # オブジェクトを取得（リトライ対応）
+            response = self._retry_api_call(
+                client.get_object,
                 namespace_name=namespace,
                 bucket_name=bucket_name,
                 object_name=object_name

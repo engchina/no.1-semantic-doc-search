@@ -1,7 +1,10 @@
 /**
  * OCI Object Storage管理モジュール
  * 
- * OCI Object Storageの操作、表示、フィルタリングを担当
+ * OCI Object Storageの操作、表示、フィルタリング、および
+ * ファイルのページ画像化・ベクトル化などのバッチ処理を担当します。
+ * 
+ * @module document
  */
 
 // ========================================
@@ -16,9 +19,11 @@ import { showLoading as utilsShowLoading, hideLoading as utilsHideLoading, showT
 // ========================================
 
 /**
- * ページ画像化で生成されたファイルかどうかを判定
- * @param {string} objectName - オブジェクト名
- * @param {Array} allObjects - 全オブジェクトのリスト
+ * ページ画像化で生成されたファイルかどうかを判定します。
+ * 親ファイル名とフォルダ構造に基づいて判定します。
+ * 
+ * @param {string} objectName - 判定対象のオブジェクト名
+ * @param {Array<Object>} [allObjects=[]] - 全オブジェクトのリスト（親ファイルの存在確認用）
  * @returns {boolean} ページ画像化されたファイルの場合true
  */
 export function isGeneratedPageImage(objectName, allObjects = []) {
@@ -40,8 +45,12 @@ export function isGeneratedPageImage(objectName, allObjects = []) {
 }
 
 /**
- * OCI Object Storage一覧を読み込み
- * @param {boolean} showLoadingOverlay - ローディングオーバーレイを表示するか（デフォルト: true）
+ * OCI Object Storageからオブジェクト一覧を読み込み、状態を更新します。
+ * ページネーション、フィルタリング、ソートが適用されます。
+ * 
+ * @async
+ * @param {boolean} [showLoadingOverlay=true] - ローディングオーバーレイを表示するかどうか
+ * @returns {Promise<void>}
  */
 export async function loadOciObjects(showLoadingOverlay = true) {
   try {
@@ -116,8 +125,12 @@ export async function loadOciObjects(showLoadingOverlay = true) {
 }
 
 /**
- * OCI Object Storage一覧を表示
- * @param {Object} data - OCI Objects データ
+ * 取得したOCIオブジェクト一覧をUIに表示します。
+ * フィルタリングUI、ページネーションUI、操作ボタンなども生成します。
+ * 
+ * @param {Object} data - APIから返却されたOCIオブジェクトデータ
+ * @param {Array} data.objects - オブジェクトのリスト
+ * @param {Object} data.pagination - ページネーション情報
  */
 export function displayOciObjectsList(data) {
   const listDiv = document.getElementById('documentsList');
@@ -355,8 +368,14 @@ export function displayOciObjectsList(data) {
 // ========================================
 
 /**
- * オブジェクト行のHTMLを生成
+ * オブジェクト一覧の各行のHTMLを生成します。
+ * 
  * @private
+ * @param {Object} obj - オブジェクトデータ
+ * @param {Array} allOciObjects - 全オブジェクトリスト
+ * @param {Array} selectedOciObjects - 選択済みオブジェクトリスト
+ * @param {boolean} ociObjectsBatchDeleteLoading - 処理中フラグ
+ * @returns {string} HTML文字列
  */
 function generateObjectRow(obj, allOciObjects, selectedOciObjects, ociObjectsBatchDeleteLoading) {
   const isFolder = obj.name.endsWith('/');
@@ -400,8 +419,11 @@ function generateObjectRow(obj, allOciObjects, selectedOciObjects, ociObjectsBat
 }
 
 /**
- * バイト数をフォーマット
+ * バイト数を人間が読みやすい形式（KB, MB, GB）にフォーマットします。
+ * 
  * @private
+ * @param {number} bytes - バイト数
+ * @returns {string} フォーマットされた文字列
  */
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -412,16 +434,23 @@ function formatBytes(bytes) {
 }
 
 /**
- * ドキュメントステータスバッジを更新
+ * ドキュメントステータスバッジを更新します。
+ * 
  * @private
+ * @param {string} text - 表示テキスト
+ * @param {string} type - バッジタイプ ('success', 'error'など)
  */
 function updateDocumentsStatusBadge(text, type) {
   utilsUpdateStatusBadge('documentsStatusBadge', text, type);
 }
 
 /**
- * ドキュメント統計バッジを更新
+ * ドキュメント統計バッジを更新します。
+ * ファイル数とページ画像数を表示します。
+ * 
  * @private
+ * @param {Object} statistics - 統計情報
+ * @param {string} type - バッジタイプ
  */
 function updateDocumentsStatisticsBadges(statistics, type) {
   const fileCountBadge = document.getElementById('documentsFileCountBadge');
@@ -442,7 +471,7 @@ function updateDocumentsStatisticsBadges(statistics, type) {
 // ========================================
 
 /**
- * 前ページへ移動
+ * 前のページへ移動します。
  */
 export function handleOciObjectsPrevPage() {
   const currentPage = appState.get('ociObjectsPage');
@@ -453,7 +482,7 @@ export function handleOciObjectsPrevPage() {
 }
 
 /**
- * 次ページへ移動
+ * 次のページへ移動します。
  */
 export function handleOciObjectsNextPage() {
   const currentPage = appState.get('ociObjectsPage');
@@ -465,7 +494,8 @@ export function handleOciObjectsNextPage() {
 }
 
 /**
- * 指定ページへジャンプ
+ * 指定されたページへジャンプします。
+ * 入力フィールドの値を使用します。
  */
 export function handleOciObjectsJumpPage() {
   const input = document.getElementById('ociObjectsPageInput');
@@ -487,7 +517,9 @@ export function handleOciObjectsJumpPage() {
 // ========================================
 
 /**
- * オブジェクトの選択状態を切り替え
+ * 指定されたオブジェクトの選択状態を切り替えます。
+ * 画面のスクロール位置を保持しながら再描画します。
+ * 
  * @param {string} objectName - オブジェクト名
  */
 export function toggleOciObjectSelectionHandler(objectName) {
@@ -512,7 +544,8 @@ export function toggleOciObjectSelectionHandler(objectName) {
 }
 
 /**
- * ページ全体の選択状態を切り替え
+ * 現在のページのすべてのオブジェクトの選択状態を切り替えます。
+ * 
  * @param {boolean} checked - チェック状態
  */
 export function toggleSelectAllOciObjects(checked) {
@@ -542,7 +575,7 @@ export function toggleSelectAllOciObjects(checked) {
 }
 
 /**
- * すべて選択
+ * リスト内のすべての選択可能なオブジェクトを選択します。
  */
 export function selectAllOciObjects() {
   // スクロール位置を保存
@@ -567,7 +600,7 @@ export function selectAllOciObjects() {
 }
 
 /**
- * すべて解除
+ * すべての選択を解除します。
  */
 export function clearAllOciObjects() {
   // スクロール位置を保存
@@ -591,7 +624,8 @@ export function clearAllOciObjects() {
 // ========================================
 
 /**
- * ページ画像化フィルターを設定
+ * ページ画像化状態によるフィルターを設定します。
+ * 
  * @param {string} filter - フィルター値 ('all' | 'done' | 'not_done')
  */
 export function setOciObjectsFilterPageImages(filter) {
@@ -601,7 +635,8 @@ export function setOciObjectsFilterPageImages(filter) {
 }
 
 /**
- * ベクトル化フィルターを設定
+ * ベクトル化状態によるフィルターを設定します。
+ * 
  * @param {string} filter - フィルター値 ('all' | 'done' | 'not_done')
  */
 export function setOciObjectsFilterEmbeddings(filter) {
@@ -611,7 +646,7 @@ export function setOciObjectsFilterEmbeddings(filter) {
 }
 
 /**
- * すべてのフィルターをクリア
+ * すべてのフィルターをクリアし、デフォルト状態に戻します。
  */
 export function clearOciObjectsFilters() {
   appState.set('ociObjectsFilterPageImages', 'all');
@@ -621,7 +656,8 @@ export function clearOciObjectsFilters() {
 }
 
 /**
- * 表示タイプフィルターを設定
+ * 表示タイプフィルター（ファイルのみ/すべて）を設定します。
+ * 
  * @param {string} displayType - 表示タイプ ('files_only' | 'files_and_images')
  */
 export function setOciObjectsDisplayType(displayType) {
@@ -635,7 +671,11 @@ export function setOciObjectsDisplayType(displayType) {
 // ========================================
 
 /**
- * 選択されたOCIオブジェクトをZIPでダウンロード
+ * 選択されたOCIオブジェクトをZIP形式でダウンロードします。
+ * フォルダが含まれる場合は再帰的にダウンロードされます。
+ * 
+ * @async
+ * @returns {Promise<void>}
  */
 export async function downloadSelectedOciObjects() {
   const selectedOciObjects = getSelectedOciObjects();
@@ -729,7 +769,11 @@ export async function downloadSelectedOciObjects() {
 }
 
 /**
- * 選択されたOCIオブジェクトをページ毎に画像化
+ * 選択されたOCIオブジェクトをページごとに画像化（PDF/PPTX等）します。
+ * サーバー側で処理を実行し、進捗をSSEで受信します。
+ * 
+ * @async
+ * @returns {Promise<void>}
  */
 export async function convertSelectedOciObjectsToImages() {
   const selectedOciObjects = getSelectedOciObjects();
@@ -820,7 +864,11 @@ export async function convertSelectedOciObjectsToImages() {
 }
 
 /**
- * 選択されたOCIオブジェクトをベクトル化してDBに保存
+ * 選択されたOCIオブジェクトをベクトル化してデータベースに保存します。
+ * 未画像化のファイルは自動的に画像化されます。既存のベクトルデータは削除・再作成されます。
+ * 
+ * @async
+ * @returns {Promise<void>}
  */
 export async function vectorizeSelectedOciObjects() {
   const selectedOciObjects = getSelectedOciObjects();
@@ -927,7 +975,11 @@ export async function vectorizeSelectedOciObjects() {
 }
 
 /**
- * 選択されたオブジェクトを削除
+ * 選択されたOCIオブジェクトを削除します。
+ * 確認モーダルを表示後、サーバーに削除リクエストを送信します。
+ * 
+ * @async
+ * @returns {Promise<void>}
  */
 export async function deleteSelectedOciObjects() {
   const selectedOciObjects = getSelectedOciObjects();
@@ -1021,8 +1073,15 @@ export async function deleteSelectedOciObjects() {
 // ========================================
 
 /**
- * ストリーミングレスポンスの処理（共通）
+ * SSE (Server-Sent Events) ストリーミングレスポンスを処理します。
+ * 各種イベント（進捗、エラー、完了など）に応じてUIを更新します。
+ * 
  * @private
+ * @async
+ * @param {Response} response - Fetch APIのレスポンスオブジェクト
+ * @param {number} totalFiles - 処理対象の総ファイル数
+ * @param {string} operationType - 操作種別 ('convert', 'vectorize', 'delete')
+ * @returns {Promise<void>}
  */
 async function processStreamingResponse(response, totalFiles, operationType) {
   console.log('🔴 processStreamingResponse called:', { totalFiles, operationType });
@@ -1470,11 +1529,13 @@ async function processStreamingResponse(response, totalFiles, operationType) {
 }
 
 /**
- * ローディングメッセージを更新（プログレスバー付き、キャンセルボタン対応）
+ * ローディングメッセージを更新します。プログレスバーとキャンセルボタンも制御します。
+ * メインページ進捗UIが表示されている場合は、そちらが優先されるためスキップします。
+ * 
  * @private
  * @param {string} message - 表示するメッセージ
- * @param {number|null} progress - 進捗率 (0-1)
- * @param {string|null} jobId - ジョブID（キャンセル用）
+ * @param {number|null} [progress=null] - 進捗率 (0-1)
+ * @param {string|null} [jobId=null] - ジョブID（キャンセル用）
  */
 function updateLoadingMessage(message, progress = null, jobId = null) {
   // メインページ進捗UIが表示されている場合は、ローディングオーバーレイを更新しない
@@ -1549,7 +1610,9 @@ let processOperationType = null;
 let processJobId = null;
 
 /**
- * 処理進捗UIを表示（削除・ベクトル化用）
+ * メインページに進捗状況を表示するUIを初期化・表示します。
+ * （削除やベクトル化などの長時間処理用）
+ * 
  * @param {Array<string>} objectNames - 対象オブジェクト名の配列
  * @param {string} operationType - 操作種別 ('delete' | 'vectorize')
  */
@@ -1642,15 +1705,16 @@ function showProcessProgressUI(objectNames, operationType) {
 }
 
 /**
- * 処理進捗UIを更新
+ * メインページ進捗UIの内容を更新します。
+ * 
  * @param {Object} params - 更新パラメータ
- * @param {number} params.fileIndex - ファイルインデックス (1始まり)
- * @param {string} params.status - ステータスメッセージ
- * @param {number} params.progress - 進捗率 (0-100)
- * @param {boolean} params.isSuccess - 成功フラグ
- * @param {boolean} params.isError - エラーフラグ
- * @param {string} params.overallStatus - 全体ステータス
- * @param {string} params.jobId - ジョブID（キャンセル用）
+ * @param {number} [params.fileIndex] - ファイルインデックス (1始まり)
+ * @param {string} [params.status] - ステータスメッセージ
+ * @param {number} [params.progress] - 進捗率 (0-100)
+ * @param {boolean} [params.isSuccess] - 成功フラグ
+ * @param {boolean} [params.isError] - エラーフラグ
+ * @param {string} [params.overallStatus] - 全体ステータス
+ * @param {string} [params.jobId] - ジョブID（キャンセル用）
  */
 function updateProcessProgressUI(params) {
   const { fileIndex, status, progress, isSuccess, isError, overallStatus, jobId } = params;
@@ -1732,7 +1796,8 @@ function updateProcessProgressUI(params) {
 }
 
 /**
- * 処理進捗UIを非表示
+ * メインページ進捗UIを非表示にします。
+ * 状態をリセットし、オブジェクト一覧を再読み込みします。
  */
 function hideProcessProgressUI() {
   const progressDiv = document.getElementById('processProgress');
@@ -1751,7 +1816,8 @@ function hideProcessProgressUI() {
 }
 
 /**
- * 処理完了時に閉じるボタンを表示
+ * 処理完了時に、進捗UIに「閉じる」ボタンを表示します。
+ * キャンセルボタンは非表示になります。
  */
 function showProcessProgressCloseButton() {
   const closeBtn = document.getElementById('closeProcessProgressBtn');
@@ -1767,7 +1833,8 @@ function showProcessProgressCloseButton() {
 }
 
 /**
- * 処理進捗UIを手動で閉じる
+ * 処理進捗UIを手動で閉じます。
+ * 選択状態もクリアされます。
  */
 function closeProcessProgress() {
   hideProcessProgressUI();
@@ -1828,7 +1895,12 @@ export default {
   deleteSelectedOciObjects
 };
 
-
+/**
+ * データベースのテーブル一覧と統計情報を再取得します。
+ * 
+ * @async
+ * @returns {Promise<void>}
+ */
 export async function refreshDbTables() {
   try {
     utilsShowLoading('統計情報を再取得中...');
@@ -1861,7 +1933,12 @@ export async function refreshDbTables() {
   }
 }
 
-// ストレージ情報を読み込み
+/**
+ * データベースのストレージ使用状況を取得し、UIに表示します。
+ * 
+ * @async
+ * @returns {Promise<void>}
+ */
 export async function loadDbStorage() {
   console.log('[DEBUG] db.jsのloadDbStorageが呼び出されました');
   try {
@@ -1995,7 +2072,12 @@ export async function loadDbStorage() {
   }
 }
 
-// ストレージ情報再取得ボタン
+/**
+ * データベースのストレージ使用状況を再取得します（手動リフレッシュ）。
+ * 
+ * @async
+ * @returns {Promise<void>}
+ */
 export async function refreshDbStorage() {
   console.log('[DEBUG] db.jsのrefreshDbStorageが呼び出されました');
   try {

@@ -1,7 +1,10 @@
 /**
  * 認証モジュール
  * 
- * ログイン、ログアウト、認証状態管理を担当
+ * ログイン、ログアウト、認証状態管理を担当します。
+ * APIリクエストの認証ヘッダー付与や、セッションタイムアウト時の処理も行います。
+ * 
+ * @module auth
  */
 
 // ========================================
@@ -25,8 +28,12 @@ const API_BASE = import.meta.env.VITE_API_BASE || '';
 // ========================================
 
 /**
- * UI機能トグルを適用
+ * UI機能トグルを適用します。
+ * サーバー設定に基づいて、AIアシスタントや検索タブなどの機能の表示/非表示を制御します。
+ * 
  * @param {Object} config - 設定オブジェクト
+ * @param {boolean} [config.show_ai_assistant=true] - AIアシスタントを表示するかどうか
+ * @param {boolean} [config.show_search_tab=true] - 検索タブを表示するかどうか
  */
 function applyUIFeatureToggles(config) {
   // AI Assistantの表示制御
@@ -68,7 +75,11 @@ function applyUIFeatureToggles(config) {
 }
 
 /**
- * 設定を読み込む
+ * サーバーから設定を読み込み、アプリケーションの状態に適用します。
+ * APIベースURL、デバッグモード、認証要否などの設定が含まれます。
+ * 
+ * @async
+ * @returns {Promise<void>}
  */
 export async function loadConfig() {
   console.log('[AUTH.JS] loadConfig が呼び出されました');
@@ -99,7 +110,8 @@ export async function loadConfig() {
 // ========================================
 
 /**
- * ログインモーダルを表示
+ * ログインモーダルを表示します。
+ * ユーザー名入力フィールドにフォーカスを当てます。
  */
 export function showLoginModal() {
   console.log('[AUTH.JS] showLoginModal が呼び出されました');
@@ -114,7 +126,8 @@ export function showLoginModal() {
 }
 
 /**
- * ログインモーダルを非表示
+ * ログインモーダルを非表示にします。
+ * 入力フォームとエラーメッセージをリセットします。
  */
 export function hideLoginModal() {
   console.log('[AUTH.JS] hideLoginModal が呼び出されました');
@@ -133,7 +146,7 @@ export function hideLoginModal() {
 }
 
 /**
- * パスワード表示切替
+ * ログインパスワードの表示/非表示を切り替えます。
  */
 export function toggleLoginPassword() {
   console.log('[AUTH.JS] toggleLoginPassword が呼び出されました');
@@ -149,8 +162,12 @@ export function toggleLoginPassword() {
 // ========================================
 
 /**
- * ログイン処理
+ * ログイン処理を実行します。
+ * ユーザー名とパスワードを送信し、トークンを取得して保存します。
+ * 
+ * @async
  * @param {Event} event - フォーム送信イベント
+ * @returns {Promise<void>}
  */
 export async function handleLogin(event) {
   console.log('[AUTH.JS] handleLogin が呼び出されました');
@@ -237,7 +254,11 @@ export async function handleLogin(event) {
 }
 
 /**
- * ログアウト処理
+ * ログアウト処理を実行します。
+ * トークンを無効化し、ローカルストレージとアプリケーション状態をクリアします。
+ * 
+ * @async
+ * @returns {Promise<void>}
  */
 export async function handleLogout() {
   console.log('[AUTH.JS] handleLogout が呼び出されました');
@@ -276,7 +297,8 @@ export async function handleLogout() {
 // ========================================
 
 /**
- * ユーザー情報表示を更新
+ * ログイン状態に基づいてユーザー情報の表示を更新します。
+ * ログイン中はユーザー名を表示し、ログアウト中は非表示にします。
  */
 export function updateUserInfo() {
   console.log('[AUTH.JS] updateUserInfo が呼び出されました');
@@ -295,7 +317,11 @@ export function updateUserInfo() {
 }
 
 /**
- * ログイン状態を確認
+ * アプリケーション起動時にログイン状態を確認します。
+ * ローカルストレージにトークンがある場合はログイン状態を復元します。
+ * 
+ * @async
+ * @returns {Promise<void>}
  */
 export async function checkLoginStatus() {
   console.log('[AUTH.JS] checkLoginStatus が呼び出されました');
@@ -330,8 +356,8 @@ export async function checkLoginStatus() {
 }
 
 /**
- * 強制ログアウト処理（401エラー時に呼び出し）
- * referenceプロジェクトの実装に準拠
+ * セッション期限切れなどで強制的にログアウトさせます（401エラー時など）。
+ * ユーザーに通知を表示し、ログインモーダルを開きます。
  */
 export function forceLogout() {
   console.log('[AUTH.JS] forceLogout が呼び出されました');
@@ -354,10 +380,14 @@ export function forceLogout() {
 // ========================================
 
 /**
- * APIコールヘルパー(認証トークン付き)
- * @param {string} endpoint - APIエンドポイント
- * @param {Object} options - fetchオプション
- * @returns {Promise<any>} レスポンスJSON
+ * 認証トークン付きでAPIを呼び出すヘルパー関数です。
+ * 自動的にAuthorizationヘッダーを付与し、401エラー時の再ログイン処理などをハンドリングします。
+ * 
+ * @async
+ * @param {string} endpoint - APIエンドポイント（例: '/api/data'）
+ * @param {Object} [options={}] - fetch APIのオプション
+ * @returns {Promise<any>} レスポンスのJSONデータ
+ * @throws {Error} APIリクエストが失敗した場合、または認証エラーが発生した場合
  */
 export async function apiCall(endpoint, options = {}) {
   console.log(`[AUTH.JS] apiCall が呼び出されました: ${endpoint}`);

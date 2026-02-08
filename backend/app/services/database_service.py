@@ -1,54 +1,46 @@
 """  
 データベース管理サービス
 Oracle Database接続とクエリ実行を管理
-接続プール経由でDB操作を実行（Thin mode対応）
 """
-import asyncio
-import json
 import logging
+import json
 import os
-import re
-import shutil
 import zipfile
-from concurrent.futures import ThreadPoolExecutor  # 必要に応じて使用
-from datetime import datetime
-from functools import partial
+import shutil
+import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-from app.services.connection_pool_manager import ConnectionPoolManager
+from typing import Optional, Dict, Any, List
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor  # 必要に応じて使用
+from functools import partial
 
 logger = logging.getLogger(__name__)
 
-def setup_tns_admin() -> Optional[str]:
+def setup_tns_admin() -> str:
     """
     Setup TNS_ADMIN environment variable if not already set
     
-    TNS_ADMINはinit_script.shでも設定されますが、
-    Python側でも明示的に設定することで再起動後の一貫性を保証します。
-    
     Returns:
-        Optional[str]: TNS_ADMIN path, or None if ORACLE_CLIENT_LIB_DIR is not set
+        str: TNS_ADMIN path
     """
     if not os.environ.get('TNS_ADMIN'):
-        # TNS_ADMINは常に ORACLE_CLIENT_LIB_DIR/network/admin を使用
         lib_dir = os.environ.get('ORACLE_CLIENT_LIB_DIR')
         if not lib_dir:
-            # ORACLE_CLIENT_LIB_DIRが設定されていない場合は.envから読み込みを試みる
-            logger.warning("ORACLE_CLIENT_LIB_DIR環境変数が設定されていません。.envファイルから読み込みを試みます...")
-            try:
-                from dotenv import load_dotenv
-                load_dotenv()
-                lib_dir = os.environ.get('ORACLE_CLIENT_LIB_DIR')
-                if lib_dir:
-                    logger.info(f".envからORACLE_CLIENT_LIB_DIRを読み込みました: {lib_dir}")
-            except ImportError:
-                logger.error("python-dotenvモジュールが利用できません")
+            # Try to find valid instant client path
+            candidates = [
+                '/u01/aipoc/instantclient_23_8',
+                '/u01/aipoc/instantclient_23_9',
+                '/u01/aipoc/instantclient_23_26'
+            ]
+            for path in candidates:
+                if os.path.exists(path):
+                    lib_dir = path
+                    break
             
+            # Fallback to default if not found
             if not lib_dir:
-                logger.error("ORACLE_CLIENT_LIB_DIRが設定されていません")
-                return None
-        
+                lib_dir = '/u01/aipoc/instantclient_23_26'
+
         wallet_location = os.path.join(lib_dir, "network", "admin")
         os.environ['TNS_ADMIN'] = wallet_location
         logger.info(f"Set TNS_ADMIN to: {wallet_location}")
@@ -65,13 +57,42 @@ try:
     import platform
     ORACLEDB_AVAILABLE = True
     
-    # Thin modeを使用（Oracle Clientは不要）
+    # Linux の場合、Oracle Client ライブラリを初期化
+    _oracle_client_initialized = False
 except ImportError:
     logger.warning("oracledb モジュールが利用できません。pip install oracledb を実行してください。")
     ORACLEDB_AVAILABLE = False
+    _oracle_client_initialized = False
 
 
-# Thin modeでは init_oracle_client() は不要（削除済み）
+def init_oracle_client():
+    """
+    Initialize Oracle Client library (Linux only, one-time initialization)
+    """
+    global _oracle_client_initialized
+    
+    if _oracle_client_initialized:
+        return True
+    
+    if not ORACLEDB_AVAILABLE:
+        return False
+    
+    try:
+        if platform.system() == 'Linux':
+            lib_dir = os.environ.get('ORACLE_CLIENT_LIB_DIR')
+            if lib_dir and os.path.exists(lib_dir):
+                logger.info(f"Initializing Oracle Client with lib_dir: {lib_dir}")
+                oracledb.init_oracle_client(lib_dir=lib_dir)
+                _oracle_client_initialized = True
+                logger.info("Oracle Client initialized successfully")
+            else:
+                logger.warning(f"ORACLE_CLIENT_LIB_DIR not set or does not exist: {lib_dir}")
+        else:
+            _oracle_client_initialized = True  # Non-Linux doesn't need init
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize Oracle Client: {e}")
+        return False
 
 
 def _execute_db_operation(func_name: str, **kwargs) -> Dict[str, Any]:
@@ -97,10 +118,17 @@ def _execute_db_operation(func_name: str, **kwargs) -> Dict[str, Any]:
     if not ORACLEDB_AVAILABLE:
         logger.error("  ✘ oracledbモジュールが利用できません")
         return {'success': False, 'message': 'oracledbモジュールがインストールされていません'}
-    logger.info(f"  ✔ oracledb version: {oracledb.__version__} (Thin mode)")
+    logger.info(f"  ✔ oracledb version: {oracledb.__version__}")
     
-    # Step 2: Wallet場所設定（Thin mode）
-    logger.info("[Step 2] Wallet場所設定（Thin mode）")
+    # Step 2: Oracle Client初期化
+    logger.info("[Step 2] Oracle Client初期化")
+    if not init_oracle_client():
+        logger.error("  ✘ Oracle Clientの初期化に失敗")
+        return {'success': False, 'message': 'Oracle Clientの初期化に失敗しました'}
+    logger.info("  ✔ Oracle Client初期化成功")
+    
+    # Step 3: TNS_ADMIN設定
+    logger.info("[Step 3] TNS_ADMIN設定")
     tns_admin = setup_tns_admin()
     logger.info(f"  TNS_ADMIN: {tns_admin}")
     
@@ -112,20 +140,15 @@ def _execute_db_operation(func_name: str, **kwargs) -> Dict[str, Any]:
     wallet_files = os.listdir(tns_admin)
     logger.info(f"  Walletファイル: {wallet_files}")
     
-    # 必須ウォレットファイルのチェック（4つ）
-    required_files = ['cwallet.sso', 'ewallet.pem', 'sqlnet.ora', 'tnsnames.ora']
+    required_files = ['cwallet.sso', 'tnsnames.ora']
     missing = [f for f in required_files if f not in wallet_files]
     if missing:
         logger.error(f"  ✘ 必要なWalletファイルが不足: {missing}")
-        logger.error("  必須: cwallet.sso (自動ログイン), ewallet.pem (PEM形式証明書), sqlnet.ora (ネットワーク設定), tnsnames.ora (接続文字列)")
         return {'success': False, 'message': f'必要なWalletファイルが不足: {missing}'}
-    logger.info("  ✔ すべての必須Walletファイルが確認されました")
-    logger.info("    - cwallet.sso (自動ログイン)")
-    logger.info("    - ewallet.pem (PEM形式証明書)")
-    logger.info("    - sqlnet.ora (ネットワーク設定)")
-    logger.info("    - tnsnames.ora (接続文字列)")
+    logger.info("  ✔ WalletファイルOK")
     
     # 利用可能なサービス確認
+    import re
     tnsnames_path = os.path.join(tns_admin, 'tnsnames.ora')
     available_services = []
     if os.path.exists(tnsnames_path):
@@ -177,17 +200,13 @@ def _execute_db_operation(func_name: str, **kwargs) -> Dict[str, Any]:
                 logger.info(f"  接続開始時刻: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}")
                 start_time = time.time()
                 
-                # Thin mode接続(Wallet使用)
-                # 注: Walletのパスワードは ORACLE_26AI_CONNECTION_STRING のパスワードを使用
-                logger.info("  >>> oracledb.connect()呼び出し中... (Thin mode, タイムアウト: 10秒)")
+                # シンプルな接続（参照プロジェクトと同じ方式）
+                logger.info("  >>> oracledb.connect()呼び出し中... (ハングする場合はDB停止の可能性)")
                 connection = oracledb.connect(
                     user=username,
                     password=password,
                     dsn=dsn,
-                    config_dir=tns_admin,  # Wallet場所
-                    wallet_location=tns_admin,  # Wallet場所
-                    wallet_password=password,  # Walletのパスワード
-                    tcp_connect_timeout=10  # 10秒でタイムアウト(推奨値)
+                    tcp_connect_timeout=30  # 30秒でタイムアウト
                 )
                 
                 elapsed = time.time() - start_time
@@ -259,15 +278,16 @@ def _execute_db_operation(func_name: str, **kwargs) -> Dict[str, Any]:
         
         return {'success': False, 'message': user_msg}
     
+    return {'success': False, 'message': f'不明な操作: {func_name}'}
+
+
 class DatabaseService:
     """データベース管理サービス（単例モード）
     
-    接続プール方式:
-    - ConnectionPoolManagerを使用した接続プール管理
-    - 遅延初期化: 初回のDB操作時に接続プールを作成
-    - リトライ機能: 接続プール作成失敗時、最大3回リトライ
-    - Thin mode対応: Oracle Clientライブラリ不要
-    - TNS_ADMIN環境変数を使用
+    参照プロジェクト（No.1-SQL-Assist）の実装方式に基づく:
+    - 接続プールを使用せず、単純な接続方式
+    - TNS_ADMIN環境変数を使用（config_dirパラメータは使用しない）
+    - 各操作前に接続状態をチェックし、必要に応じて再接続
     """
     _instance = None
     _initialized = False
@@ -285,44 +305,12 @@ class DatabaseService:
     def __init__(self):
         """初期化（一度だけ実行）"""
         if not self.__class__._initialized:
-            self.pool_manager = ConnectionPoolManager()
+            self.connection = None
             self.settings = self._load_settings()
             self.__class__._initialized = True
             logger.info("========== DatabaseService初期化 ==========")
-            logger.info("データベースサービスを単例モードで初期化しました（接続プール方式）")
+            logger.info("データベースサービスを単例モードで初期化しました")
             logger.info(f"MAX_RETRIES={self.MAX_RETRIES}, RETRY_DELAY={self.RETRY_DELAY}秒")
-    
-    def _ensure_pool_initialized(self) -> bool:
-        """接続プールが初期化されていることを保証（遅延初期化）
-        
-        Returns:
-            bool: 初期化成功の場合True
-        """
-        pool = self.pool_manager.get_pool()
-        if pool is not None:
-            return True
-        
-        # 接続情報を取得
-        username = self.settings.get("username")
-        password = self.settings.get("password")
-        dsn = self.settings.get("dsn")
-        
-        # 設定が不完全な場合、.envから取得
-        if not username or not password or not dsn:
-            logger.info("設定が不完全、.envから取得を試みます...")
-            env_info = self.get_env_connection_info()
-            if env_info.get("success"):
-                username = username or env_info.get("username")
-                password = password or env_info.get("password")
-                dsn = dsn or env_info.get("dsn")
-        
-        if not username or not password or not dsn:
-            logger.error("接続情報が不完全です")
-            return False
-        
-        # 接続プールを初期化
-        logger.info("接続プールを遅延初期化します...")
-        return self.pool_manager.initialize_pool(username, password, dsn)
     
     def is_connected(self) -> bool:
         """データベース接続状態をチェック
@@ -331,24 +319,60 @@ class DatabaseService:
             bool: 接続が有効な場合True
         """
         try:
-            if not self._ensure_pool_initialized():
-                logger.debug("接続状態チェック: プール未初期化")
+            if self.connection is None:
+                logger.debug("接続状態チェック: connectionはNone")
                 return False
-            
             # 簡単なクエリでテスト
-            with self.pool_manager.acquire_connection() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT 1 FROM DUAL")
-                    cursor.fetchone()
-            
+            with self.connection.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM DUAL")
+                cursor.fetchone()
             logger.debug("接続状態チェック: 接続有効")
             return True
         except Exception as e:
             logger.warning(f"接続状態チェック: 接続無効 - {e}")
             return False
     
-    # 注: 接続プール管理に移行したため、_reconnect_with_retry()は廃止
-    # 接続プールが自動的に接続を管理します
+    def _reconnect_with_retry(self) -> bool:
+        """リトライロジックでデータベースに再接続
+        
+        Returns:
+            bool: 再接続成功の場合True
+        """
+        logger.info("========== データベース再接続開始 ==========")
+        
+        import time
+        for retry in range(self.MAX_RETRIES):
+            try:
+                logger.info(f"再接続試行 {retry + 1}/{self.MAX_RETRIES}")
+                
+                # 既存接続をクローズ
+                if self.connection:
+                    try:
+                        self.connection.close()
+                        logger.info("既存接続をクローズしました")
+                    except Exception as close_err:
+                        logger.warning(f"既存接続クローズエラー: {close_err}")
+                    self.connection = None
+                
+                # 新しい接続を作成
+                self.connection = self._create_connection_internal()
+                
+                if self.is_connected():
+                    logger.info(f"再接続成功 (試行{retry + 1}回目)")
+                    return True
+                
+                if retry < self.MAX_RETRIES - 1:
+                    logger.info(f"{self.RETRY_DELAY}秒後にリトライ...")
+                    time.sleep(self.RETRY_DELAY)
+                    
+            except Exception as e:
+                logger.error(f"再接続試行 {retry + 1} 失敗: {e}")
+                if retry < self.MAX_RETRIES - 1:
+                    logger.info(f"{self.RETRY_DELAY}秒後にリトライ...")
+                    time.sleep(self.RETRY_DELAY)
+        
+        logger.error(f"再接続失敗: {self.MAX_RETRIES}回試行後")
+        return False
     
     def _create_connection_internal(self) -> Optional[Any]:
         """データベース接続を内部的に作成（リトライなし）
@@ -396,8 +420,15 @@ class DatabaseService:
             return None
         logger.info(f"  ✔ 接続情報OK: username={username}, dsn={dsn}")
         
-        # Step 3: Wallet場所確認（Thin mode）
-        logger.info("[Step 3] Wallet場所確認（Thin mode）")
+        # Step 3: Oracle Client初期化
+        logger.info("[Step 3] Oracle Client初期化")
+        if not init_oracle_client():
+            logger.error("  ✘ Oracle Clientの初期化に失敗しました")
+            return None
+        logger.info("  ✔ Oracle Client初期化成功")
+        
+        # Step 4: Wallet場所確認とTNS_ADMIN設定
+        logger.info("[Step 4] Wallet場所確認とTNS_ADMIN設定")
         wallet_location = self._get_wallet_location()
         logger.info(f"  ORACLE_CLIENT_LIB_DIR: {os.getenv('ORACLE_CLIENT_LIB_DIR')}")
         logger.info(f"  Wallet場所: {wallet_location}")
@@ -414,14 +445,11 @@ class DatabaseService:
         wallet_files = os.listdir(wallet_location)
         logger.info(f"  Walletファイル: {wallet_files}")
         
-        # 必須ウォレットファイルのチェック（4つ）
-        required_files = ['cwallet.sso', 'ewallet.pem', 'sqlnet.ora', 'tnsnames.ora']
+        required_files = ['cwallet.sso', 'tnsnames.ora']
         missing_files = [f for f in required_files if f not in wallet_files]
         if missing_files:
             logger.error(f"  ✘ 必要なWalletファイルが不足: {missing_files}")
-            logger.error("  必須: cwallet.sso (自動ログイン), ewallet.pem (PEM形式証明書), sqlnet.ora (ネットワーク設定), tnsnames.ora (接続文字列)")
             return None
-        logger.info("  ✔ すべての必須Walletファイルが確認されました")
         
         # TNS_ADMIN設定
         os.environ['TNS_ADMIN'] = wallet_location
@@ -430,6 +458,7 @@ class DatabaseService:
         # tnsnames.oraのサービス確認
         tnsnames_path = os.path.join(wallet_location, 'tnsnames.ora')
         if os.path.exists(tnsnames_path):
+            import re
             with open(tnsnames_path, 'r') as f:
                 content = f.read()
             services = re.findall(r'^([\w-]+)\s*=', content, re.MULTILINE)
@@ -437,8 +466,8 @@ class DatabaseService:
             if dsn not in services:
                 logger.warning(f"  ⚠ 指定されたDSN '{dsn}' がtnsnames.oraに見つかりません")
         
-        # Step 4: データベース接続（Thin mode）
-        logger.info("[Step 4] データベース接続（Thin mode）")
+        # Step 5: データベース接続
+        logger.info("[Step 5] データベース接続")
         logger.info(f"  接続パラメータ: user={username}, dsn={dsn}")
         
         try:
@@ -451,26 +480,23 @@ class DatabaseService:
             logger.info(f"  環境変数 ORACLE_CLIENT_LIB_DIR: {os.environ.get('ORACLE_CLIENT_LIB_DIR')}")
             
             start_time = time.time()
-            logger.info("  >>> oracledb.connect()を呼び出し中... (Thin mode, tcp_connect_timeout: 10秒)")
+            logger.info("  >>> oracledb.connect()を呼び出し中... (ここでハングする場合はDBが停止している可能性)")
             
-            # Thin mode接続(Wallet使用)
-            # 注: Walletのパスワードは ORACLE_26AI_CONNECTION_STRING のパスワードを使用
+            # 接続タイムアウトを設定（60秒）
+            # tcp_connect_timeout: TCP接続タイムアウト
             connection = oracledb.connect(
                 user=username,
                 password=password,
                 dsn=dsn,
-                config_dir=wallet_location,  # Wallet場所
-                wallet_location=wallet_location,  # Wallet場所
-                wallet_password=password,  # Walletのパスワード
-                tcp_connect_timeout=10  # TCP接続タイムアウト: 10秒
+                tcp_connect_timeout=30  # 30秒でタイムアウト
             )
             
             elapsed = time.time() - start_time
             logger.info(f"  <<< oracledb.connect()完了 ({elapsed:.2f}秒)")
             logger.info(f"  ✔ 接続成功")
             
-            # Step 5: 接続テスト
-            logger.info("[Step 5] 接続テスト")
+            # Step 6: 接続テスト
+            logger.info("[Step 6] 接続テスト")
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1 FROM DUAL")
                 result = cursor.fetchone()
@@ -493,8 +519,6 @@ class DatabaseService:
                 logger.error("  原因: DSNが見つかりません。Walletとtnsnames.oraを確認してください")
             elif "Broken pipe" in error_str or "errno 32" in error_str.lower():
                 logger.error("  原因: ネットワーク接続が切断されました")
-            elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
-                logger.error("  原因: データベースが起動していないか、ネットワーク接続が不可です")
             
             return None
     
@@ -537,151 +561,14 @@ class DatabaseService:
             if original_settings is not None:
                 self.settings = original_settings
     
-    # 注: 接続プール管理では、接続はpool_manager.acquire_connection()の
-    # コンテキストマネージャーで自動的にプールに返却されます。
-    # 手動でclose()を呼ぶことはありません。
     def _release_connection(self, connection):
-        """接続をクローズ（非推奨：プール外の接続のみ）
-        
-        警告: この関数は接続プール外で作成された接続専用です。
-        プール経由の接続には使用しないでください。
-        """
+        """接続をクローズ"""
         if connection:
             try:
                 connection.close()
-                logger.debug("プール外接続をクローズしました")
+                logger.info("データベース接続をクローズしました")
             except Exception as e:
-                logger.error(f"プール外接続クローズエラー: {e}")
-    
-    async def _release_connection_async(self, connection):
-        """非同期接続をクローズ (Thin mode対応)"""
-        if connection:
-            try:
-                # Thin modeでは非同期close()を使用
-                await connection.close()
-                logger.info("非同期DB接続をクローズしました")
-            except Exception as e:
-                logger.error(f"非同期接続クローズエラー: {e}")
-    
-    async def _create_connection_async(self) -> Optional[Any]:
-        """非同期DB接続を作成 (Thin mode対応)
-        
-        Thin modeではoracledb.connect_async()が使用でき、
-        真の非同期接続を実現します。
-        
-        Returns:
-            Connectionオブジェクト、または失敗時はNone
-        """
-        logger.info("========== 非同期接続作成開始 (Thin mode) ===========")
-        
-        # Step 1: oracledbモジュール確認
-        if not ORACLEDB_AVAILABLE:
-            logger.error("非同期接続: oracledbモジュールが利用できません")
-            return None
-        
-        # Step 2: 接続情報取得
-        username = self.settings.get("username")
-        password = self.settings.get("password")
-        dsn = self.settings.get("dsn")
-        
-        # 設定が不完全な場合、.envから取得
-        if not username or not password or not dsn:
-            env_info = self.get_env_connection_info()
-            if env_info.get("success"):
-                username = username or env_info.get("username")
-                password = password or env_info.get("password")
-                dsn = dsn or env_info.get("dsn")
-        
-        if not username or not password or not dsn:
-            logger.error("非同期接続: 接続情報が不完全です")
-            return None
-        
-        # Step 3: Wallet場所設定
-        wallet_location = self._get_wallet_location()
-        logger.info(f"  wallet_location={wallet_location}")
-        if not wallet_location or not os.path.exists(wallet_location):
-            logger.error(f"非同期接続: Walletディレクトリが存在しません: {wallet_location}")
-            return None
-        
-        # Step 4: 非同期接続作成 (Thin mode)
-        try:
-            import time
-            start_time = time.time()
-            logger.info(f"  >>> oracledb.connect_async()を実行中... (user={username}, dsn={dsn})")
-            
-            # Thin modeの真の非同期接続
-            # 注: Walletのパスワードは ORACLE_26AI_CONNECTION_STRING のパスワードを使用
-            connection = await oracledb.connect_async(
-                user=username,
-                password=password,
-                dsn=dsn,
-                config_dir=wallet_location,  # Wallet場所
-                wallet_location=wallet_location,  # Wallet場所
-                wallet_password=password,  # Walletのパスワード
-                tcp_connect_timeout=10
-            )
-            
-            elapsed = time.time() - start_time
-            logger.info(f"  <<< oracledb.connect_async()完了 ({elapsed:.2f}秒)")
-            logger.info("========== 非同期接続作成完了 (Thin mode) ===========")
-            return connection
-            
-        except Exception as e:
-            logger.error(f"非同期接続エラー: {e}")
-            return None
-    
-    async def execute_query_async(self, sql: str, params: dict = None) -> Optional[List[Dict[str, Any]]]:
-        """非同期でSQLクエリを実行 (Thin mode対応)
-        
-        注意: 現在の実装では、接続プール非対応の一時的な接続を使用します。
-        将来的には非同期接続プールへの移行を検討してください。
-        
-        Args:
-            sql: SQLクエリ
-            params: バインドパラメータ
-            
-        Returns:
-            クエリ結果のリスト、または失敗時はNone
-        """
-        connection = None
-        try:
-            # タイムアウト付きで接続作成（一時的な接続）
-            connection = await asyncio.wait_for(
-                self._create_connection_async(),
-                timeout=10.0  # 10秒タイムアウト
-            )
-            
-            if not connection:
-                logger.error("非同期クエリ実行: 接続取得失敗")
-                return None
-            
-            # Thin modeでは非同期カーソルを使用
-            async with connection.cursor() as cursor:
-                if params:
-                    await cursor.execute(sql, params)
-                else:
-                    await cursor.execute(sql)
-                
-                # 結果取得
-                columns = [col[0] for col in cursor.description] if cursor.description else []
-                rows = await cursor.fetchall()
-                
-                results = []
-                for row in rows:
-                    results.append(dict(zip(columns, row)))
-                
-                return results
-                
-        except asyncio.TimeoutError:
-            logger.error("非同期クエリ実行: 接続タイムアウト")
-            return None
-        except Exception as e:
-            logger.error(f"非同期クエリ実行エラー: {e}")
-            return None
-        finally:
-            # 一時的な接続なのでclose()が正しい
-            if connection:
-                await self._release_connection_async(connection)
+                logger.error(f"接続クローズエラー: {e}")
     
     def _load_settings(self) -> Dict[str, Any]:
         """DB設定を.envのORACLE_26AI_CONNECTION_STRINGから読み込む
@@ -756,9 +643,13 @@ class DatabaseService:
             # .envファイルに保存
             self._save_settings(self.settings)
             
-            # 接続プールをクリア（設定変更時）
-            self.pool_manager.close_pool()
-            logger.info("設定変更により接続プールをクリアしました")
+            # 既存の接続をクローズ（設定変更時）
+            if self.connection:
+                try:
+                    self.connection.close()
+                except:
+                    pass
+                self.connection = None
             
             return True
         except Exception as e:
@@ -774,63 +665,26 @@ class DatabaseService:
         Returns:
             Walletのパス、またはNone
         """
-        # TNS_ADMINは常に ORACLE_CLIENT_LIB_DIR/network/admin を使用
         lib_dir = os.getenv('ORACLE_CLIENT_LIB_DIR')
-        if not lib_dir:
-            # ORACLE_CLIENT_LIB_DIRが設定されていない場合は.envから読み込みを試みる
-            logger.warning("ORACLE_CLIENT_LIB_DIR環境変数が設定されていません。.envファイルから読み込みを試みます...")
-            try:
-                from dotenv import load_dotenv
-                load_dotenv()
-                lib_dir = os.getenv('ORACLE_CLIENT_LIB_DIR')
-                if lib_dir:
-                    logger.info(f".envからORACLE_CLIENT_LIB_DIRを読み込みました: {lib_dir}")
-            except ImportError:
-                logger.error("python-dotenvモジュールが利用できません")
-            
-            if not lib_dir:
-                logger.error("ORACLE_CLIENT_LIB_DIRが設定されていません")
-                return None
-        
-        wallet_location = os.path.join(lib_dir, "network", "admin")
-        
-        # create_if_missing=Trueの場合は、存在しなくてもパスを返す
-        if create_if_missing or os.path.exists(wallet_location):
-            return wallet_location
-        
+        if lib_dir:
+            wallet_location = os.path.join(lib_dir, "network", "admin")
+            # create_if_missing=Trueの場合は、存在しなくてもパスを返す
+            if create_if_missing or os.path.exists(wallet_location):
+                return wallet_location
         return None
     
     def upload_wallet(self, wallet_file_path: str) -> Dict[str, Any]:
         """�Walletファイルをアップロードして解凍"""
         try:
-            # 優先順位に従ってウォレット場所を決定
-            wallet_location = None
-            
-            # TNS_ADMINは常に ORACLE_CLIENT_LIB_DIR/network/admin を使用
             lib_dir = os.getenv('ORACLE_CLIENT_LIB_DIR')
             if not lib_dir:
-                # ORACLE_CLIENT_LIB_DIRが設定されていない場合は.envから読み込みを試みる
-                logger.warning("ORACLE_CLIENT_LIB_DIR環境変数が設定されていません。.envファイルから読み込みを試みます...")
-                try:
-                    from dotenv import load_dotenv
-                    load_dotenv()
-                    lib_dir = os.getenv('ORACLE_CLIENT_LIB_DIR')
-                    if lib_dir:
-                        logger.info(f".envからORACLE_CLIENT_LIB_DIRを読み込みました: {lib_dir}")
-                except ImportError:
-                    logger.error("python-dotenvモジュールが利用できません")
-                
-                if not lib_dir:
-                    logger.error("ORACLE_CLIENT_LIB_DIRが設定されていません")
-                    return {
-                        "success": False,
-                        "message": "ORACLE_CLIENT_LIB_DIR環境変数が設定されていません",
-                        "available_services": []
-                    }
+                return {
+                    "success": False,
+                    "message": "ORACLE_CLIENT_LIB_DIR環境変数が設定されていません",
+                    "available_services": []
+                }
             
             wallet_location = os.path.join(lib_dir, "network", "admin")
-            
-            logger.info(f"Walletアップロード先: {wallet_location}")
             
             # ディレクトリが存在する場合はバックアップ
             if os.path.exists(wallet_location):
@@ -847,19 +701,8 @@ class DatabaseService:
             
             logger.info(f"Walletを解凍しました: {wallet_location}")
             
-            # 不要なファイルを削除
-            unnecessary_files = ['README', 'keystore.jks', 'truststore.jks', 'ojdbc.properties', 'ewallet.p12']
-            for file in unnecessary_files:
-                file_path = os.path.join(wallet_location, file)
-                if os.path.exists(file_path):
-                    try:
-                        os.remove(file_path)
-                        logger.info(f"不要なファイルを削除: {file}")
-                    except Exception as e:
-                        logger.warning(f"ファイル削除失敗: {file} - {e}")
-            
-            # 必須ウォレットファイルの存在確認（4つ）
-            required_files = ['cwallet.sso', 'ewallet.pem', 'sqlnet.ora', 'tnsnames.ora']
+            # 必要なファイルの存在確認
+            required_files = ['cwallet.sso', 'tnsnames.ora', 'sqlnet.ora']
             missing_files = []
             for file in required_files:
                 if not os.path.exists(os.path.join(wallet_location, file)):
@@ -868,15 +711,9 @@ class DatabaseService:
             if missing_files:
                 return {
                     "success": False,
-                    "message": f"必要なファイルが見つかりません: {', '.join(missing_files)}\n必須: cwallet.sso (自動ログイン), ewallet.pem (PEM形式証明書), sqlnet.ora (ネットワーク設定), tnsnames.ora (接続文字列)",
+                    "message": f"必要なファイルが見つかりません: {', '.join(missing_files)}",
                     "available_services": []
                 }
-            
-            logger.info("✓ すべての必須ウォレットファイルが確認されました")
-            logger.info("  - cwallet.sso (自動ログイン)")
-            logger.info("  - ewallet.pem (パスワード認証)")
-            logger.info("  - sqlnet.ora (ネットワーク設定)")
-            logger.info("  - tnsnames.ora (接続文字列)")
             
             # tnsnames.oraからDSNを抽出
             available_services = self._extract_dsn_from_tnsnames(wallet_location)
@@ -911,6 +748,7 @@ class DatabaseService:
             with open(tnsnames_file, 'r', encoding='utf-8') as f:
                 content = f.read()
                 # DSN名を抽出（行頭の名前 = の形式）
+                import re
                 pattern = r'^([A-Za-z0-9_-]+)\s*='
                 matches = re.findall(pattern, content, re.MULTILINE)
                 dsn_list = list(set(matches))  # 重複除去
@@ -964,14 +802,7 @@ class DatabaseService:
             }
     
     async def test_connection_async(self, settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """接続テストを実行（非同期版 - Thin mode）
-        
-        Thin modeでは oracledb.connect_async() を使用し、
-        真の非同期接続を実現します。
-        タイムアウトは15秒以上を推奨。
-        """
-        CONNECTION_TIMEOUT = 15  # 接続タイムアウト: 15秒（推奨値）
-        
+        """接続テストを実行（非同期版）- 同期版を呼び出し"""
         try:
             # settingsがnoneの場合のみself.settingsを使用
             if settings is None:
@@ -990,91 +821,14 @@ class DatabaseService:
                     password = password or env_info.get("password")
                     dsn = dsn or env_info.get("dsn")
             
-            if not username or not password or not dsn:
-                return {
-                    "success": False,
-                    "message": "接続情報が不完全です。ユーザー名、パスワード、DSNを設定してください。"
-                }
-            
-            # Wallet場所設定
-            wallet_location = self._get_wallet_location()
-            if not wallet_location or not os.path.exists(wallet_location):
-                return {
-                    "success": False,
-                    "message": f"Walletディレクトリが存在しません: {wallet_location}"
-                }
-            
-            logger.info(f"接続テスト開始 (Thin mode, タイムアウト: {CONNECTION_TIMEOUT}秒)")
-            logger.info(f"  user={username}, dsn={dsn}, password_len={len(password) if password else 0}")
-            logger.info(f"  wallet_location={wallet_location}")
-            
-            try:
-                import time
-                start_time = time.time()
-                
-                # Thin modeの非同期接続をタイムアウト付きで実行
-                # 注: Walletのパスワードは ORACLE_26AI_CONNECTION_STRING のパスワードを使用
-                connection = await asyncio.wait_for(
-                    oracledb.connect_async(
-                        user=username,
-                        password=password,
-                        dsn=dsn,
-                        config_dir=wallet_location,
-                        wallet_location=wallet_location,
-                        wallet_password=password,  # Walletのパスワード
-                        tcp_connect_timeout=10
-                    ),
-                    timeout=CONNECTION_TIMEOUT
-                )
-                
-                elapsed = time.time() - start_time
-                logger.info(f"接続成功 ({elapsed:.2f}秒)")
-                
-                # テストクエリ実行
-                async with connection.cursor() as cursor:
-                    await cursor.execute("SELECT 1 FROM DUAL")
-                    result = await cursor.fetchone()
-                    logger.info(f"テストクエリ成功: {result}")
-                
-                await connection.close()
-                
-                return {
-                    "success": True,
-                    "message": "データベース接続に成功しました",
-                    "details": {"status": "connected", "elapsed": f"{elapsed:.2f}s"}
-                }
-                
-            except asyncio.TimeoutError:
-                logger.error(f"接続テストがタイムアウトしました ({CONNECTION_TIMEOUT}秒)")
-                return {
-                    "success": False,
-                    "message": f"接続テストがタイムアウトしました。データベースが起動していない可能性があります。"
-                }
-            except Exception as e:
-                error_str = str(e)
-                logger.error(f"接続エラー: {error_str}")
-                
-                # エラー原因を解析
-                if "DPY-6005" in error_str or "DPY-6000" in error_str:
-                    user_msg = "接続エラー: データベースが停止している可能性があります。ADBの起動状態を確認してください。"
-                elif "ORA-01017" in error_str:
-                    user_msg = "接続エラー: ユーザー名またはパスワードが正しくありません。"
-                elif "ORA-12154" in error_str:
-                    user_msg = "接続エラー: DSNが見つかりません。Walletとtnsnames.oraを確認してください。"
-                elif "ORA-12541" in error_str:
-                    user_msg = "接続エラー: データベースサーバーに接続できません。"
-                elif "Broken pipe" in error_str:
-                    user_msg = "接続エラー: ネットワーク接続が切断されました。"
-                elif "DPY-4011" in error_str:
-                    user_msg = f"接続エラー: WalletまたはTNS設定に問題があります。DSN '{dsn}' を確認してください。"
-                else:
-                    user_msg = f"接続エラー: {error_str}"
-                
-                return {
-                    "success": False,
-                    "message": user_msg
-                }
-                
+            # 同じプロセス内で直接実行
+            result = _execute_db_operation(
+                'test_connection',
+                username=username,
+                password=password,
+                dsn=dsn
+            )
+            return result
         except Exception as e:
             logger.error(f"接続テストエラー（async）: {e}")
             return {
@@ -1083,111 +837,119 @@ class DatabaseService:
             }
     
     def get_database_info(self) -> Optional[Dict[str, Any]]:
-        """データベース情報を取得（接続プール経由）"""
+        """データベース情報を取得"""
+        connection = None
         try:
             if not ORACLEDB_AVAILABLE:
                 return None
             
-            if not self._ensure_pool_initialized():
+            connection = self._create_connection()
+            if not connection:
                 return None
             
-            with self.pool_manager.acquire_connection() as connection:
-                cursor = connection.cursor()
-                
-                # データベースバージョン取得
-                cursor.execute("SELECT * FROM v$version WHERE banner LIKE 'Oracle%'")
-                version_row = cursor.fetchone()
-                version = version_row[0] if version_row else None
-                
-                # インスタンス名取得
-                cursor.execute("SELECT instance_name FROM v$instance")
-                instance_row = cursor.fetchone()
-                instance_name = instance_row[0] if instance_row else None
-                
-                # データベース名取得
-                cursor.execute("SELECT name FROM v$database")
-                db_row = cursor.fetchone()
-                database_name = db_row[0] if db_row else None
-                
-                # 現在のユーザー取得
-                cursor.execute("SELECT user FROM dual")
-                user_row = cursor.fetchone()
-                current_user = user_row[0] if user_row else None
-                
-                cursor.close()
-                
-                return {
-                    "version": version,
-                    "instance_name": instance_name,
-                    "database_name": database_name,
-                    "current_user": current_user
-                }
+            cursor = connection.cursor()
+            
+            # データベースバージョン取得
+            cursor.execute("SELECT * FROM v$version WHERE banner LIKE 'Oracle%'")
+            version_row = cursor.fetchone()
+            version = version_row[0] if version_row else None
+            
+            # インスタンス名取得
+            cursor.execute("SELECT instance_name FROM v$instance")
+            instance_row = cursor.fetchone()
+            instance_name = instance_row[0] if instance_row else None
+            
+            # データベース名取得
+            cursor.execute("SELECT name FROM v$database")
+            db_row = cursor.fetchone()
+            database_name = db_row[0] if db_row else None
+            
+            # 現在のユーザー取得
+            cursor.execute("SELECT user FROM dual")
+            user_row = cursor.fetchone()
+            current_user = user_row[0] if user_row else None
+            
+            cursor.close()
+            self._release_connection(connection)
+            
+            return {
+                "version": version,
+                "instance_name": instance_name,
+                "database_name": database_name,
+                "current_user": current_user
+            }
         
         except Exception as e:
             logger.error(f"データベース情報取得エラー: {e}")
+            if connection:
+                self._release_connection(connection)
             return None
     
     def refresh_table_statistics(self) -> Dict[str, Any]:
-        """全テーブルの統計情報を更新（接続プール経由）"""
+        """全テーブルの統計情報を更新"""
+        connection = None
         try:
             if not ORACLEDB_AVAILABLE:
                 return {"success": False, "message": "Oracle DBが利用できません", "updated_count": 0}
             
-            if not self._ensure_pool_initialized():
+            connection = self._create_connection()
+            if not connection:
                 return {"success": False, "message": "データベース接続に失敗しました", "updated_count": 0}
             
-            with self.pool_manager.acquire_connection() as connection:
-                cursor = connection.cursor()
-                
-                # '$'を含まないテーブル一覧を取得
-                cursor.execute("""
-                    SELECT table_name 
-                    FROM user_tables 
-                    WHERE table_name NOT LIKE '%$%'
-                """)
-                tables = cursor.fetchall()
-                
-                updated_count = 0
-                errors = []
-                
-                # 各テーブルの統計情報を更新
-                for (table_name,) in tables:
-                    try:
-                        # DBMS_STATS.GATHER_TABLE_STATSを使用して統計情報を収集
-                        cursor.execute("""
-                            BEGIN
-                                DBMS_STATS.GATHER_TABLE_STATS(
-                                    ownname => USER,
-                                    tabname => :table_name,
-                                    estimate_percent => DBMS_STATS.AUTO_SAMPLE_SIZE,
-                                    method_opt => 'FOR ALL COLUMNS SIZE AUTO',
-                                    degree => DBMS_STATS.AUTO_DEGREE,
-                                    cascade => FALSE
-                                );
-                            END;
-                        """, {'table_name': table_name})
-                        updated_count += 1
-                    except Exception as e:
-                        logger.warning(f"テーブル {table_name} の統計情報更新に失敗: {e}")
-                        errors.append(f"{table_name}: {str(e)}")
-                
-                connection.commit()
-                cursor.close()
-                
-                message = f"{updated_count}件のテーブルの統計情報を更新しました"
-                if errors:
-                    message += f" ({len(errors)}件のエラー)"
-                
-                return {
-                    "success": True,
-                    "updated_count": updated_count,
-                    "total_tables": len(tables),
-                    "message": message,
-                    "errors": errors
-                }
+            cursor = connection.cursor()
+            
+            # '$'を含まないテーブル一覧を取得
+            cursor.execute("""
+                SELECT table_name 
+                FROM user_tables 
+                WHERE table_name NOT LIKE '%$%'
+            """)
+            tables = cursor.fetchall()
+            
+            updated_count = 0
+            errors = []
+            
+            # 各テーブルの統計情報を更新
+            for (table_name,) in tables:
+                try:
+                    # DBMS_STATS.GATHER_TABLE_STATSを使用して統計情報を収集
+                    cursor.execute("""
+                        BEGIN
+                            DBMS_STATS.GATHER_TABLE_STATS(
+                                ownname => USER,
+                                tabname => :table_name,
+                                estimate_percent => DBMS_STATS.AUTO_SAMPLE_SIZE,
+                                method_opt => 'FOR ALL COLUMNS SIZE AUTO',
+                                degree => DBMS_STATS.AUTO_DEGREE,
+                                cascade => FALSE
+                            );
+                        END;
+                    """, {'table_name': table_name})
+                    updated_count += 1
+                except Exception as e:
+                    logger.warning(f"テーブル {table_name} の統計情報更新に失敗: {e}")
+                    errors.append(f"{table_name}: {str(e)}")
+            
+            connection.commit()
+            cursor.close()
+            self._release_connection(connection)
+            
+            message = f"{updated_count}件のテーブルの統計情報を更新しました"
+            if errors:
+                message += f" ({len(errors)}件のエラー)"
+            
+            return {
+                "success": True,
+                "updated_count": updated_count,
+                "total_tables": len(tables),
+                "message": message,
+                "errors": errors
+            }
         
         except Exception as e:
             logger.error(f"統計情報更新エラー: {e}")
+            if connection:
+                self._release_connection(connection)
             return {
                 "success": False,
                 "message": f"統計情報の更新に失敗しました: {str(e)}",
@@ -1195,77 +957,82 @@ class DatabaseService:
             }
     
     def get_tables(self, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
-        """テーブル一覧を取得（ページング対応、接続プール経由）"""
+        """テーブル一覧を取得（ページング対応）"""
+        connection = None
         try:
             if not ORACLEDB_AVAILABLE:
                 return {"tables": [], "total": 0}
             
-            if not self._ensure_pool_initialized():
+            connection = self._create_connection()
+            if not connection:
                 return {"tables": [], "total": 0}
             
-            with self.pool_manager.acquire_connection() as connection:
-                cursor = connection.cursor()
-                
-                # 総件数を取得（'$'を含むテーブルを除外）
-                count_query = "SELECT COUNT(*) FROM user_tables WHERE table_name NOT LIKE '%$%'"
-                cursor.execute(count_query)
-                total = cursor.fetchone()[0]
-                
-                # ページング用の範囲計算
-                start_row = (page - 1) * page_size + 1
-                end_row = page * page_size
-                
-                # 最適化：先にページングを完了し、その後JOINを実行
-                # '$'を含むテーブルを除外
-                query = """
-                    SELECT 
-                        p.table_name,
-                        p.num_rows,
-                        o.created,
-                        p.last_analyzed,
-                        c.comments
+            cursor = connection.cursor()
+            
+            # 総件数を取得（'$'を含むテーブルを除外）
+            count_query = "SELECT COUNT(*) FROM user_tables WHERE table_name NOT LIKE '%$%'"
+            cursor.execute(count_query)
+            total = cursor.fetchone()[0]
+            
+            # ページング用の範囲計算
+            start_row = (page - 1) * page_size + 1
+            end_row = page * page_size
+            
+            # 最適化：先にページングを完了し、その後JOINを実行
+            # '$'を含むテーブルを除外
+            query = """
+                SELECT 
+                    p.table_name,
+                    p.num_rows,
+                    o.created,
+                    p.last_analyzed,
+                    c.comments
+                FROM (
+                    SELECT table_name, num_rows, last_analyzed, rn
                     FROM (
-                        SELECT table_name, num_rows, last_analyzed, rn
-                        FROM (
-                            SELECT 
-                                table_name, 
-                                num_rows, 
-                                last_analyzed,
-                                ROW_NUMBER() OVER (ORDER BY table_name) rn
-                            FROM user_tables
-                            WHERE table_name NOT LIKE '%$%'
-                        )
-                        WHERE rn BETWEEN :start_row AND :end_row
-                    ) p
-                    LEFT JOIN user_objects o ON p.table_name = o.object_name AND o.object_type = 'TABLE'
-                    LEFT JOIN user_tab_comments c ON p.table_name = c.table_name
-                    ORDER BY p.rn
-                """
-                
-                cursor.execute(query, {"start_row": start_row, "end_row": end_row})
-                rows = cursor.fetchall()
-                
-                tables = []
-                for row in rows:
-                    table_info = {
-                        "table_name": row[0],
-                        "num_rows": row[1],
-                        "created": row[2].isoformat() if row[2] else None,
-                        "last_analyzed": row[3].isoformat() if row[3] else None,
-                        "comments": row[4]
-                    }
-                    tables.append(table_info)
-                
-                cursor.close()
-                
-                return {"tables": tables, "total": total}
+                        SELECT 
+                            table_name, 
+                            num_rows, 
+                            last_analyzed,
+                            ROW_NUMBER() OVER (ORDER BY table_name) rn
+                        FROM user_tables
+                        WHERE table_name NOT LIKE '%$%'
+                    )
+                    WHERE rn BETWEEN :start_row AND :end_row
+                ) p
+                LEFT JOIN user_objects o ON p.table_name = o.object_name AND o.object_type = 'TABLE'
+                LEFT JOIN user_tab_comments c ON p.table_name = c.table_name
+                ORDER BY p.rn
+            """
+            
+            cursor.execute(query, {"start_row": start_row, "end_row": end_row})
+            rows = cursor.fetchall()
+            
+            tables = []
+            for row in rows:
+                table_info = {
+                    "table_name": row[0],
+                    "num_rows": row[1],
+                    "created": row[2].isoformat() if row[2] else None,
+                    "last_analyzed": row[3].isoformat() if row[3] else None,
+                    "comments": row[4]
+                }
+                tables.append(table_info)
+            
+            cursor.close()
+            self._release_connection(connection)
+            
+            return {"tables": tables, "total": total}
         
         except Exception as e:
             logger.error(f"テーブル一覧取得エラー: {e}")
+            if connection:
+                self._release_connection(connection)
             return {"tables": [], "total": 0}
     
     def get_table_data(self, table_name: str, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
-        """テーブルデータを取得（ページング対応、接続プール経由）"""
+        """テーブルデータを取得（ページング対応）"""
+        connection = None
         try:
             if not ORACLEDB_AVAILABLE:
                 return {"success": False, "rows": [], "columns": [], "total": 0, "message": "Oracle DBが利用できません"}
@@ -1274,106 +1041,110 @@ class DatabaseService:
             if not table_name.isidentifier() and not table_name.replace('_', '').replace('$', '').isalnum():
                 return {"success": False, "rows": [], "columns": [], "total": 0, "message": "無効なテーブル名です"}
             
-            if not self._ensure_pool_initialized():
+            connection = self._create_connection()
+            if not connection:
                 return {"success": False, "rows": [], "columns": [], "total": 0, "message": "データベース接続に失敗しました"}
             
-            with self.pool_manager.acquire_connection() as connection:
-                cursor = connection.cursor()
-                
-                # 総件数を取得
-                count_query = f'SELECT COUNT(*) FROM "{table_name}"'
-                cursor.execute(count_query)
-                total = cursor.fetchone()[0]
-                
-                # ページング用の範囲計算
-                start_row = (page - 1) * page_size + 1
-                end_row = page * page_size
-                
-                # データ取得（ページング対応）
-                query = f'''
-                    SELECT * FROM (
-                        SELECT t.*, ROW_NUMBER() OVER (ORDER BY ROWID) as rn
-                        FROM "{table_name}" t
-                    )
-                    WHERE rn BETWEEN :start_row AND :end_row
-                '''
-                
-                cursor.execute(query, {"start_row": start_row, "end_row": end_row})
-                
-                # カラム名を取得
-                columns = [desc[0] for desc in cursor.description if desc[0] != 'RN']
-                
-                # データを取得
-                rows = []
-                for row in cursor.fetchall():
-                    # 最後のRN列を除外
-                    row_data = []
-                    for i, value in enumerate(row[:-1]):  # RN列を除く
-                        # データ型に応じて変換
-                        if value is None:
-                            row_data.append(None)
-                        elif isinstance(value, (int, float)):
-                            row_data.append(value)
-                        elif isinstance(value, datetime):
-                            row_data.append(value.isoformat())
-                        elif isinstance(value, bytes):
-                            # BLOBデータは最初の100文字のみASCIIで表示
-                            try:
-                                ascii_repr = value[:100].decode('ascii', errors='ignore')
-                                if len(value) > 100:
-                                    row_data.append(f"{ascii_repr}...")
+            cursor = connection.cursor()
+            
+            # 総件数を取得
+            count_query = f'SELECT COUNT(*) FROM "{table_name}"'
+            cursor.execute(count_query)
+            total = cursor.fetchone()[0]
+            
+            # ページング用の範囲計算
+            start_row = (page - 1) * page_size + 1
+            end_row = page * page_size
+            
+            # データ取得（ページング対応）
+            query = f'''
+                SELECT * FROM (
+                    SELECT t.*, ROW_NUMBER() OVER (ORDER BY ROWID) as rn
+                    FROM "{table_name}" t
+                )
+                WHERE rn BETWEEN :start_row AND :end_row
+            '''
+            
+            cursor.execute(query, {"start_row": start_row, "end_row": end_row})
+            
+            # カラム名を取得
+            columns = [desc[0] for desc in cursor.description if desc[0] != 'RN']
+            
+            # データを取得
+            rows = []
+            for row in cursor.fetchall():
+                # 最後のRN列を除外
+                row_data = []
+                for i, value in enumerate(row[:-1]):  # RN列を除く
+                    # データ型に応じて変換
+                    if value is None:
+                        row_data.append(None)
+                    elif isinstance(value, (int, float)):
+                        row_data.append(value)
+                    elif isinstance(value, datetime):
+                        row_data.append(value.isoformat())
+                    elif isinstance(value, bytes):
+                        # BLOBデータは最初の100文字のみASCIIで表示
+                        try:
+                            ascii_repr = value[:100].decode('ascii', errors='ignore')
+                            if len(value) > 100:
+                                row_data.append(f"{ascii_repr}...")
+                            else:
+                                row_data.append(ascii_repr if ascii_repr else f"<BLOB: {len(value)} bytes>")
+                        except:
+                            row_data.append(f"<BLOB: {len(value)} bytes>")
+                    elif hasattr(value, 'read'):
+                        # LOBオブジェクト（CLOB, BLOB等）
+                        try:
+                            lob_data = value.read()
+                            if isinstance(lob_data, bytes):
+                                row_data.append(f"<LOB: {len(lob_data)} bytes>")
+                            else:
+                                # CLOBの場合、最初の100文字のみ表示
+                                lob_str = str(lob_data)
+                                if len(lob_str) > 100:
+                                    row_data.append(lob_str[:100] + "...")
                                 else:
-                                    row_data.append(ascii_repr if ascii_repr else f"<BLOB: {len(value)} bytes>")
-                            except:
-                                row_data.append(f"<BLOB: {len(value)} bytes>")
-                        elif hasattr(value, 'read'):
-                            # LOBオブジェクト（CLOB, BLOB等）
-                            try:
-                                lob_data = value.read()
-                                if isinstance(lob_data, bytes):
-                                    row_data.append(f"<LOB: {len(lob_data)} bytes>")
-                                else:
-                                    # CLOBの場合、最初の100文字のみ表示
-                                    lob_str = str(lob_data)
-                                    if len(lob_str) > 100:
-                                        row_data.append(lob_str[:100] + "...")
-                                    else:
-                                        row_data.append(lob_str)
-                            except Exception as lob_err:
-                                row_data.append(f"<LOB: 読み取りエラー>")
-                                logger.warning(f"LOB読み取りエラー: {lob_err}")
-                        else:
-                            # その他の型は文字列に変換
-                            try:
-                                str_value = str(value)
-                                # 長すぎる文字列は切り詰め
-                                if len(str_value) > 1000:
-                                    row_data.append(str_value[:1000] + "...")
-                                else:
-                                    row_data.append(str_value)
-                            except Exception as str_err:
-                                row_data.append(f"<変換エラー: {type(value).__name__}>")
-                                logger.warning(f"文字列変換エラー: {str_err}")
-                    rows.append(row_data)
-                
-                cursor.close()
-                
-                return {
-                    "success": True,
-                    "rows": rows,
-                    "columns": columns,
-                    "total": total,
-                    "message": "データ取得成功"
-                }
+                                    row_data.append(lob_str)
+                        except Exception as lob_err:
+                            row_data.append(f"<LOB: 読み取りエラー>")
+                            logger.warning(f"LOB読み取りエラー: {lob_err}")
+                    else:
+                        # その他の型は文字列に変換
+                        try:
+                            str_value = str(value)
+                            # 長すぎる文字列は切り詰め
+                            if len(str_value) > 1000:
+                                row_data.append(str_value[:1000] + "...")
+                            else:
+                                row_data.append(str_value)
+                        except Exception as str_err:
+                            row_data.append(f"<変換エラー: {type(value).__name__}>")
+                            logger.warning(f"文字列変換エラー: {str_err}")
+                rows.append(row_data)
+            
+            cursor.close()
+            self._release_connection(connection)
+            
+            return {
+                "success": True,
+                "rows": rows,
+                "columns": columns,
+                "total": total,
+                "message": "データ取得成功"
+            }
         
         except Exception as e:
             logger.error(f"テーブルデータ取得エラー: {e}")
+            if connection:
+                self._release_connection(connection)
             return {"success": False, "rows": [], "columns": [], "total": 0, "message": str(e)}
     
     def delete_tables(self, table_names: list) -> Dict[str, Any]:
-        """テーブルを一括削除（接続プール経由）"""
+        """テーブルを一括削除"""
         deleted_count = 0
         errors = []
+        connection = None
         
         try:
             if not ORACLEDB_AVAILABLE:
@@ -1382,33 +1153,33 @@ class DatabaseService:
             if not table_names:
                 return {"success": False, "deleted_count": 0, "message": "削除するテーブルが指定されていません", "errors": []}
             
-            # 接続プールの初期化を確認
-            if not self._ensure_pool_initialized():
+            connection = self._create_connection()
+            if not connection:
                 return {"success": False, "deleted_count": 0, "message": "データベース接続に失敗しました", "errors": []}
             
-            with self.pool_manager.acquire_connection() as connection:
-                cursor = connection.cursor()
-                
-                for table_name in table_names:
-                    try:
-                        # テーブル名のバリデーション（SQLインジェクション防止）
-                        if not table_name.isidentifier() and not table_name.replace('_', '').replace('$', '').isalnum():
-                            errors.append(f"無効なテーブル名: {table_name}")
-                            continue
-                        
-                        # DROP TABLE文を実行
-                        cursor.execute(f'DROP TABLE "{table_name}" CASCADE CONSTRAINTS PURGE')
-                        deleted_count += 1
-                        logger.info(f"テーブル削除成功: {table_name}")
-                        
-                    except Exception as e:
-                        error_msg = f"{table_name}: {str(e)}"
-                        errors.append(error_msg)
-                        logger.error(f"テーブル削除エラー: {error_msg}")
-                
-                # コミット
-                connection.commit()
-                cursor.close()
+            cursor = connection.cursor()
+            
+            for table_name in table_names:
+                try:
+                    # テーブル名のバリデーション（SQLインジェクション防止）
+                    if not table_name.isidentifier() and not table_name.replace('_', '').replace('$', '').isalnum():
+                        errors.append(f"無効なテーブル名: {table_name}")
+                        continue
+                    
+                    # DROP TABLE文を実行
+                    cursor.execute(f'DROP TABLE "{table_name}" CASCADE CONSTRAINTS PURGE')
+                    deleted_count += 1
+                    logger.info(f"テーブル削除成功: {table_name}")
+                    
+                except Exception as e:
+                    error_msg = f"{table_name}: {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(f"テーブル削除エラー: {error_msg}")
+            
+            # コミット
+            connection.commit()
+            cursor.close()
+            self._release_connection(connection)
             
             return {
                 "success": deleted_count > 0,
@@ -1419,74 +1190,87 @@ class DatabaseService:
         
         except Exception as e:
             logger.error(f"テーブル一括削除エラー: {e}")
+            if connection:
+                self._release_connection(connection)
             return {"success": False, "deleted_count": 0, "message": str(e), "errors": errors}
     
     def delete_file_info_records(self, file_ids: list) -> Dict[str, Any]:
-        """FILE_INFOテーブルのレコードを一括削除（接続プール経由、関連するIMG_EMBEDDINGSも自動削除）"""
+        """FILE_INFOテーブルのレコードを一括削除（関連するIMG_EMBEDDINGSも自動削除）"""
         deleted_count = 0
         errors = []
+        connection = None
         
         try:
-            logger.info(f"delete_file_info_records開始: file_ids={file_ids}")
+            logger.info(f"[DEBUG] delete_file_info_records開始: file_ids={file_ids}")
             
             if not ORACLEDB_AVAILABLE:
-                logger.error("Oracle DBが利用できません")
+                logger.error("[DEBUG] Oracle DBが利用できません")
                 return {"success": False, "deleted_count": 0, "message": "Oracle DBが利用できません", "errors": []}
             
             if not file_ids:
-                logger.warning("削除するレコードが指定されていません")
+                logger.warning("[DEBUG] 削除するレコードが指定されていません")
                 return {"success": False, "deleted_count": 0, "message": "削除するレコードが指定されていません", "errors": []}
             
-            # 接続プールの初期化を確認
-            if not self._ensure_pool_initialized():
-                logger.error("データベース接続に失敗しました")
+            logger.info(f"[DEBUG] DB接続作成中...")
+            connection = self._create_connection()
+            if not connection:
+                logger.error("[DEBUG] データベース接続に失敗しました")
                 return {"success": False, "deleted_count": 0, "message": "データベース接続に失敗しました", "errors": []}
             
-            logger.info(f"DB接続プールから接続取得中...")
-            with self.pool_manager.acquire_connection() as connection:
-                logger.info(f"DB接続成功")
-                cursor = connection.cursor()
-                
-                for file_id in file_ids:
-                    try:
-                        logger.info(f"FILE_ID処理中: {file_id} (type={type(file_id).__name__})")
-                        
-                        # FILE_IDのバリデーション
-                        file_id_int = int(file_id)
-                        
-                        # 削除前にレコードの存在を確認
-                        cursor.execute('SELECT FILE_ID, BUCKET, OBJECT_NAME FROM FILE_INFO WHERE FILE_ID = :file_id', {'file_id': file_id_int})
-                        existing_record = cursor.fetchone()
-                        if existing_record:
-                            logger.info(f"削除対象レコード発見: FILE_ID={existing_record[0]}")
-                        else:
-                            logger.warning(f"削除対象レコードが見つかりません: FILE_ID={file_id_int}")
-                        
-                        # DELETE文を実行（CASCADE制約によりIMG_EMBEDDINGSも自動削除）
-                        cursor.execute('DELETE FROM FILE_INFO WHERE FILE_ID = :file_id', {'file_id': file_id_int})
-                        
-                        row_count = cursor.rowcount
-                        if row_count > 0:
-                            deleted_count += 1
-                            logger.info(f"FILE_INFOレコード削除成功: FILE_ID={file_id_int}")
-                        else:
-                            errors.append(f"FILE_ID={file_id_int}: レコードが見つかりません")
-                            logger.warning(f"FILE_INFOレコードが見つかりません: FILE_ID={file_id_int}")
-                        
-                    except ValueError as ve:
-                        error_msg = f"無効なFILE_ID: {file_id}"
-                        errors.append(error_msg)
-                        logger.error(f"FILE_ID変換エラー: {error_msg}, exception={ve}")
-                    except Exception as e:
-                        error_msg = f"FILE_ID={file_id}: {str(e)}"
-                        errors.append(error_msg)
-                        logger.error(f"FILE_INFOレコード削除エラー: {error_msg}", exc_info=True)
-                
-                # コミット
-                logger.info(f"COMMIT実行中... deleted_count={deleted_count}")
-                connection.commit()
-                logger.info(f"COMMIT成功")
-                cursor.close()
+            logger.info(f"[DEBUG] DB接続成功")
+            cursor = connection.cursor()
+            
+            for file_id in file_ids:
+                try:
+                    logger.info(f"[DEBUG] FILE_ID処理中: {file_id} (type={type(file_id).__name__})")
+                    
+                    # FILE_IDのバリデーション
+                    file_id_int = int(file_id)
+                    logger.info(f"[DEBUG] FILE_ID変換成功: {file_id} -> {file_id_int}")
+                    
+                    # 削除前にレコードの存在を確認
+                    cursor.execute('SELECT FILE_ID, BUCKET, OBJECT_NAME FROM FILE_INFO WHERE FILE_ID = :file_id', {'file_id': file_id_int})
+                    existing_record = cursor.fetchone()
+                    if existing_record:
+                        logger.info(f"[DEBUG] 削除対象レコード発見: FILE_ID={existing_record[0]}, BUCKET={existing_record[1]}, OBJECT_NAME={existing_record[2]}")
+                    else:
+                        logger.warning(f"[DEBUG] 削除対象レコードが見つかりません: FILE_ID={file_id_int}")
+                    
+                    # 関連するIMG_EMBEDDINGSレコード数を確認
+                    cursor.execute('SELECT COUNT(*) FROM IMG_EMBEDDINGS WHERE FILE_ID = :file_id', {'file_id': file_id_int})
+                    embedding_count = cursor.fetchone()[0]
+                    logger.info(f"[DEBUG] 関連IMG_EMBEDDINGSレコード数: {embedding_count}件")
+                    
+                    # DELETE文を実行（CASCADE制約によりIMG_EMBEDDINGSも自動削除）
+                    logger.info(f"[DEBUG] DELETE文実行: DELETE FROM FILE_INFO WHERE FILE_ID = {file_id_int}")
+                    cursor.execute('DELETE FROM FILE_INFO WHERE FILE_ID = :file_id', {'file_id': file_id_int})
+                    
+                    row_count = cursor.rowcount
+                    logger.info(f"[DEBUG] DELETE実行結果: rowcount={row_count}")
+                    
+                    if row_count > 0:
+                        deleted_count += 1
+                        logger.info(f"[DEBUG] FILE_INFOレコード削除成功: FILE_ID={file_id_int}, deleted_count={deleted_count}")
+                    else:
+                        errors.append(f"FILE_ID={file_id_int}: レコードが見つかりません")
+                        logger.warning(f"[DEBUG] FILE_INFOレコードが見つかりません: FILE_ID={file_id_int}")
+                    
+                except ValueError as ve:
+                    error_msg = f"無効なFILE_ID: {file_id}"
+                    errors.append(error_msg)
+                    logger.error(f"[DEBUG] FILE_ID変換エラー: {error_msg}, exception={ve}")
+                except Exception as e:
+                    error_msg = f"FILE_ID={file_id}: {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(f"[DEBUG] FILE_INFOレコード削除エラー: {error_msg}", exc_info=True)
+            
+            # コミット
+            logger.info(f"[DEBUG] COMMIT実行中... deleted_count={deleted_count}")
+            connection.commit()
+            logger.info(f"[DEBUG] COMMIT成功")
+            
+            cursor.close()
+            self._release_connection(connection)
             
             result = {
                 "success": deleted_count > 0,
@@ -1494,104 +1278,18 @@ class DatabaseService:
                 "message": f"{deleted_count}件のレコードを削除しました" if deleted_count > 0 else "削除に失敗しました",
                 "errors": errors
             }
-            logger.info(f"delete_file_info_records結果: {result}")
+            logger.info(f"[DEBUG] delete_file_info_records結果: {result}")
             return result
         
         except Exception as e:
-            logger.error(f"FILE_INFOレコード一括削除エラー: {e}", exc_info=True)
-            return {"success": False, "deleted_count": 0, "message": str(e), "errors": errors}
-    
-    def delete_table_data(self, table_name: str, primary_keys: list) -> Dict[str, Any]:
-        """
-        任意のテーブルから主キーを指定してレコードを削除（接続プール経由、汎用的）
-        
-        Args:
-            table_name: テーブル名
-            primary_keys: 削除するレコードの主キー値リスト
-        
-        Returns:
-            Dict: {"success": bool, "deleted_count": int, "message": str, "errors": List[str]}
-        """
-        deleted_count = 0
-        errors = []
-        
-        try:
-            if not ORACLEDB_AVAILABLE:
-                return {"success": False, "deleted_count": 0, "message": "Oracle DBが利用できません", "errors": []}
-            
-            if not primary_keys:
-                return {"success": False, "deleted_count": 0, "message": "削除するレコードが指定されていません", "errors": []}
-            
-            # テーブル名のバリデーション（SQLインジェクション防止）
-            if not table_name.replace('_', '').isalnum():
-                return {"success": False, "deleted_count": 0, "message": f"無効なテーブル名: {table_name}", "errors": []}
-            
-            # 接続プールの初期化を確認
-            if not self._ensure_pool_initialized():
-                return {"success": False, "deleted_count": 0, "message": "データベース接続に失敗しました", "errors": []}
-            
-            with self.pool_manager.acquire_connection() as connection:
-                cursor = connection.cursor()
-                
-                # テーブルの主キー列を取得
-                cursor.execute("""
-                    SELECT cols.column_name
-                    FROM all_constraints cons
-                    JOIN all_cons_columns cols ON cons.constraint_name = cols.constraint_name
-                    WHERE cons.constraint_type = 'P'
-                    AND cons.table_name = :table_name
-                    AND cons.owner = USER
-                    ORDER BY cols.position
-                """, {'table_name': table_name.upper()})
-                
-                pk_columns = [row[0] for row in cursor.fetchall()]
-                
-                if not pk_columns:
-                    cursor.close()
-                    return {"success": False, "deleted_count": 0, "message": f"テーブル {table_name} に主キーが見つかりません", "errors": []}
-                
-                logger.info(f"テーブル {table_name} の主キー列: {pk_columns}")
-                
-                # 各レコードを削除
-                for pk_value in primary_keys:
-                    try:
-                        # 主キーが1列の場合のみDELETE実行（複合主キーはサポートしない）
-                        if len(pk_columns) == 1:
-                            pk_column = pk_columns[0]
-                            delete_sql = f'DELETE FROM "{table_name}" WHERE "{pk_column}" = :pk_value'
-                            cursor.execute(delete_sql, {'pk_value': pk_value})
-                            
-                            row_count = cursor.rowcount
-                            if row_count > 0:
-                                deleted_count += row_count
-                                logger.info(f"レコード削除成功: {table_name}.{pk_column}={pk_value}, deleted={row_count}")
-                            else:
-                                errors.append(f"{pk_column}={pk_value}: レコードが見つかりません")
-                                logger.warning(f"レコードが見つかりません: {table_name}.{pk_column}={pk_value}")
-                        else:
-                            errors.append(f"{pk_value}: 複合主キーはサポートされていません")
-                            logger.warning(f"複合主キーはサポートされていません: {table_name}, pk_columns={pk_columns}")
-                            
-                    except Exception as e:
-                        error_msg = f"{pk_value}: {str(e)}"
-                        errors.append(error_msg)
-                        logger.error(f"レコード削除エラー: {error_msg}", exc_info=True)
-                
-                # コミット
-                connection.commit()
-                cursor.close()
-            
-            result = {
-                "success": deleted_count > 0,
-                "deleted_count": deleted_count,
-                "message": f"{deleted_count}件のレコードを削除しました" if deleted_count > 0 else "削除に失敗しました",
-                "errors": errors
-            }
-            logger.info(f"delete_table_data結果: {result}")
-            return result
-        
-        except Exception as e:
-            logger.error(f"テーブルデータ削除エラー: {e}", exc_info=True)
+            logger.error(f"[DEBUG] FILE_INFOレコード一括削除エラー: {e}", exc_info=True)
+            if connection:
+                try:
+                    logger.info(f"[DEBUG] ROLLBACK実行")
+                    connection.rollback()
+                except:
+                    pass
+                self._release_connection(connection)
             return {"success": False, "deleted_count": 0, "message": str(e), "errors": errors}
     
     def get_env_connection_info(self) -> Dict[str, Any]:
@@ -1611,6 +1309,7 @@ class DatabaseService:
                 }
             
             # 接続文字列を解析: username/password@dsn
+            import re
             pattern = r'^([^/]+)/([^@]+)@(.+)$'
             match = re.match(pattern, conn_str)
             
@@ -1770,22 +1469,11 @@ class DatabaseService:
             
             logger.info(f"Walletを展開しました: {wallet_location}")
             
-            # 不要なファイルを削除
-            unnecessary_files = ['README', 'keystore.jks', 'truststore.jks', 'ojdbc.properties', 'ewallet.p12']
-            for file in unnecessary_files:
-                file_path = os.path.join(wallet_location, file)
-                if os.path.exists(file_path):
-                    try:
-                        os.remove(file_path)
-                        logger.info(f"不要なファイルを削除: {file}")
-                    except Exception as e:
-                        logger.warning(f"ファイル削除失敗: {file} - {e}")
-            
             # 一時ファイルを削除
             os.unlink(temp_wallet_file.name)
             
             # 必要なファイルの存在確認
-            required_files = ['cwallet.sso', 'ewallet.pem', 'tnsnames.ora', 'sqlnet.ora']
+            required_files = ['cwallet.sso', 'tnsnames.ora', 'sqlnet.ora']
             missing_files = []
             for file in required_files:
                 if not os.path.exists(os.path.join(wallet_location, file)):
@@ -1872,92 +1560,91 @@ class DatabaseService:
             return False
     
     def is_connected(self) -> bool:
-        """接続状態を確認（接続プール経由、既存メソッドの再利用）"""
-        # クラス内に既に接続プール経由のチェックメソッドがあるため、再利用
-        # (line 329-350の is_connected メソッドと重複)
+        """接続状態を確認"""
         if not ORACLEDB_AVAILABLE:
             return False
         
+        connection = None
         try:
-            if not self._ensure_pool_initialized():
-                logger.debug("接続状態チェック: プール未初期化")
+            connection = self._create_connection()
+            if not connection:
                 return False
             
-            # 簡単なクエリでテスト
-            with self.pool_manager.acquire_connection() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT 1 FROM DUAL")
-                    cursor.fetchone()
-            
-            logger.debug("接続状態チェック: 接続有効")
+            cursor = connection.cursor()
+            cursor.execute("SELECT 1 FROM DUAL")
+            cursor.fetchone()
+            cursor.close()
+            self._release_connection(connection)
             return True
-        except Exception as e:
-            logger.warning(f"接続状態チェック: 接続無効 - {e}")
+        except:
+            if connection:
+                self._release_connection(connection)
             return False
     
     def get_storage_info(self) -> Optional[Dict[str, Any]]:
-        """データベースストレージ情報を取得（接続プール経由）"""
+        """データベースストレージ情報を取得"""
+        connection = None
         try:
             if not ORACLEDB_AVAILABLE:
                 return None
             
-            # 接続プールの初期化を確認
-            if not self._ensure_pool_initialized():
+            connection = self._create_connection()
+            if not connection:
                 return None
             
-            with self.pool_manager.acquire_connection() as connection:
-                cursor = connection.cursor()
+            cursor = connection.cursor()
+            
+            # テーブルスペース情報を取得
+            query = """
+                SELECT 
+                    tablespace_name,
+                    ROUND(NVL(SUM(bytes), 0) / 1024 / 1024, 2) AS total_size_mb,
+                    status
+                FROM dba_data_files
+                GROUP BY tablespace_name, status
+                ORDER BY tablespace_name
+            """
+            
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            
+            tablespaces = []
+            total_size_mb = 0.0
+            used_size_mb = 0.0
+            
+            for row in rows:
+                tablespace_name = row[0]
+                size_mb = float(row[1]) if row[1] else 0.0
+                status = row[2]
                 
-                # テーブルスペース情報を取得
-                query = """
+                # 使用済みサイズを取得
+                used_query = """
                     SELECT 
-                        tablespace_name,
-                        ROUND(NVL(SUM(bytes), 0) / 1024 / 1024, 2) AS total_size_mb,
-                        status
-                    FROM dba_data_files
-                    GROUP BY tablespace_name, status
-                    ORDER BY tablespace_name
+                        ROUND(NVL(SUM(bytes), 0) / 1024 / 1024, 2) AS used_size_mb
+                    FROM dba_segments
+                    WHERE tablespace_name = :tablespace_name
                 """
+                cursor.execute(used_query, {'tablespace_name': tablespace_name})
+                used_row = cursor.fetchone()
+                used_mb = float(used_row[0]) if used_row and used_row[0] else 0.0
                 
-                cursor.execute(query)
-                rows = cursor.fetchall()
+                free_mb = size_mb - used_mb
+                used_percent = (used_mb / size_mb * 100) if size_mb > 0 else 0.0
                 
-                tablespaces = []
-                total_size_mb = 0.0
-                used_size_mb = 0.0
+                tablespaces.append({
+                    'tablespace_name': tablespace_name,
+                    'total_size_mb': size_mb,
+                    'used_size_mb': used_mb,
+                    'free_size_mb': free_mb,
+                    'used_percent': used_percent,
+                    'status': status
+                })
                 
-                for row in rows:
-                    tablespace_name = row[0]
-                    size_mb = float(row[1]) if row[1] else 0.0
-                    status = row[2]
-                    
-                    # 使用済みサイズを取得
-                    used_query = """
-                        SELECT 
-                            ROUND(NVL(SUM(bytes), 0) / 1024 / 1024, 2) AS used_size_mb
-                        FROM dba_segments
-                        WHERE tablespace_name = :tablespace_name
-                    """
-                    cursor.execute(used_query, {'tablespace_name': tablespace_name})
-                    used_row = cursor.fetchone()
-                    used_mb = float(used_row[0]) if used_row and used_row[0] else 0.0
-                    
-                    free_mb = size_mb - used_mb
-                    used_percent = (used_mb / size_mb * 100) if size_mb > 0 else 0.0
-                    
-                    tablespaces.append({
-                        'tablespace_name': tablespace_name,
-                        'total_size_mb': size_mb,
-                        'used_size_mb': used_mb,
-                        'free_size_mb': free_mb,
-                        'used_percent': used_percent,
-                        'status': status
-                    })
-                    
-                    total_size_mb += size_mb
-                    used_size_mb += used_mb
-                
-                cursor.close()
+                total_size_mb += size_mb
+                used_size_mb += used_mb
+            
+            cursor.close()
+            self._release_connection(connection)
             
             free_size_mb = total_size_mb - used_size_mb
             used_percent = (used_size_mb / total_size_mb * 100) if total_size_mb > 0 else 0.0
@@ -1972,23 +1659,9 @@ class DatabaseService:
         
         except Exception as e:
             logger.error(f"ストレージ情報取得エラー: {e}")
+            if connection:
+                self._release_connection(connection)
             return None
-
-
-    def shutdown(self):
-        """データベースサービスのシャットダウン処理"""
-        logger.info("DatabaseServiceをシャットダウン中...")
-        
-        try:
-            # 接続プールのクローズ
-            if hasattr(self, 'pool_manager') and self.pool_manager:
-                logger.info("データベース接続プールをクローズ中...")
-                self.pool_manager.close_pool(timeout=30, force=True)  # 30秒タイムアウト、強制モード
-                logger.info("データベース接続プールをクローズしました")
-        except Exception as e:
-            logger.error(f"データベースサービスシャットダウンエラー: {e}")
-        
-        logger.info("DatabaseServiceシャットダウン完了")
 
 
 # グローバルインスタンス

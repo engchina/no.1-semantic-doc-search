@@ -19,6 +19,9 @@ import { appState } from '../state.js';
 import { apiCall as authApiCall } from './auth.js';
 import { showLoading as utilsShowLoading, hideLoading as utilsHideLoading, showToast as utilsShowToast, formatDateTime as utilsFormatDateTime } from './utils.js';
 
+/**
+ * DB接続設定を読み込み、UIに反映する
+ */
 export async function loadDbConnectionSettings() {
   try {
     const data = await authApiCall('/ai/api/settings/database');
@@ -69,6 +72,9 @@ export async function loadDbConnectionSettings() {
   }
 }
 
+/**
+ * 環境変数からDB接続設定を再取得する
+ */
 export async function refreshDbConnectionFromEnv() {
   try {
     utilsShowLoading('接続設定を再取得中...');
@@ -220,6 +226,10 @@ export async function retryLoadDbSettings() {
 
 let selectedWalletFile = null;
 
+/**
+ * Walletファイル選択時の処理
+ * @param {Event} event - ファイル選択イベント
+ */
 export function handleWalletFileSelect(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -437,6 +447,9 @@ export async function testDbConnection() {
   }
 }
 
+/**
+ * データベース基本情報を取得・表示する
+ */
 export async function loadDbInfo() {
   try {
     utilsShowLoading('データベース情報を取得中...');
@@ -510,6 +523,9 @@ export async function loadDbInfo() {
   }
 }
 
+/**
+ * テーブル一覧を取得・表示する
+ */
 export async function loadDbTables() {
   try {
     utilsShowLoading('テーブル一覧を取得中...');
@@ -671,6 +687,10 @@ export async function toggleTablePreview(tableName) {
   }
 }
 
+/**
+ * テーブルデータを取得・表示する
+ * @param {string} tableName - 対象テーブル名
+ */
 export async function loadTableData(tableName) {
   try {
     utilsShowLoading(`テーブル ${tableName} のデータを読み込み中...`);
@@ -706,6 +726,11 @@ export async function loadTableData(tableName) {
   }
 }
 
+/**
+ * HTML特殊文字をエスケープする
+ * @param {string} text - エスケープ対象の文字列
+ * @returns {string} エスケープ後の文字列
+ */
 export function escapeHtml(text) {
   if (text === null || text === undefined) return '-';
   
@@ -730,6 +755,14 @@ export function escapeHtml(text) {
   return div.innerHTML;
 }
 
+/**
+ * テーブルデータプレビューを表示する
+ * @param {string} tableName - テーブル名
+ * @param {Array} columns - カラム名配列
+ * @param {Array} rows - データ行配列
+ * @param {number} total - 総レコード数
+ * @param {Object} paginationData - ページネーション情報
+ */
 export function showTablePreview(tableName, columns, rows, total, paginationData) {
   let previewDiv = document.getElementById('tableDataPreview');
   
@@ -893,6 +926,9 @@ export function handleTableDataPrevPage() {
   }
 }
 
+/**
+ * テーブルデータの次のページへ
+ */
 export function handleTableDataNextPage() {
   if (tableDataPage < tableDataTotalPages && selectedTableForPreview) {
     tableDataPage++;
@@ -900,6 +936,9 @@ export function handleTableDataNextPage() {
   }
 }
 
+/**
+ * 指定ページへジャンプ（テーブルデータ）
+ */
 export function handleTableDataJumpPage() {
   const input = document.getElementById('tableDataPageInput');
   if (!input) {
@@ -925,6 +964,9 @@ export function handleTableDataJumpPage() {
   }
 }
 
+/**
+ * テーブルデータの全行を選択
+ */
 export function selectAllTableData() {
   toggleSelectAllTableData(true);
   // ヘッダーチェックボックスを更新
@@ -932,6 +974,9 @@ export function selectAllTableData() {
   if (headerCheckbox) headerCheckbox.checked = true;
 }
 
+/**
+ * テーブルデータの全選択を解除
+ */
 export function clearAllTableData() {
   selectedTableDataRows = [];
   // ヘッダーチェックボックスを更新
@@ -1001,6 +1046,10 @@ export function deleteSelectedTableData() {
   });
 }
 
+/**
+ * テーブルデータの行選択を切り替え
+ * @param {string} rowId - 行ID
+ */
 export function toggleTableDataRowSelection(rowId) {
   // HTMLエスケープされた値をデコード
   const decodedRowId = rowId.replace(/&#39;/g, "'").replace(/&quot;/g, '"');
@@ -1087,6 +1136,9 @@ export function handleDbTablesPrevPage() {
   }
 }
 
+/**
+ * テーブル一覧の次のページへ
+ */
 export function handleDbTablesNextPage() {
   const currentPage = appState.get('dbTablesPage') || 1;
   if (currentPage < dbTablesTotalPages) {
@@ -1095,6 +1147,9 @@ export function handleDbTablesNextPage() {
   }
 }
 
+/**
+ * 指定ページへジャンプ（テーブル一覧）
+ */
 export function handleDbTablesJumpPage() {
   const input = document.getElementById('dbTablesPageInput');
   if (!input) {
@@ -1121,6 +1176,10 @@ export function handleDbTablesJumpPage() {
   }
 }
 
+/**
+ * テーブル一覧の行選択を切り替え
+ * @param {string} tableName - テーブル名
+ */
 export function toggleDbTableSelection(tableName) {
   // スクロール位置を保存
   const scrollableArea = document.querySelector('#dbTablesContent .table-wrapper-scrollable');
@@ -1179,6 +1238,9 @@ export function toggleSelectAllDbTables(checked) {
   });
 }
 
+/**
+ * テーブル一覧を全選択
+ */
 export function selectAllDbTables() {
   toggleSelectAllDbTables(true);
   // ヘッダーチェックボックスを更新
@@ -1256,6 +1318,9 @@ export async function deleteSelectedDbTables() {
   }
 }
 
+/**
+ * データベース情報を再取得
+ */
 export async function refreshDbInfo() {
   try {
     utilsShowLoading('データベース情報を再取得中...');

@@ -1,13 +1,21 @@
 /**
  * フロントエンド設定ファイル
  * 
- * すべての定数とマジックナンバーをここに集約し、
- * 保守性とテストの容易性を向上させます。
+ * アプリケーション全体で使用される定数、設定値、メッセージなどを一元管理します。
+ * すべての定数とマジックナンバーをここに集約し、保守性とテストの容易性を向上させます。
+ * 
+ * @module config
  */
 
 // ========================================
 // API設定
 // ========================================
+/**
+ * API通信に関連する設定
+ * @type {Object}
+ * @property {string} BASE_URL - APIのベースURL。開発時はViteのプロキシを使用するため空文字、本番は環境変数から設定
+ * @property {number} TIMEOUT - APIリクエストのタイムアウト時間（ミリ秒）
+ */
 export const API_CONFIG = {
   // 開発時はViteのプロキシを使うため空文字列、本番ビルド時は環境変数から設定
   BASE_URL: import.meta.env.VITE_API_BASE || '',
@@ -17,6 +25,14 @@ export const API_CONFIG = {
 // ========================================
 // ファイルアップロード設定
 // ========================================
+/**
+ * ファイルアップロードに関する制限と設定
+ * @type {Object}
+ * @property {number} MAX_FILES - 一度にアップロード可能な最大ファイル数
+ * @property {number} MAX_FILE_SIZE - ファイルの最大サイズ（バイト）
+ * @property {string[]} ALLOWED_EXTENSIONS - 許可されるファイル拡張子のリスト
+ * @property {Object.<string, string>} ALLOWED_MIME_TYPES - 拡張子とMIMEタイプのマッピング
+ */
 export const UPLOAD_CONFIG = {
   MAX_FILES: 10,
   MAX_FILE_SIZE: 200 * 1024 * 1024, // 200MB
@@ -40,6 +56,10 @@ export const UPLOAD_CONFIG = {
 // ========================================
 // ページネーション設定
 // ========================================
+/**
+ * 一覧表示のページネーション設定
+ * @type {Object}
+ */
 export const PAGINATION_CONFIG = {
   DEFAULT_PAGE_SIZE: 20,
   MIN_PAGE_SIZE: 10,
@@ -52,6 +72,10 @@ export const PAGINATION_CONFIG = {
 // ========================================
 // Toast通知設定
 // ========================================
+/**
+ * トースト通知の表示設定
+ * @type {Object}
+ */
 export const TOAST_CONFIG = {
   DEFAULT_DURATION: 5000, // 5秒
   SUCCESS_DURATION: 4000,
@@ -64,6 +88,10 @@ export const TOAST_CONFIG = {
 // ========================================
 // セッション設定
 // ========================================
+/**
+ * ユーザーセッション管理の設定
+ * @type {Object}
+ */
 export const SESSION_CONFIG = {
   TIMEOUT_SECONDS: 86400, // 24時間
   CHECK_INTERVAL: 60000, // 1分ごとにチェック
@@ -72,6 +100,10 @@ export const SESSION_CONFIG = {
 // ========================================
 // 検索設定
 // ========================================
+/**
+ * ベクトル検索の設定
+ * @type {Object}
+ */
 export const SEARCH_CONFIG = {
   DEFAULT_TOP_K: 10,
   MIN_TOP_K: 1,
@@ -85,6 +117,10 @@ export const SEARCH_CONFIG = {
 // ========================================
 // UI設定
 // ========================================
+/**
+ * UIコンポーネントの表示・動作設定
+ * @type {Object}
+ */
 export const UI_CONFIG = {
   // ローディングオーバーレイ
   LOADING_DELAY: 300, // ローディング表示前の遅延（ms）
@@ -112,6 +148,10 @@ export const UI_CONFIG = {
 // ========================================
 // デバッグ設定
 // ========================================
+/**
+ * デバッグモードとログ出力の設定
+ * @type {Object}
+ */
 export const DEBUG_CONFIG = {
   ENABLE_CONSOLE_LOG: import.meta.env.DEV,
   ENABLE_PERFORMANCE_LOG: false,
@@ -121,6 +161,10 @@ export const DEBUG_CONFIG = {
 // ========================================
 // 正規表現パターン
 // ========================================
+/**
+ * 入力検証や文字列解析に使用する正規表現
+ * @type {Object}
+ */
 export const REGEX_PATTERNS = {
   PAGE_IMAGE: /\/page_\d{3}\.png$/,
   EMAIL: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
@@ -131,6 +175,10 @@ export const REGEX_PATTERNS = {
 // ========================================
 // エラーメッセージ
 // ========================================
+/**
+ * アプリケーション全体で使用されるエラーメッセージ定数
+ * @type {Object}
+ */
 export const ERROR_MESSAGES = {
   NETWORK_ERROR: 'ネットワークエラーが発生しました',
   AUTH_REQUIRED: '認証が必要です',
@@ -145,6 +193,10 @@ export const ERROR_MESSAGES = {
 // ========================================
 // 成功メッセージ
 // ========================================
+/**
+ * アプリケーション全体で使用される成功メッセージ定数
+ * @type {Object}
+ */
 export const SUCCESS_MESSAGES = {
   UPLOAD_COMPLETE: 'アップロードが完了しました',
   DELETE_COMPLETE: '削除が完了しました',
