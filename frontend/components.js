@@ -1028,43 +1028,62 @@ function renderLoading({
 function showToast(message, type = 'info', duration = 4000) {
   const id = Date.now() + Math.random();
   
-  // タイプ別のアイコンとスタイル
+  // タイプ別のアイコン（SVG）とアクセントカラー
   const config = {
-    success: { icon: '✅', bgColor: 'bg-green-50', borderColor: 'border-green-500', textColor: 'text-green-800' },
-    error: { icon: '❌', bgColor: 'bg-red-50', borderColor: 'border-red-500', textColor: 'text-red-800' },
-    warning: { icon: '⚠️', bgColor: 'bg-yellow-50', borderColor: 'border-yellow-500', textColor: 'text-yellow-800' },
-    info: { icon: 'ℹ️', bgColor: 'bg-blue-50', borderColor: 'border-blue-500', textColor: 'text-blue-800' }
+    success: {
+      accent: '#22c55e',
+      iconSvg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
+    },
+    error: {
+      accent: '#ef4444',
+      iconSvg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>'
+    },
+    warning: {
+      accent: '#f59e0b',
+      iconSvg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+    },
+    info: {
+      accent: '#3b82f6',
+      iconSvg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+    }
   };
 
   const typeConfig = config[type] || config.info;
-
-  // メッセージに既に絵文字が含まれているか確認
-  const hasEmoji = /[\u{1F300}-\u{1F9FF}]|[✅❌⚠️ℹ️]/u.test(message);
-  const finalMessage = hasEmoji ? message : `${typeConfig.icon} ${message}`;
 
   // トーストコンテナが存在しない場合は作成
   let container = document.getElementById('toast-container');
   if (!container) {
     container = document.createElement('div');
     container.id = 'toast-container';
-    container.className = 'fixed top-4 right-4 z-50 flex flex-col gap-2';
+    container.style.cssText = 'position:fixed;top:16px;right:16px;z-index:10000;display:flex;flex-direction:column;gap:10px;';
     document.body.appendChild(container);
   }
 
-  // トースト要素の作成
+  // トースト要素の作成（ダークネイビーテーマ）
   const toast = document.createElement('div');
   toast.id = `toast-${id}`;
-  toast.className = `${typeConfig.bgColor} ${typeConfig.textColor} border-l-4 ${typeConfig.borderColor} px-4 py-3 rounded shadow-lg max-w-sm animate-slide-in-right`;
+  toast.style.cssText = `
+    display:flex;align-items:center;gap:12px;
+    background:#0f2847;color:#e2e8f0;
+    border-left:4px solid ${typeConfig.accent};
+    padding:14px 16px;border-radius:10px;
+    box-shadow:0 8px 24px rgba(0,0,0,.25),0 2px 8px rgba(0,0,0,.15);
+    max-width:380px;min-width:280px;
+    animation:toast-slide-in .3s ease-out;
+    font-size:14px;font-weight:500;
+    backdrop-filter:blur(8px);
+  `;
   toast.innerHTML = `
-    <div class="flex items-center justify-between gap-2">
-      <span class="text-sm font-medium">${finalMessage}</span>
-      <button 
-        onclick="document.getElementById('toast-${id}').remove()"
-        class="text-gray-500 hover:text-gray-700 text-xl leading-none"
-      >
-        &times;
-      </button>
-    </div>
+    <div style="flex-shrink:0;display:flex;align-items:center;">${typeConfig.iconSvg}</div>
+    <span style="flex:1;line-height:1.45;">${message}</span>
+    <button 
+      onclick="document.getElementById('toast-${id}').remove()"
+      style="flex-shrink:0;background:none;border:none;color:rgba(255,255,255,.45);cursor:pointer;font-size:18px;line-height:1;padding:0 0 0 4px;transition:color .15s;"
+      onmouseover="this.style.color='rgba(255,255,255,.8)'"
+      onmouseout="this.style.color='rgba(255,255,255,.45)'"
+    >
+      &times;
+    </button>
   `;
 
   container.appendChild(toast);
@@ -1075,7 +1094,7 @@ function showToast(message, type = 'info', duration = 4000) {
     setTimeout(() => {
       const toastEl = document.getElementById(`toast-${id}`);
       if (toastEl) {
-        toastEl.style.animation = 'slide-out-right 0.3s ease-out';
+        toastEl.style.animation = 'toast-slide-out .3s ease-out forwards';
         setTimeout(() => toastEl.remove(), 300);
       }
     }, duration);

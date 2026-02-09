@@ -374,27 +374,26 @@ export function showToast(message, type = 'info', duration = 4000) {
   
   // フォールバック実装（components.js読み込み前）
   console.warn('components.jsが読み込まれていません');
+  const accents = { success: '#22c55e', error: '#ef4444', warning: '#f59e0b', info: '#3b82f6' };
+  const accent = accents[type] || accents.info;
+  
   const container = document.getElementById('toastContainer') || (() => {
     const el = document.createElement('div');
     el.id = 'toastContainer';
-    el.className = 'toast-container';
+    el.style.cssText = 'position:fixed;top:16px;right:16px;z-index:10000;display:flex;flex-direction:column;gap:10px;';
     document.body.appendChild(el);
     return el;
   })();
   
   const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : type === 'warning' ? '⚠' : 'ℹ';
+  toast.style.cssText = `display:flex;align-items:center;gap:12px;background:#0f2847;color:#e2e8f0;border-left:4px solid ${accent};padding:14px 16px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:380px;min-width:280px;animation:toast-slide-in .3s ease-out;font-size:14px;font-weight:500;`;
   toast.innerHTML = `
-    <div class="toast-icon">${icon}</div>
-    <div class="toast-content">
-      <div class="toast-message">${message}</div>
-    </div>
-    <div class="toast-close" onclick="this.parentElement.remove()">✕</div>
+    <span style="flex:1;line-height:1.45;">${message}</span>
+    <button onclick="this.parentElement.remove()" style="flex-shrink:0;background:none;border:none;color:rgba(255,255,255,.45);cursor:pointer;font-size:18px;line-height:1;padding:0;">&times;</button>
   `;
   container.appendChild(toast);
   setTimeout(() => {
-    toast.classList.add('removing');
+    toast.style.animation = 'toast-slide-out .3s ease-out forwards';
     setTimeout(() => toast.remove(), 300);
   }, duration);
 }
