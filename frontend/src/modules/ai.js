@@ -86,28 +86,28 @@ async function sendCopilotMessage() {
   
   if ((!message && appState.get('copilotImages').length === 0) || appState.get('copilotLoading')) return;
   
+  // 入力欄と画像を即座にクリア
+  input.value = '';
+  const currentImages = [...appState.get('copilotImages')];
+  appState.set('copilotImages', []);
+  renderCopilotImagesPreview();
+  
   // ユーザーメッセージを追加
   const currentMessages = appState.get('copilotMessages');
   currentMessages.push({
     role: 'user',
     content: message,
-    images: appState.get('copilotImages').length > 0 ? [...appState.get('copilotImages')] : null
+    images: currentImages.length > 0 ? currentImages : null
   });
   appState.set('copilotMessages', currentMessages);
   
   renderCopilotMessages();
-  input.value = '';
   
-  // 画像をクリア
-  const currentImages = [...appState.get('copilotImages')];
-  appState.set('copilotImages', []);
-  renderCopilotImagesPreview();
-  
-  // アシスタントメッセージのプレースホルダーに「考え...」を表示
+  // アシスタントメッセージのプレースホルダーに「考え中...」を表示
   const updatedMessages = appState.get('copilotMessages');
   updatedMessages.push({
     role: 'assistant',
-    content: '考え...'
+    content: '考え中...'
   });
   appState.set('copilotMessages', updatedMessages);
   
@@ -166,7 +166,7 @@ async function sendCopilotMessage() {
               appState.set('copilotLoading', false);
               renderCopilotMessages();
             } else if (data.content) {
-              // 最初のチャンクの場合、「考え...」を置き換える
+              // 最初のチャンクの場合、「考え中...」を置き換える
               if (isFirstChunk) {
                 const messages = appState.get('copilotMessages');
                 messages[messages.length - 1].content = data.content;
