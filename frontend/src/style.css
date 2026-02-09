@@ -175,6 +175,7 @@ tr:hover{background:#f8fafc}
 .confirm-modal-header{padding:24px 24px 0 24px;text-align:center;}
 .confirm-modal-icon{width:52px;height:52px;border-radius:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 12px auto;background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);box-shadow:0 4px 12px rgba(245,158,11,.3);}
 .confirm-modal-icon svg{width:24px;height:24px;color:#fff;}
+.confirm-modal-icon i{font-size:24px;color:#fff;}
 .confirm-modal-title{font-size:18px;font-weight:600;color:#1e293b;margin:0;}
 .confirm-modal-body{padding:12px 24px 20px 24px;}
 .confirm-modal-body p{color:#475569;line-height:1.6;text-align:center;margin:0;font-size:14px;white-space:pre-line;}
@@ -191,7 +192,7 @@ tr:hover{background:#f8fafc}
 
 /* 警告ブロック（モーダル内） */
 .modal-warning-block{display:flex;align-items:flex-start;gap:8px;background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-top:12px;text-align:left;}
-.modal-warning-icon{width:18px;height:18px;color:#d97706;flex-shrink:0;margin-top:1px;}
+.modal-warning-icon{width:18px;height:18px;color:#d97706;flex-shrink:0;margin-top:1px;font-size:16px;}
 .modal-warning-block span{color:#92400e;font-size:13px;font-weight:500;line-height:1.5;}
 .modal-strong-text{font-weight:600;color:#1e293b;}
 
@@ -459,8 +460,13 @@ button:focus-visible,a:focus-visible{outline:2px solid #1a365d;outline-offset:2p
 /* 検索結果・空状態表示用 */
 .empty-state{text-align:center;padding:40px;color:#64748b}
 .empty-state-icon{font-size:48px;margin-bottom:16px}
+.empty-state-icon i{color:#94a3b8}
 .empty-state-title{font-size:16px;font-weight:500}
 .empty-state-subtitle{font-size:14px;margin-top:8px}
+
+/* Font Awesomeアイコン共通調整 */
+.fas,.far,.fab{vertical-align:middle}
+button .fas,button .far,a .fas,a .far{margin-right:4px}
 
 /* 検索結果カード */
 .search-result-card{margin-bottom:24px;border-left:4px solid #1a365d}

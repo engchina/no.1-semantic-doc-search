@@ -33,7 +33,7 @@ export async function loadDbConnectionSettings() {
     if (settings.wallet_uploaded) {
       const walletStatus = document.getElementById('walletStatus');
       walletStatus.style.display = 'block';
-      walletStatus.innerHTML = '<span class="text-green-600">✅ Walletアップロード済み</span>';
+      walletStatus.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle"></i> Walletアップロード済み</span>';
       
       // 利用可能なDSNを表示
       if (settings.available_services && settings.available_services.length > 0) {
@@ -97,7 +97,7 @@ export async function refreshDbConnectionFromEnv() {
     const walletStatus = document.getElementById('walletStatus');
     if (envData.wallet_exists) {
       walletStatus.style.display = 'block';
-      walletStatus.innerHTML = '<span class="text-green-600">✅ Wallet検出済み (' + envData.wallet_location + ')</span>';
+      walletStatus.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle"></i> Wallet検出済み (' + envData.wallet_location + ')</span>';
       
       // 利用可能なDSNを表示
       if (envData.available_services && envData.available_services.length > 0) {
@@ -121,9 +121,9 @@ export async function refreshDbConnectionFromEnv() {
       walletStatus.style.display = 'block';
       // ダウンロードエラーがあれば表示
       if (envData.download_error) {
-        walletStatus.innerHTML = '<span class="text-red-600">❌ Wallet自動ダウンロード失敗: ' + envData.download_error + '</span><br><span class="text-gray-600">手動でZIPファイルをアップロードしてください。</span>';
+        walletStatus.innerHTML = '<span class="text-red-600"><i class="fas fa-times-circle"></i> Wallet自動ダウンロード失敗: ' + envData.download_error + '</span><br><span class="text-gray-600">手動でZIPファイルをアップロードしてください。</span>';
       } else {
-        walletStatus.innerHTML = '<span class="text-yellow-600">⚠️ Walletが見つかりません。ZIPファイルをアップロードしてください。</span>';
+        walletStatus.innerHTML = '<span class="text-yellow-600"><i class="fas fa-exclamation-triangle"></i> Walletが見つかりません。ZIPファイルをアップロードしてください。</span>';
       }
     }
     
@@ -192,9 +192,7 @@ export async function retryLoadDbSettings() {
           <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4" role="alert">
             <div class="flex items-start">
               <div class="flex-shrink-0">
-                <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                </svg>
+                <i class="fas fa-exclamation-triangle text-yellow-400 h-5 w-5"></i>
               </div>
               <div class="ml-3 flex-1">
                 <p class="text-sm text-yellow-700">
@@ -208,7 +206,7 @@ export async function retryLoadDbSettings() {
                     onclick="window.retryLoadDbSettings()" 
                     class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded transition-colors"
                   >
-                    🔄 再読み込み
+                    <i class="fas fa-sync-alt"></i> 再読み込み
                   </button>
                 </div>
               </div>
@@ -290,7 +288,7 @@ export async function uploadWalletFile(file) {
     if (data.success) {
       const walletStatus = document.getElementById('walletStatus');
       walletStatus.style.display = 'block';
-      walletStatus.innerHTML = '<span class="text-green-600">✅ Walletアップロード成功</span>';
+      walletStatus.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle"></i> Walletアップロード成功</span>';
       
       utilsShowToast(data.message, 'success');
       
@@ -316,7 +314,7 @@ export async function uploadWalletFile(file) {
     
     const walletStatus = document.getElementById('walletStatus');
     walletStatus.style.display = 'block';
-    walletStatus.innerHTML = `<span class="text-red-600">❌ ${error.message}</span>`;
+    walletStatus.innerHTML = `<span class="text-red-600"><i class="fas fa-times-circle"></i> ${error.message}</span>`;
   }
 }
 
@@ -464,7 +462,7 @@ export async function loadDbInfo() {
     if (!data.info) {
       infoDiv.innerHTML = `
         <div style="text-align: center; padding: 40px; color: #64748b;">
-          <div style="font-size: 48px; margin-bottom: 16px;">🗄️</div>
+          <div style="font-size: 48px; margin-bottom: 16px;"><i class="fas fa-database" style="color: #94a3b8;"></i></div>
           <div style="font-size: 16px; font-weight: 500;">データベースに接続してください</div>
           <div style="font-size: 14px; margin-top: 8px;">接続後、データベース情報が表示されます</div>
         </div>
@@ -555,7 +553,7 @@ export async function loadDbTables() {
       currentPageDbTables = [];
       tablesDiv.innerHTML = `
         <div style="text-align: center; padding: 40px; color: #64748b;">
-          <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
+          <div style="font-size: 48px; margin-bottom: 16px;"><i class="fas fa-table" style="color: #94a3b8;"></i></div>
           <div style="font-size: 16px; font-weight: 500;">テーブル情報なし</div>
           <div style="font-size: 14px; margin-top: 8px;">データベースに接続後、テーブル一覧が表示されます</div>
         </div>
@@ -777,10 +775,10 @@ export function showTablePreview(tableName, columns, rows, total, paginationData
   if (rows.length === 0) {
     previewDiv.innerHTML = `
       <div class="apex-region-header">
-        📋 ${escapeHtml(tableName)} - データプレビュー
+        <span><i class="fas fa-table"></i> ${escapeHtml(tableName)} - データプレビュー</span>
         <div style="display: flex; align-items: center; gap: 8px;">
           <button class="apex-button-secondary apex-button-xs" onclick="refreshTableData()">
-            🔄 再取得
+            <i class="fas fa-sync-alt"></i> 再取得
           </button>
           <span class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">
             0件
@@ -789,7 +787,7 @@ export function showTablePreview(tableName, columns, rows, total, paginationData
       </div>
       <div style="padding: 24px;">
         <div style="text-align: center; padding: 40px; color: #64748b;">
-          <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
+          <div style="font-size: 48px; margin-bottom: 16px;"><i class="fas fa-table" style="color: #94a3b8;"></i></div>
           <div style="font-size: 16px; font-weight: 500;">データがありません</div>
           <div style="font-size: 14px; margin-top: 8px;">テーブル ${escapeHtml(tableName)} にデータがありません</div>
         </div>
@@ -853,10 +851,10 @@ export function showTablePreview(tableName, columns, rows, total, paginationData
   
   previewDiv.innerHTML = `
     <div class="apex-region-header">
-      📋 ${escapeHtml(tableName)} - データプレビュー
+      <span><i class="fas fa-table"></i> ${escapeHtml(tableName)} - データプレビュー</span>
       <div style="display: flex; align-items: center; gap: 8px;">
         <button class="apex-button-secondary apex-button-xs" onclick="refreshTableData()">
-          🔄 再取得
+          <i class="fas fa-sync-alt"></i> 再取得
         </button>
         <span class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #dcfce7; color: #166534;">
           ${total}件

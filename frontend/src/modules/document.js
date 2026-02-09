@@ -190,7 +190,7 @@ export function displayOciObjectsList(data) {
   const filterHtml = `
     <div class="flex items-center gap-4 mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
       <div class="flex items-center gap-2">
-        <span class="text-xs font-medium text-gray-600">📁 表示タイプ:</span>
+        <span class="text-xs font-medium text-gray-600"><i class="fas fa-folder-open"></i> 表示タイプ:</span>
         <div class="flex gap-1">
           <button 
             onclick="window.ociModule.setDisplayType('files_only')" 
@@ -208,7 +208,7 @@ export function displayOciObjectsList(data) {
       </div>
       <div class="w-px h-6 bg-gray-300" style="display: none;"></div>
       <div class="flex items-center gap-2" style="display: none;">
-        <span class="text-xs font-medium text-gray-600">🖼️ ページ画像化:</span>
+        <span class="text-xs font-medium text-gray-600"><i class="fas fa-image"></i> ページ画像化:</span>
         <div class="flex gap-1">
           <button 
             onclick="window.ociModule.setFilterPageImages('all')" 
@@ -220,7 +220,7 @@ export function displayOciObjectsList(data) {
             onclick="window.ociModule.setFilterPageImages('done')" 
             class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterPageImages === 'done' ? 'bg-green-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
           >
-            ✓ 完了
+            <i class="fas fa-check"></i> 完了
           </button>
           <button 
             onclick="window.ociModule.setFilterPageImages('not_done')" 
@@ -232,7 +232,7 @@ export function displayOciObjectsList(data) {
       </div>
       <div class="w-px h-6 bg-gray-300"></div>
       <div class="flex items-center gap-2">
-        <span class="text-xs font-medium text-gray-600">🔢 ベクトル化:</span>
+        <span class="text-xs font-medium text-gray-600"><i class="fas fa-hashtag"></i> ベクトル化:</span>
         <div class="flex gap-1">
           <button 
             onclick="window.ociModule.setFilterEmbeddings('all')" 
@@ -244,7 +244,7 @@ export function displayOciObjectsList(data) {
             onclick="window.ociModule.setFilterEmbeddings('done')" 
             class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterEmbeddings === 'done' ? 'bg-green-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
           >
-            ✓ 完了
+            <i class="fas fa-check"></i> 完了
           </button>
           <button 
             onclick="window.ociModule.setFilterEmbeddings('not_done')" 
@@ -259,7 +259,7 @@ export function displayOciObjectsList(data) {
           onclick="window.ociModule.clearFilters()" 
           class="ml-auto px-2.5 py-1 text-xs rounded-full bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-all flex items-center gap-1"
         >
-          <span>✕</span>
+          <span><i class="fas fa-times"></i></span>
           <span>フィルタークリア</span>
         </button>
       ` : ''}
@@ -272,7 +272,7 @@ export function displayOciObjectsList(data) {
       <div>
         ${filterHtml}
         <div class="empty-state">
-          <div class="empty-state-icon">📁</div>
+          <div class="empty-state-icon"><i class="fas fa-folder-open" style="color: #94a3b8;"></i></div>
           <div class="empty-state-title">オブジェクトがありません</div>
           <div class="empty-state-subtitle">バケット: ${data.bucket_name || '-'}</div>
         </div>
@@ -319,7 +319,7 @@ export function displayOciObjectsList(data) {
         ${canExecuteAction ? '' : 'disabled'}
         title="${canExecuteAction ? `選択されたアイテム（フォルダ配下の子アイテムを含む）を削除: ${selectedOciObjects.length}件` : '削除するオブジェクトを選択してください'}"
       >
-        🗑️ 削除 (${selectedOciObjects.length}件)
+        <i class="fas fa-trash-alt"></i> 削除 (${selectedOciObjects.length}件)
       </button>
       <button 
         class="px-3 py-1 text-xs rounded transition-colors ${canExecuteAction ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-blue-300 text-white cursor-not-allowed'}" 
@@ -327,7 +327,7 @@ export function displayOciObjectsList(data) {
         ${canExecuteAction ? '' : 'disabled'}
         title="${canExecuteAction ? `選択されたアイテム（フォルダ配下の子アイテムを含む）をZIPでダウンロード: ${selectedOciObjects.length}件` : 'ダウンロードするオブジェクトを選択してください'}"
       >
-        📥 ダウンロード (${selectedOciObjects.length}件)
+        <i class="fas fa-download"></i> ダウンロード (${selectedOciObjects.length}件)
       </button>
       <button 
         class="hidden px-3 py-1 text-xs rounded transition-colors ${canExecuteAction ? 'bg-blue-700 hover:bg-blue-800 text-white' : 'bg-blue-300 text-white cursor-not-allowed'}" 
@@ -335,7 +335,7 @@ export function displayOciObjectsList(data) {
         ${canExecuteAction ? '' : 'disabled'}
         title="${canExecuteAction ? `選択されたファイル（フォルダ配下の子ファイルを含む）をページ毎に画像化: ${selectedOciObjects.length}件` : 'ページ画像化するファイルを選択してください'}"
       >
-        🖼️ ページ画像化 (${selectedOciObjects.length}件)
+        <i class="fas fa-image"></i> ページ画像化 (${selectedOciObjects.length}件)
       </button>
       <button 
         class="px-3 py-1 text-xs rounded transition-colors ${canExecuteAction ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-green-300 text-white cursor-not-allowed'}" 
@@ -343,7 +343,7 @@ export function displayOciObjectsList(data) {
         ${canExecuteAction ? '' : 'disabled'}
         title="${canExecuteAction ? `選択されたファイルの画像をベクトル化してDBに保存: ${selectedOciObjects.length}件` : 'ベクトル化するファイルを選択してください'}"
       >
-        🔢 ベクトル化 (${selectedOciObjects.length}件)
+        <i class="fas fa-hashtag"></i> ベクトル化 (${selectedOciObjects.length}件)
       </button>
     </div>
   `;
@@ -451,19 +451,19 @@ export function displayOciObjectsList(data) {
 function generateObjectRow(obj, allOciObjects, selectedOciObjects, ociObjectsBatchDeleteLoading) {
   const isFolder = obj.name.endsWith('/');
   const isPageImage = isGeneratedPageImage(obj.name, allOciObjects);
-  const icon = isFolder ? '📁' : (isPageImage ? '🖼️' : '📄');
+  const icon = isFolder ? '<i class="fas fa-folder-open"></i>' : (isPageImage ? '<i class="fas fa-image"></i>' : '<i class="fas fa-file"></i>');
   const isChecked = selectedOciObjects.includes(obj.name);
   
   // ページ画像化状態（ページ画像の場合は空表示）
   const hasPageImages = obj.has_page_images;
   const pageImagesStatusHtml = (isPageImage || hasPageImages == null) ? '' :
-    (hasPageImages ? '<span class="badge badge-success">✓ 完了</span>' : 
+    (hasPageImages ? '<span class="badge badge-success"><i class="fas fa-check"></i> 完了</span>' : 
     '<span class="badge badge-neutral">未実行</span>');
   
   // ベクトル化状態（ページ画像の場合は空表示）
   const hasEmbeddings = obj.has_embeddings;
   const embeddingsStatusHtml = (isPageImage || hasEmbeddings == null) ? '' :
-    (hasEmbeddings ? '<span class="badge badge-success">✓ 完了</span>' : 
+    (hasEmbeddings ? '<span class="badge badge-success"><i class="fas fa-check"></i> 完了</span>' : 
     '<span class="badge badge-neutral">未実行</span>');
   
   return `
@@ -1071,7 +1071,7 @@ export async function deleteSelectedOciObjects() {
   // ベクトル化処理中かどうかをチェック
   const ociObjectsBatchDeleteLoading = appState.get('ociObjectsBatchDeleteLoading');
   if (ociObjectsBatchDeleteLoading) {
-    utilsShowToast('⚠️ 処理中です。しばらくお待ちください', 'warning');
+    utilsShowToast('処理中です。しばらくお待ちください', 'warning');
     return;
   }
   
@@ -1259,13 +1259,13 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
-                  status: '🔍 DB確認中',
+                  status: 'DB確認中',
                   progress: getMonotonicProgress(currentFileIndex, 10),
                   jobId
                 });
               } else {
                 const checkingProgress = (currentFileIndex - 1) / (totalFiles || 1);
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 🔍 DB確認中`, checkingProgress, jobId);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: DB確認中`, checkingProgress, jobId);
               }
               break;
             
@@ -1274,13 +1274,13 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
-                  status: '🗑️ 既存ベクトルデータ削除中',
+                  status: '既存ベクトルデータ削除中',
                   progress: getMonotonicProgress(currentFileIndex, 20),
                   jobId
                 });
               } else {
                 const deleteEmbProgress = (currentFileIndex - 1) / (totalFiles || 1);
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 🗑️ 既存ベクトルデータ削除中`, deleteEmbProgress, jobId);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 既存ベクトルデータ削除中`, deleteEmbProgress, jobId);
               }
               break;
             
@@ -1289,13 +1289,13 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
-                  status: '🔍 既存画像を確認中',
+                  status: '既存画像を確認中',
                   progress: getMonotonicProgress(currentFileIndex, 25),
                   jobId
                 });
               } else {
                 const cleanupStartProgress = totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 🔍 既存画像を確認中`, cleanupStartProgress, jobId);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 既存画像を確認中`, cleanupStartProgress, jobId);
               }
               break;
             
@@ -1304,13 +1304,13 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
-                  status: `🗑️ 既存画像 ${data.cleanup_count}件を削除中`,
+                  status: `既存画像 ${data.cleanup_count}件を削除中`,
                   progress: getMonotonicProgress(currentFileIndex, 30),
                   jobId
                 });
               } else {
                 const cleanupProgress = totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 🗑️ 既存画像 ${data.cleanup_count}件を削除中`, cleanupProgress, jobId);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 既存画像 ${data.cleanup_count}件を削除中`, cleanupProgress, jobId);
               }
               break;
             
@@ -1319,13 +1319,13 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
-                  status: `✓ 既存画像 ${data.deleted_count}件を削除完了`,
+                  status: `既存画像 ${data.deleted_count}件を削除完了`,
                   progress: getMonotonicProgress(currentFileIndex, 35),
                   jobId
                 });
               } else {
                 const cleanupCompleteProgress = totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0;
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: ✓ 既存画像 ${data.deleted_count}件を削除完了`, cleanupCompleteProgress, jobId);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 既存画像 ${data.deleted_count}件を削除完了`, cleanupCompleteProgress, jobId);
               }
               break;
                         
@@ -1334,12 +1334,12 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
-                  status: '📄 自動ページ画像化開始',
+                  status: '自動ページ画像化開始',
                   progress: getMonotonicProgress(currentFileIndex, 40),
                   jobId
                 });
               } else {
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 📄 自動ページ画像化開始`, totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0, jobId);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 自動ページ画像化開始`, totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0, jobId);
               }
               utilsShowToast(`自動的にページ画像化を実行中: ${data.file_name}`, 'info');
               break;
@@ -1349,12 +1349,12 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
-                  status: `📤 ${data.total_pages}ページをアップロード中`,
+                  status: `${data.total_pages}ページをアップロード中`,
                   progress: getMonotonicProgress(currentFileIndex, 45),
                   jobId
                 });
               } else {
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 📤 ${data.total_pages}ページをアップロード中`, totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0, jobId);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: ${data.total_pages}ページをアップロード中`, totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0, jobId);
               }
               break;
             
@@ -1363,12 +1363,12 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
-                  status: `✓ ページ画像化完了 (${data.total_pages}ページ)`,
+                  status: `ページ画像化完了 (${data.total_pages}ページ)`,
                   progress: getMonotonicProgress(currentFileIndex, 50),
                   jobId
                 });
               } else {
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: ✓ ページ画像化完了 (${data.total_pages}ページ)`, totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0, jobId);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: ページ画像化完了 (${data.total_pages}ページ)`, totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0, jobId);
               }
               utilsShowToast(`ページ画像化完了: ${data.file_name} (${data.total_pages}ページ)`, 'success');
               break;
@@ -1380,12 +1380,12 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
-                  status: `🚀 ベクトル化開始 (${data.total_pages}ページ)`,
+                  status: `ベクトル化開始 (${data.total_pages}ページ)`,
                   progress: getMonotonicProgress(currentFileIndex, 55),
                   jobId
                 });
               } else {
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: 🚀 ベクトル化開始 (${data.total_pages}ページ)`, totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0, jobId);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: ベクトル化開始 (${data.total_pages}ページ)`, totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0, jobId);
               }
               break;
                         
@@ -1393,7 +1393,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               currentFileIndex = data.file_index;
               if (data.total_files) totalFiles = data.total_files;
               if (useProgressUI) {
-                let statusMsg = operationType === 'vectorize' ? '🔄 ベクトル化中' : '🔄 削除中';
+                let statusMsg = operationType === 'vectorize' ? 'ベクトル化中' : '削除中';
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
                   status: statusMsg,
@@ -1403,7 +1403,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 });
               } else {
                 const processingProgress = totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0;
-                let uploadingMessage = `ファイル ${data.file_index}/${totalFiles}\n${data.file_name}\nステータス: 🔄 画像化中`;
+                let uploadingMessage = `ファイル ${data.file_index}/${totalFiles}\n${data.file_name}\nステータス: 画像化中`;
                 updateLoadingMessage(uploadingMessage, processingProgress, jobId);
               }
               break;
@@ -1417,8 +1417,8 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 const rawProgress = totalPages > 0 ? Math.round((currentPageIndex / totalPages) * 44) + 55 : 55;
                 const pageProgressPercent = getMonotonicProgress(fileIdx, rawProgress);
                 let pageStatusMsg = operationType === 'vectorize' 
-                  ? `🔄 ページ ${currentPageIndex}/${totalPages} をベクトル化中`
-                  : `🔄 ページ ${currentPageIndex}/${totalPages} を処理中`;
+                  ? `ページ ${currentPageIndex}/${totalPages} をベクトル化中`
+                  : `ページ ${currentPageIndex}/${totalPages} を処理中`;
                 updateProcessProgressUI({
                   fileIndex: fileIdx,
                   status: pageStatusMsg,
@@ -1447,7 +1447,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
-                  status: '✓ 完了',
+                  status: '完了',
                   progress: completeProgress,
                   isSuccess: true,
                   overallStatus: `処理中: ${currentFileIndex}/${totalForComplete}件 完了`,
@@ -1455,7 +1455,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 });
               } else {
                 const completedFileProgress = totalForComplete > 0 ? currentFileIndex / totalForComplete : 0;
-                let completeMessage = `ファイル ${currentFileIndex}/${totalForComplete} ✓ 完了\n${data.file_name}`;
+                let completeMessage = `ファイル ${currentFileIndex}/${totalForComplete} 完了\n${data.file_name}`;
                 updateLoadingMessage(completeMessage, completedFileProgress, jobId);
               }
               break;
@@ -1540,7 +1540,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               if (useProgressUI) {
                 // メインページ進捗UIに完了表示
                 let finalStatus = data.success 
-                  ? `✓ すべて完了しました (${data.success_count}件)`
+                  ? `すべて完了しました (${data.success_count}件)`
                   : `完了: 成功 ${data.success_count}件 | 失敗 ${data.failed_count}件`;
                 updateProcessProgressUI({ overallStatus: finalStatus });
                 showProcessProgressCloseButton();
@@ -1724,7 +1724,7 @@ function showProcessProgressUI(objectNames, operationType) {
   
   const totalFiles = objectNames.length;
   const operationLabel = operationType === 'delete' ? 'オブジェクトを削除中' : 'ファイルをベクトル化中';
-  const operationIcon = operationType === 'delete' ? '🗑️' : '🔢';
+  const operationIcon = operationType === 'delete' ? '<i class="fas fa-trash-alt"></i>' : '<i class="fas fa-hashtag"></i>';
   
   // 各ファイルのHTMLを生成
   let filesHtml = '';
@@ -1765,7 +1765,7 @@ function showProcessProgressUI(objectNames, operationType) {
           style="display: none; font-size: 24px; line-height: 1; padding: 4px;"
           title="閉じる"
         >
-          ✕
+          <i class="fas fa-times"></i>
         </button>
       </div>
       
@@ -2033,7 +2033,7 @@ export async function loadDbStorage() {
     if (!data.success || !data.storage_info) {
       storageDiv.innerHTML = `
         <div style="text-align: center; padding: 40px; color: #64748b;">
-          <div style="font-size: 48px; margin-bottom: 16px;">💾</div>
+          <div style="font-size: 48px; margin-bottom: 16px;"><i class="fas fa-hdd" style="color: #94a3b8;"></i></div>
           <div style="font-size: 16px; font-weight: 500;">ストレージ情報なし</div>
           <div style="font-size: 14px; margin-top: 8px;">データベースに接続後、ストレージ情報が表示されます</div>
         </div>

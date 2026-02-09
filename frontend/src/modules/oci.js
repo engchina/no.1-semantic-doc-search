@@ -336,7 +336,7 @@ function updatePrivateKeyStatus() {
     statusDiv.innerHTML = `
       <div class="mt-3 p-3 bg-green-50 rounded-md border border-green-200">
         <div class="flex items-center justify-between">
-          <span class="text-sm font-medium text-green-800">✅ Private Keyが設定済み</span>
+          <span class="text-sm font-medium text-green-800"><i class="fas fa-check-circle"></i> Private Keyが設定済み</span>
           <span class="text-xs text-gray-500">再アップロードで更新</span>
         </div>
       </div>

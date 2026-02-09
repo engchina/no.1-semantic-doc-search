@@ -29,15 +29,15 @@
 
     <!-- タブナビゲーション -->
     <div class="apex-tabs" style="flex-shrink: 0; margin: 0;">
-      <div class="apex-tab active" onclick="switchTab('search', event)">🔍 検索</div>
-      <div class="apex-tab" onclick="switchTab('documents', event)">📁 文書管理</div>
-      <div class="apex-tab" onclick="switchTab('admin', event)">⚙️ 設定</div>
+      <div class="apex-tab active" onclick="switchTab('search', event)"><i class="fas fa-search"></i> 検索</div>
+      <div class="apex-tab" onclick="switchTab('documents', event)"><i class="fas fa-folder-open"></i> 文書管理</div>
+      <div class="apex-tab" onclick="switchTab('admin', event)"><i class="fas fa-cog"></i> 設定</div>
     </div>
 
     <!-- 設定サブタブ（管理タブがアクティブな時のみ表示） -->
     <div id="adminSubTabs" class="apex-tabs" style="flex-shrink: 0; margin: 0; display: none; background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 0;">
-      <div class="apex-tab active" onclick="switchAdminSubTab('database', event)" style="font-size: 14px; padding: 12px 20px; flex: 1; text-align: center;">🗄️ DB管理</div>
-      <div class="apex-tab" onclick="switchAdminSubTab('settings', event)" style="font-size: 14px; padding: 12px 20px; flex: 1; text-align: center;">⚙️ OCI設定</div>
+      <div class="apex-tab active" onclick="switchAdminSubTab('database', event)" style="font-size: 14px; padding: 12px 20px; flex: 1; text-align: center;"><i class="fas fa-database"></i> DB管理</div>
+      <div class="apex-tab" onclick="switchAdminSubTab('settings', event)" style="font-size: 14px; padding: 12px 20px; flex: 1; text-align: center;"><i class="fas fa-cog"></i> OCI設定</div>
     </div>
 
     <!-- AI Assistant 浮動ボタン -->
@@ -54,9 +54,7 @@
     <div id="copilotPanel" class="copilot-panel" style="display: none;">
       <div class="copilot-header">
         <div class="flex items-center gap-2">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-          </svg>
+          <i class="fas fa-lightbulb w-5 h-5"></i>
           <span class="font-semibold">OCI Generative AI</span>
         </div>
         <div class="flex items-center gap-1">
@@ -66,9 +64,7 @@
             onclick="startNewConversation()"
             title="新しい会話"
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-            </svg>
+            <i class="fas fa-plus w-4 h-4"></i>
           </button>
           <button 
             type="button" 
@@ -76,9 +72,7 @@
             onclick="toggleCopilotExpand()"
             title="展開/縮小"
           >
-            <svg id="copilotExpandIcon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-            </svg>
+            <i id="copilotExpandIcon" class="fas fa-chevron-right w-4 h-4"></i>
           </button>
           <button 
             type="button" 
@@ -86,9 +80,7 @@
             onclick="toggleCopilot()"
             title="閉じる"
           >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-            </svg>
+            <i class="fas fa-times w-4 h-4"></i>
           </button>
         </div>
       </div>
@@ -113,7 +105,7 @@
             <span class="text-xs text-gray-500">Enter で送信 / Shift+Enter で改行</span>
             <div class="flex gap-2">
               <label class="apex-button-secondary px-3 py-1.5 text-xs" style="cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                🖼️ 画像
+                <i class="fas fa-image"></i> 画像
                 <input type="file" accept="image/*" multiple style="display:none" onchange="addCopilotImagesFromFiles(this.files); this.value='';" />
               </label>
               <button 
@@ -121,14 +113,14 @@
                 onclick="document.getElementById('copilotInput').value=''; renderCopilotMessages();"
                 class="apex-button-secondary px-3 py-1.5 text-xs"
               >
-                🗑️ クリア
+                <i class="fas fa-trash-alt"></i> クリア
               </button>
               <button 
                 type="submit" 
                 class="apex-button px-4 py-1.5 text-xs"
                 id="copilotSendBtn"
               >
-                🚀 送信
+                <i class="fas fa-paper-plane"></i> 送信
               </button>
             </div>
           </div>
@@ -143,7 +135,7 @@
       <div id="tab-search" class="tab-content">
       <div class="apex-region" style="margin-bottom: 20px;">
         <div class="apex-region-header">
-          🔍 セマンティック検索
+          <span><i class="fas fa-search"></i> セマンティック検索</span>
         </div>
         <div style="padding: 24px;">
           <!-- 共通フィルター（ファイル名・取得件数・最小スコア） -->
@@ -170,7 +162,7 @@
               onclick="window.searchModule.switchSearchType('text')"
               style="padding: 12px 24px; font-weight: 600; font-size: 14px; border: none; background: none; cursor: pointer; border-bottom: 3px solid #1a365d; color: #1a365d; transition: all 0.3s;"
             >
-              📝 テキスト検索
+              <i class="fas fa-file-alt"></i> テキスト検索
             </button>
             <button 
               id="searchTypeImageTab"
@@ -178,7 +170,7 @@
               onclick="window.searchModule.switchSearchType('image')"
               style="padding: 12px 24px; font-weight: 600; font-size: 14px; border: none; background: none; cursor: pointer; border-bottom: 3px solid transparent; color: #64748b; transition: all 0.3s;"
             >
-              🖼️ 画像検索
+              <i class="fas fa-image"></i> 画像検索
             </button>
           </div>
 
@@ -197,10 +189,10 @@
 
             <div style="display: flex; gap: 12px;">
               <button class="apex-button px-4 py-2" onclick="window.searchModule.performSearch()">
-                🔍 検索実行
+                <i class="fas fa-search"></i> 検索実行
               </button>
               <button class="apex-button-secondary px-4 py-2" onclick="window.searchModule.clearSearchResults()">
-                🗑️ クリア
+                <i class="fas fa-eraser"></i> クリア
               </button>
             </div>
           </div>
@@ -237,15 +229,13 @@
                     onclick="event.stopPropagation(); window.searchModule.clearSearchImage();"
                     style="padding: 6px 16px; font-size: 13px;"
                   >
-                    🗑️ 画像をクリア
+                    <i class="fas fa-trash-alt"></i> 画像をクリア
                   </button>
                 </div>
                 <div id="imageSearchPlaceholder">
-                  <svg style="width: 48px; height: 48px; margin: 0 auto 12px; color: #94a3b8;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                  </svg>
+                  <i class="fas fa-image" style="font-size: 48px; margin: 0 auto 12px; color: #94a3b8; display: block; text-align: center;"></i>
                   <div style="font-size: 15px; font-weight: 600; color: #475569; margin-bottom: 6px;">
-                    📁 画像ファイルを選択またはドロップ
+                    <i class="fas fa-folder-open"></i> 画像ファイルを選択またはドロップ
                   </div>
                   <div style="font-size: 12px; color: #94a3b8;">
                     PNG, JPG, JPEG (最大10MB)
@@ -269,12 +259,10 @@
                 "
               >
                 <div style="display: flex; align-items: center; justify-content: center; gap: 12px;">
-                  <svg style="width: 32px; height: 32px; color: #64748b;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
-                  </svg>
+                  <i class="fas fa-clipboard" style="font-size: 32px; color: #64748b;"></i>
                   <div style="text-align: left;">
                     <div style="font-size: 14px; font-weight: 600; color: #475569; margin-bottom: 2px;">
-                      📋 Ctrl+V で画像を貼り付け
+                      <i class="fas fa-paste"></i> Ctrl+V で画像を貼り付け
                     </div>
                     <div style="font-size: 12px; color: #64748b;">
                       このエリアをクリックしてフォーカス後、Ctrl+V を押してください
@@ -294,10 +282,10 @@
 
             <div style="display: flex; gap: 12px;">
               <button class="apex-button px-4 py-2" onclick="window.searchModule.performImageSearch()">
-                🔍 画像検索実行
+                <i class="fas fa-search"></i> 画像検索実行
               </button>
               <button class="apex-button-secondary px-4 py-2" onclick="window.searchModule.clearSearchResults()">
-                🗑️ クリア
+                <i class="fas fa-eraser"></i> クリア
               </button>
             </div>
           </div>
@@ -307,7 +295,7 @@
       <!-- 検索結果 -->
       <div id="searchResults" class="apex-region" style="display: none;">
         <div class="apex-region-header">
-          📊 検索結果
+          <span><i class="fas fa-chart-bar"></i> 検索結果</span>
           <span id="searchResultsSummary" style="font-size: 13px; font-weight: normal; color: #64748b;"></span>
         </div>
         <div style="padding: 20px;">
@@ -321,22 +309,24 @@
       <!-- アップロード -->
       <div class="apex-region" style="margin-bottom: 20px;">
         <div class="apex-region-header">
-          📤 文書アップロード
+          <span><i class="fas fa-cloud-upload-alt"></i> 文書アップロード</span>
+        </div>
+        <div style="padding: 8px 24px 0 24px;">
+          <div class="flex items-center gap-2 text-xs" style="color: #94a3b8;">
+            <span>Object Storageへアップロードするファイルを選択してください。</span>
+          </div>
         </div>
         <div style="padding: 24px;">
           <div style="margin-bottom: 16px;">
-            <label class="form-label">ファイル選択 (PDF, XLSX, XLS, DOCX, DOC, PPT, PPTX, PNG, JPG, JPEG, TXT, MD) - 最大10ファイル</label>
             <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-800 transition cursor-pointer" 
                  onclick="document.getElementById('fileInputMultiple').click()"
                  ondragover="handleDragOver(event)"
                  ondragleave="handleDragLeave(event)"
                  ondrop="handleDropForMultipleInput(event)">
-              <svg class="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-              </svg>
+              <i class="fas fa-cloud-upload-alt text-gray-400" style="font-size: 48px; display: block; margin-bottom: 16px;"></i>
               <p class="text-gray-600 font-medium mb-2">ファイルをドラッグ＆ドロップまたはクリックしてアップロード</p>
               <p class="text-sm text-gray-500">対応形式: PDF, XLSX, XLS, DOCX, DOC, PPT, PPTX, PNG, JPG, JPEG, TXT, MD</p>
-              <p class="text-xs text-blue-800 font-semibold mt-2">☆ 最大10ファイルまで同時アップロード可能</p>
+              <p class="text-xs text-blue-800 font-semibold mt-2">* 最大10ファイルまで同時アップロード可能</p>
               <input type="file" id="fileInputMultiple" class="hidden" accept=".pdf,.xlsx,.xls,.docx,.doc,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md" multiple onchange="handleMultipleFileSelect(event)">
             </div>
           </div>
@@ -356,7 +346,7 @@
           <div id="uploadProgress" style="margin-bottom: 16px; display: none;"></div>
           
           <button class="apex-button px-4 py-2" onclick="uploadMultipleDocuments()" id="uploadMultipleBtn" disabled>
-            📤 アップロード開始
+            <i class="fas fa-cloud-upload-alt"></i> アップロード開始
           </button>
         </div>
       </div>
@@ -364,31 +354,22 @@
       <!-- 文書リスト -->
       <div class="apex-region">
         <div class="apex-region-header">
-          📁 登録済み文書
+          <span><i class="fas fa-folder-open"></i> 登録済み文書</span>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button class="apex-button-secondary apex-button-xs" onclick="refreshDocumentsWithNotification()" style="display: flex; align-items: center; gap: 4px;">
-              🔄 再取得
+              <i class="fas fa-sync-alt"></i> 再取得
             </button>
             <span id="documentsStatusBadge" class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">未取得</span>
             <span id="documentsFileCountBadge" class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #dbeafe; color: #1e40af;">ファイル: 0件</span>
             <span id="documentsPageImageCountBadge" class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #f3e8ff; color: #6b21a8;">ページ画像: 0件</span>
           </div>
         </div>
-        <div style="padding: 24px;">
-          <div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-5" style="background-color: #eff6ff; border-color: #bfdbfe;">
-            <div class="flex items-start gap-3">
-              <svg class="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
-              </svg>
-              <div style="flex: 1;">
-                <div class="text-sm font-medium text-blue-900" style="color: #1e3a8a; margin-bottom: 4px;">登録済み文書について</div>
-                <div class="text-sm text-blue-800" style="color: #1e40af;">
-                  OCI Object Storage に保存されている文書一覧を表示します。各ファイルのサイズや作成日時を確認できます。
-                </div>
-              </div>
-            </div>
+        <div style="padding: 8px 24px 0 24px;">
+          <div class="flex items-center gap-2 text-xs" style="color: #94a3b8;">
+            <span>Object Storage に保存されている文書を管理（一覧・ダウンロード・削除）し、検索用にベクトル化してデータベースへ格納します。</span>
           </div>
-
+        </div>
+        <div style="padding: 24px;">
           <!-- 処理進捗表示 (削除・ベクトル化) - 一覧の下に表示 -->
           <div id="processProgress" style="margin-top: 16px; display: none;"></div>
 
@@ -403,28 +384,18 @@
       <!-- OCI APIキー設定 -->
       <div class="apex-region bg-gray-50/50" style="margin-bottom: 20px;">
         <div class="apex-region-header">
-          <span>⚙️ OCI APIキー設定</span>
+          <span><i class="fas fa-cog"></i> OCI APIキー設定</span>
           <span id="ociSettingsStatusBadge" class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">未設定</span>
         </div>
-        <div class="p-6 space-y-6">
-          <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div class="flex items-start gap-2">
-              <svg class="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-              </svg>
-              <div class="flex-1">
-                <div class="text-sm font-medium text-blue-800 mb-1">OCI APIキー認証について</div>
-                <div class="text-xs text-blue-700">
-                  OCI Generative AI などの OCI リソースにアクセスするための認証情報を設定します。<br>
-                  User OCID、Tenancy OCID、Fingerprint、Region、Private Key が必要です。
-                </div>
-              </div>
-            </div>
+        <div style="padding: 8px 24px 0 24px;">
+          <div class="flex items-center gap-2 text-xs" style="color: #94a3b8;">
+            <span>OCI Generative AI などの OCI リソースにアクセスするための認証情報を設定します。User OCID、Tenancy OCID、Fingerprint、Region、Private Key が必要です。</span>
           </div>
-          
+        </div>
+        <div class="p-6 space-y-6">
           <div class="bg-white p-5 rounded-lg border border-gray-200">
             <h4 class="text-sm font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100">
-              🔑 APIキー認証情報
+              <i class="fas fa-key"></i> APIキー認証情報
             </h4>
             
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -476,9 +447,7 @@
                      ondragover="handleDragOver(event)"
                      ondragleave="handleDragLeave(event)"
                      ondrop="handleDropForInput(event, 'privateKeyFileInput')">
-                  <svg class="w-10 h-10 mx-auto mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-                  </svg>
+                  <i class="fas fa-cloud-upload-alt text-gray-400" style="font-size: 40px; display: block; margin-bottom: 12px;"></i>
                   <p class="text-gray-600 font-medium mb-1">ファイルをドラッグ＆ドロップまたはクリックしてアップロード</p>
                   <p class="text-sm text-gray-500">対応形式: PEM (.pem, .key)</p>
                   <input type="file" id="privateKeyFileInput" class="hidden" accept=".pem,.key" onchange="handlePrivateKeyFileSelect(event)">
@@ -493,14 +462,14 @@
               onclick="saveOciSettings()" 
               class="apex-button px-6 py-2 bg-blue-800 text-white hover:bg-blue-900 disabled:opacity-50 transition rounded-md shadow-sm font-medium"
             >
-              💾 APIキーを保存
+              <i class="fas fa-save"></i> APIキーを保存
             </button>
             
             <button 
               onclick="testOciConnection()" 
               class="apex-button-secondary px-6 py-2 bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 disabled:opacity-50 transition rounded-md shadow-sm font-medium"
             >
-              🧪 接続テスト
+              <i class="fas fa-flask"></i> 接続テスト
             </button>
           </div>
         </div>
@@ -509,29 +478,20 @@
       <!-- Object Storage設定 -->
       <div class="apex-region">
         <div class="apex-region-header">
-          <span>📦 Object Storage設定</span>
+          <span><i class="fas fa-box"></i> Object Storage設定</span>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button class="apex-button-secondary apex-button-xs" onclick="refreshObjectStorageSettings()" style="display: flex; align-items: center; gap: 4px;">
-              🔄 再取得
+              <i class="fas fa-sync-alt"></i> 再取得
             </button>
             <span id="objectStorageStatusBadge" class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">未設定</span>
           </div>
         </div>
-        <div style="padding: 24px;">
-          <div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-5" style="background-color: #eff6ff; border-color: #bfdbfe;">
-            <div class="flex items-start gap-3">
-              <svg class="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
-              </svg>
-              <div style="flex: 1;">
-                <div class="text-sm font-medium text-blue-900" style="color: #1e3a8a; margin-bottom: 4px;">Object Storage設定について</div>
-                <div class="text-sm text-blue-800" style="color: #1e40af;">
-                  文書アップロード先のOCI Object Storage バケット情報を設定します。<br>
-                  Bucket Name、Namespaceが必要です。
-                </div>
-              </div>
-            </div>
+        <div style="padding: 8px 24px 0 24px;">
+          <div class="flex items-center gap-2 text-xs" style="color: #94a3b8;">
+            <span>文書アップロード先のOCI Object Storage バケット情報を設定します。Bucket Name、Namespaceが必要です。</span>
           </div>
+        </div>
+        <div style="padding: 24px;">
 
           <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px;">
             <div class="form-group">
@@ -550,7 +510,7 @@
           
           <div style="display: flex; gap: 12px;">
             <button class="apex-button-secondary px-4 py-2" onclick="testObjectStorageConnection()">
-              🧪 接続テスト
+              <i class="fas fa-flask"></i> 接続テスト
             </button>
           </div>
         </div>
@@ -563,29 +523,20 @@
       <!-- Autonomous AI Database 起動/停止 -->
       <div class="apex-region" style="margin-bottom: 20px;">
         <div class="apex-region-header">
-          🗄️ Autonomous AI Database 起動/停止
+          <span><i class="fas fa-database"></i> Autonomous AI Database 起動/停止</span>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button class="apex-button-secondary apex-button-xs" onclick="getAdbInfo()" style="display: flex; align-items: center; gap: 4px;">
-              🔄 再取得
+              <i class="fas fa-sync-alt"></i> 再取得
             </button>
             <span id="adbLifecycleState" class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">未取得</span>
           </div>
         </div>
-        <div style="padding: 24px;">
-          <div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-5" style="background-color: #eff6ff; border-color: #bfdbfe;">
-            <div class="flex items-start gap-3">
-              <svg class="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
-              </svg>
-              <div style="flex: 1;">
-                <div class="text-sm font-medium text-blue-900" style="color: #1e3a8a; margin-bottom: 4px;">Autonomous Database 管理について</div>
-                <div class="text-sm text-blue-800" style="color: #1e40af;">
-                  ターゲット Autonomous Database の状態を取得し、起動/停止を行います。<br>
-                  バックエンドの環境変数 <code class="bg-white px-2 py-0.5 rounded text-xs">ADB_OCID</code> が必要です。
-                </div>
-              </div>
-            </div>
+        <div style="padding: 8px 24px 0 24px;">
+          <div class="flex items-center gap-2 text-xs" style="color: #94a3b8;">
+            <span>ターゲット Autonomous Database の状態を取得し、起動/停止を行います。バックエンドの環境変数 ADB_OCID が必要です。</span>
           </div>
+        </div>
+        <div style="padding: 24px;">
           
           <div style="display: flex; gap: 12px; margin-bottom: 20px;">
             <button class="apex-button px-4 py-2" onclick="startAdb()" style="background: #10b981;">
@@ -627,29 +578,20 @@
       <!-- データベース接続設定 -->
       <div class="apex-region" style="margin-bottom: 20px;">
         <div class="apex-region-header">
-          🔌 データベース接続設定
+          <span><i class="fas fa-plug"></i> データベース接続設定</span>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button class="apex-button-secondary apex-button-xs" onclick="refreshDbConnectionFromEnv()" style="display: flex; align-items: center; gap: 4px;">
-              🔄 再取得
+              <i class="fas fa-sync-alt"></i> 再取得
             </button>
             <span id="dbConnectionStatusBadge" class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">未取得</span>
           </div>
         </div>
-        <div style="padding: 24px;">
-          <div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-5" style="background-color: #eff6ff; border-color: #bfdbfe;">
-            <div class="flex items-start gap-3">
-              <svg class="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
-              </svg>
-              <div style="flex: 1;">
-                <div class="text-sm font-medium text-blue-900" style="color: #1e3a8a; margin-bottom: 4px;">データベース接続設定について</div>
-                <div class="text-sm text-blue-800" style="color: #1e40af;">
-                  Oracle Databaseへの接続情報を設定します。<br>
-                  ユーザー名、パスワード、Walletファイル（ZIP）を設定してください。
-                </div>
-              </div>
-            </div>
+        <div style="padding: 8px 24px 0 24px;">
+          <div class="flex items-center gap-2 text-xs" style="color: #94a3b8;">
+            <span>Oracle Databaseへの接続情報を設定します。ユーザー名、パスワード、Walletファイル（ZIP）を設定してください。</span>
           </div>
+        </div>
+        <div style="padding: 24px;">
 
           <!-- 共通フィールド -->
           <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 16px;">
@@ -668,9 +610,7 @@
           <div class="form-group" style="margin-bottom: 16px;">
             <label class="form-label">Walletファイル<span class="text-red-500 ml-1">*</span></label>
             <div id="walletUploadArea" class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-500 transition-colors" onclick="document.getElementById('walletFileInput').click()">
-              <svg class="w-12 h-12 mx-auto mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-              </svg>
+              <i class="fas fa-cloud-upload-alt text-gray-400" style="font-size: 40px; display: block; margin-bottom: 8px;"></i>
               <div class="text-sm font-medium text-gray-700 mb-1">ファイルをドラッグ&ドロップまたはクリックしてアップロード</div>
               <div class="text-xs text-gray-500">対応形式: ZIP (.zip)</div>
             </div>
@@ -689,10 +629,10 @@
 
           <div style="display: flex; gap: 12px; margin-top: 20px;">
             <button type="button" class="apex-button px-4 py-2" onclick="saveDbConnection()">
-              💾 接続設定を保存
+              <i class="fas fa-save"></i> 接続設定を保存
             </button>
             <button type="button" class="apex-button-secondary px-4 py-2" onclick="testDbConnection()">
-              🧪 接続テスト
+              <i class="fas fa-flask"></i> 接続テスト
             </button>
           </div>
         </div>
@@ -701,32 +641,24 @@
       <!-- データベース情報 -->
       <div class="apex-region" style="margin-bottom: 20px; display: none;">
         <div class="apex-region-header">
-          📊 データベース情報
+          <span><i class="fas fa-chart-bar"></i> データベース情報</span>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button id="refreshDbInfoBtn" class="apex-button-secondary apex-button-xs" onclick="refreshDbInfo()" style="display: flex; align-items: center; gap: 4px;">
-              🔄 再取得
+              <i class="fas fa-sync-alt"></i> 再取得
             </button>
             <span id="dbInfoStatusBadge" class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">未取得</span>
           </div>
         </div>
-        <div style="padding: 24px;">
-          <div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-5" style="background-color: #eff6ff; border-color: #bfdbfe;">
-            <div class="flex items-start gap-3">
-              <svg class="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
-              </svg>
-              <div style="flex: 1;">
-                <div class="text-sm font-medium text-blue-900" style="color: #1e3a8a; margin-bottom: 4px;">データベース情報について</div>
-                <div class="text-sm text-blue-800" style="color: #1e40af;">
-                  接続されたデータベースのバージョン、キャラクターセット、その他の基本情報を表示します。
-                </div>
-              </div>
-            </div>
+        <div style="padding: 8px 24px 0 24px;">
+          <div class="flex items-center gap-2 text-xs" style="color: #94a3b8;">
+            <span>接続されたデータベースのバージョン、キャラクターセット、その他の基本情報を表示します。</span>
           </div>
+        </div>
+        <div style="padding: 24px;">
           
           <div id="dbInfoContent">
             <div style="text-align: center; padding: 40px; color: #64748b;">
-              <div style="font-size: 48px; margin-bottom: 16px;">🗄️</div>
+              <div style="font-size: 48px; margin-bottom: 16px;"><i class="fas fa-database" style="color: #94a3b8;"></i></div>
               <div style="font-size: 16px; font-weight: 500;">データベースに接続してください</div>
               <div style="font-size: 14px; margin-top: 8px;">接続後、データベース情報が表示されます</div>
             </div>
@@ -737,32 +669,24 @@
       <!-- ストレージ情報 -->
       <div class="apex-region" style="margin-bottom: 20px; display: none;">
         <div class="apex-region-header">
-          💾 ストレージ情報
+          <span><i class="fas fa-hdd"></i> ストレージ情報</span>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button id="refreshDbStorageBtn" class="apex-button-secondary apex-button-xs" onclick="refreshDbStorage()" style="display: flex; align-items: center; gap: 4px;">
-              🔄 再取得
+              <i class="fas fa-sync-alt"></i> 再取得
             </button>
             <span id="dbStorageStatusBadge" class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">未取得</span>
           </div>
         </div>
-        <div style="padding: 24px;">
-          <div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-5" style="background-color: #eff6ff; border-color: #bfdbfe;">
-            <div class="flex items-start gap-3">
-              <svg class="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
-              </svg>
-              <div style="flex: 1;">
-                <div class="text-sm font-medium text-blue-900" style="color: #1e3a8a; margin-bottom: 4px;">ストレージ情報について</div>
-                <div class="text-sm text-blue-800" style="color: #1e40af;">
-                  データベースのストレージ使用状況を表示します。テーブルスペースごとの使用状況を確認できます。
-                </div>
-              </div>
-            </div>
+        <div style="padding: 8px 24px 0 24px;">
+          <div class="flex items-center gap-2 text-xs" style="color: #94a3b8;">
+            <span>データベースのストレージ使用状況を表示します。テーブルスペースごとの使用状況を確認できます。</span>
           </div>
+        </div>
+        <div style="padding: 24px;">
           
           <div id="dbStorageContent">
             <div style="text-align: center; padding: 40px; color: #64748b;">
-              <div style="font-size: 48px; margin-bottom: 16px;">💾</div>
+              <div style="font-size: 48px; margin-bottom: 16px;"><i class="fas fa-hdd" style="color: #94a3b8;"></i></div>
               <div style="font-size: 16px; font-weight: 500;">データベースに接続してください</div>
               <div style="font-size: 14px; margin-top: 8px;">接続後、ストレージ情報が表示されます</div>
             </div>
@@ -773,32 +697,24 @@
       <!-- テーブル一覧 -->
       <div class="apex-region" style="margin-bottom: 20px;">
         <div class="apex-region-header">
-          📋 テーブル一覧
+          <span><i class="fas fa-table"></i> テーブル一覧</span>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button id="refreshDbTablesBtn" class="apex-button-secondary apex-button-xs" onclick="refreshDbTables()" style="display: flex; align-items: center; gap: 4px;">
-              🔄 再取得
+              <i class="fas fa-sync-alt"></i> 再取得
             </button>
             <span id="dbTablesStatusBadge" class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">0件</span>
           </div>
         </div>
-        <div style="padding: 24px;">
-          <div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-5" style="background-color: #eff6ff; border-color: #bfdbfe;">
-            <div class="flex items-start gap-3">
-              <svg class="w-5 h-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
-              </svg>
-              <div style="flex: 1;">
-                <div class="text-sm font-medium text-blue-900" style="color: #1e3a8a; margin-bottom: 4px;">テーブル一覧について</div>
-                <div class="text-sm text-blue-800" style="color: #1e40af;">
-                  接続されたスキーマ内のテーブル一覧を表示します。各テーブルの行数や作成日時を確認できます。
-                </div>
-              </div>
-            </div>
+        <div style="padding: 8px 24px 0 24px;">
+          <div class="flex items-center gap-2 text-xs" style="color: #94a3b8;">
+            <span>接続されたスキーマ内のテーブル一覧を表示します。各テーブルの行数や作成日時を確認できます。</span>
           </div>
+        </div>
+        <div style="padding: 24px;">
           
           <div id="dbTablesContent">
             <div style="text-align: center; padding: 40px; color: #64748b;">
-              <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
+              <div style="font-size: 48px; margin-bottom: 16px;"><i class="fas fa-table" style="color: #94a3b8;"></i></div>
               <div style="font-size: 16px; font-weight: 500;">テーブル情報なし</div>
               <div style="font-size: 14px; margin-top: 8px;">データベースに接続後、テーブル一覧が表示されます</div>
             </div>
@@ -859,9 +775,7 @@
                 <label for="loginUsername" class="form-label" style="color: rgba(255,255,255,0.8);">ユーザー名</label>
                 <div class="login-input-wrap">
                   <div class="login-input-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5">
-                      <path d="M12 12a4.5 4.5 0 1 0-4.5-4.5A4.5 4.5 0 0 0 12 12Zm0 2.25c-4.42 0-8 2.18-8 4.88V21h16v-1.87c0-2.7-3.58-4.88-8-4.88Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
+                    <i class="fas fa-user w-5 h-5"></i>
                   </div>
                   <input
                     type="text"
@@ -882,11 +796,7 @@
                 <label for="loginPassword" class="form-label" style="color: rgba(255,255,255,0.8);">パスワード</label>
                 <div class="login-input-wrap">
                   <div class="login-input-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5">
-                      <path d="M7 11V8.75A5 5 0 0 1 12 4a5 5 0 0 1 5 4.75V11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                      <path d="M6.5 11h11A2.5 2.5 0 0 1 20 13.5v5A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5v-5A2.5 2.5 0 0 1 6.5 11Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-                      <path d="M12 16.25v1.75" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                    </svg>
+                    <i class="fas fa-lock w-5 h-5"></i>
                   </div>
                   <input
                     type="password"
@@ -902,10 +812,7 @@
                     onclick="toggleLoginPassword()"
                     aria-label="パスワード表示切替"
                   >
-                    <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5">
-                      <path d="M2.25 12s3.5-7.5 9.75-7.5S21.75 12 21.75 12s-3.5 7.5-9.75 7.5S2.25 12 2.25 12Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                      <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
-                    </svg>
+                    <i class="fas fa-eye w-5 h-5"></i>
                   </button>
                 </div>
               </div>

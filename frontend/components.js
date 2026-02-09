@@ -530,22 +530,22 @@ function showModal({
   const variantConfig = {
     default: {
       iconBgStyle: 'background: linear-gradient(135deg, #1a365d 0%, #0f2847 100%);',
-      iconSvg: '<svg style="width:24px;height:24px;color:white;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
+      iconSvg: '<i class="fas fa-info-circle" style="font-size:24px;color:white;"></i>',
       confirmBtnStyle: 'background: linear-gradient(135deg, #1a365d 0%, #0f2847 100%); color: white;'
     },
     danger: {
       iconBgStyle: 'background: linear-gradient(135deg, #ef4444 0%, #e11d48 100%);',
-      iconSvg: '<svg style="width:24px;height:24px;color:white;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>',
+      iconSvg: '<i class="fas fa-trash-alt" style="font-size:24px;color:white;"></i>',
       confirmBtnStyle: 'background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white;'
     },
     warning: {
       iconBgStyle: 'background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);',
-      iconSvg: '<svg style="width:24px;height:24px;color:white;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>',
+      iconSvg: '<i class="fas fa-exclamation-triangle" style="font-size:24px;color:white;"></i>',
       confirmBtnStyle: 'background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white;'
     },
     info: {
       iconBgStyle: 'background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);',
-      iconSvg: '<svg style="width:24px;height:24px;color:white;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>',
+      iconSvg: '<i class="fas fa-lightbulb" style="font-size:24px;color:white;"></i>',
       confirmBtnStyle: 'background: linear-gradient(135deg, #06b6d4 0%, #0284c7 100%); color: white;'
     }
   };
@@ -556,9 +556,7 @@ function showModal({
   const processedContent = content
     .replace(/<warning>(.*?)<\/warning>/gs, `
       <div class="modal-warning-block">
-        <svg class="modal-warning-icon" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-        </svg>
+        <i class="fas fa-exclamation-triangle modal-warning-icon"></i>
         <span>$1</span>
       </div>
     `)
@@ -895,9 +893,7 @@ function renderCard({
       class="text-gray-500 hover:text-gray-700 transition-transform"
       id="${contentId}-toggle"
     >
-      <svg class="w-5 h-5 transform ${defaultExpanded ? '' : 'rotate-180'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-      </svg>
+      <i class="fas fa-chevron-down w-5 h-5 transform ${defaultExpanded ? '' : 'rotate-180'}"></i>
     </button>
   ` : '';
 
@@ -1004,7 +1000,7 @@ function renderLoading({
   // テキスト型
   return `
     <div class="flex items-center justify-center py-4">
-      <span class="${config.text} text-gray-600">⏳ ${message}</span>
+      <span class="${config.text} text-gray-600"><i class="fas fa-hourglass-half"></i> ${message}</span>
     </div>
   `;
 }
@@ -1032,19 +1028,19 @@ function showToast(message, type = 'info', duration = 4000) {
   const config = {
     success: {
       accent: '#22c55e',
-      iconSvg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
+      iconSvg: '<i class="fas fa-check-circle" style="font-size:18px;color:#22c55e;"></i>'
     },
     error: {
       accent: '#ef4444',
-      iconSvg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>'
+      iconSvg: '<i class="fas fa-times-circle" style="font-size:18px;color:#ef4444;"></i>'
     },
     warning: {
       accent: '#f59e0b',
-      iconSvg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+      iconSvg: '<i class="fas fa-exclamation-triangle" style="font-size:18px;color:#f59e0b;"></i>'
     },
     info: {
       accent: '#3b82f6',
-      iconSvg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+      iconSvg: '<i class="fas fa-info-circle" style="font-size:18px;color:#3b82f6;"></i>'
     }
   };
 
@@ -1133,10 +1129,10 @@ function renderAlert({
 }) {
   // タイプ別の設定
   const typeConfig = {
-    success: { icon: '✅', bgColor: 'bg-green-50', borderColor: 'border-green-200', textColor: 'text-green-800' },
-    error: { icon: '❌', bgColor: 'bg-red-50', borderColor: 'border-red-200', textColor: 'text-red-800' },
-    warning: { icon: '⚠️', bgColor: 'bg-yellow-50', borderColor: 'border-yellow-200', textColor: 'text-yellow-800' },
-    info: { icon: 'ℹ️', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', textColor: 'text-blue-800' }
+    success: { icon: '<i class="fas fa-check-circle"></i>', bgColor: 'bg-green-50', borderColor: 'border-green-200', textColor: 'text-green-800' },
+    error: { icon: '<i class="fas fa-times-circle"></i>', bgColor: 'bg-red-50', borderColor: 'border-red-200', textColor: 'text-red-800' },
+    warning: { icon: '<i class="fas fa-exclamation-triangle"></i>', bgColor: 'bg-yellow-50', borderColor: 'border-yellow-200', textColor: 'text-yellow-800' },
+    info: { icon: '<i class="fas fa-info-circle"></i>', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', textColor: 'text-blue-800' }
   };
 
   const config = typeConfig[type] || typeConfig.info;
@@ -1321,7 +1317,7 @@ if (typeof window !== 'undefined') {
     renderAlert
   };
   
-  console.log('✅ 統一UIコンポーネントライブラリが読み込まれました');
+  console.log('統一UIコンポーネントライブラリが読み込まれました');
 }
 
 // Node.js環境用のエクスポート

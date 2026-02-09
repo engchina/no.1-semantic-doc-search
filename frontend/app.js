@@ -1,6 +1,7 @@
 // ========================================
 // モジュールインポート
 // ========================================
+import '@fortawesome/fontawesome-free/css/all.min.css';
 import { appState, setAuthState } from './src/state.js';
 import { apiCall as authApiCall, loadConfig as authLoadConfig, showLoginModal as authShowLoginModal, 
          checkLoginStatus as authCheckLoginStatus, forceLogout as authForceLogout } from './src/modules/auth.js';
@@ -245,9 +246,7 @@ async function switchAdminSubTab(subTabName, event) {
               <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4" role="alert">
                 <div class="flex items-start">
                   <div class="flex-shrink-0">
-                    <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                      <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                    </svg>
+                    <i class="fas fa-exclamation-triangle text-yellow-400 h-5 w-5"></i>
                   </div>
                   <div class="ml-3 flex-1">
                     <p class="text-sm text-yellow-700">
@@ -261,7 +260,7 @@ async function switchAdminSubTab(subTabName, event) {
                         onclick="window.retryLoadDbSettings()" 
                         class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded transition-colors"
                       >
-                        🔄 再読み込み
+                        <i class="fas fa-sync-alt"></i> 再読み込み
                       </button>
                     </div>
                   </div>
@@ -430,7 +429,7 @@ function displaySelectedFiles() {
       <div class="flex items-center gap-2 flex-1">
         <span class="text-xs font-semibold text-blue-800">#${index + 1}</span>
         <div class="flex-1">
-          <div class="text-sm font-medium text-gray-800">📄 ${file.name}</div>
+          <div class="text-sm font-medium text-gray-800"><i class="fas fa-file"></i> ${file.name}</div>
           <div class="text-xs text-gray-500">${utilsFormatFileSize(file.size)}</div>
         </div>
       </div>
@@ -610,7 +609,7 @@ function showUploadProgressUI(files) {
           style="display: none; font-size: 24px; line-height: 1; padding: 4px;"
           title="閉じる"
         >
-          ✕
+          <i class="fas fa-times"></i>
         </button>
       </div>
       
@@ -701,7 +700,7 @@ async function processUploadStreamingResponse(response, totalFiles) {
           processingCompleted = true;
           updateUploadOverallStatus(
             data.success ? 
-              `✓ すべて完了しました (${data.success_count}件)` : 
+              `<i class="fas fa-check"></i> すべて完了しました (${data.success_count}件)` : 
               `完了: 成功 ${data.success_count}件、失敗 ${data.failed_count}件`
           );
           
@@ -840,7 +839,7 @@ function handleFileSelect(event) {
           <button onclick="clearFileSelection();" class="text-xs text-red-600 hover:text-red-800 hover:underline">クリア</button>
         </div>
         <div class="text-sm text-gray-600">
-          📄 ${file.name} (${utilsFormatFileSize(file.size)})
+          <i class="fas fa-file"></i> ${file.name} (${utilsFormatFileSize(file.size)})
         </div>
       </div>
     `;
@@ -1282,7 +1281,7 @@ function displayDocumentsList(documents) {
   if (documents.length === 0) {
     listDiv.innerHTML = `
       <div style="text-align: center; padding: 40px; color: #64748b;">
-        <div style="font-size: 48px; margin-bottom: 16px;">📁</div>
+        <div style="font-size: 48px; margin-bottom: 16px;"><i class="fas fa-folder-open" style="color: #94a3b8;"></i></div>
         <div style="font-size: 16px; font-weight: 500;">登録済み文書がありません</div>
         <div style="font-size: 14px; margin-top: 8px;">文書をアップロードして検索を開始してください</div>
       </div>
@@ -1319,12 +1318,12 @@ function displayDocumentsList(documents) {
               <td>${utilsFormatDateTime(doc.uploaded_at)}</td>
               <td>
                 <span class="badge ${doc.status === 'completed' ? 'badge-success' : 'badge-warning'}">
-                  ${doc.status === 'completed' ? '✓ 完了' : '⏳ 処理中'}
+                  ${doc.status === 'completed' ? '<i class="fas fa-check"></i> 完了' : '<i class="fas fa-hourglass-half"></i> 処理中'}
                 </span>
               </td>
               <td>
                 <button class="apex-button-secondary" style="padding: 4px 8px; font-size: 12px;" onclick="deleteDocument('${doc.document_id}', '${doc.filename}')">
-                  🗑️ 削除
+                  <i class="fas fa-trash-alt"></i> 削除
                 </button>
               </td>
             </tr>

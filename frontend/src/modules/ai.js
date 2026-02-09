@@ -69,11 +69,11 @@ function toggleCopilotExpand() {
   if (appState.get('copilotExpanded')) {
     panel.classList.add('expanded');
     // 縮小アイコン
-    icon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>`;
+    icon.className = 'fas fa-chevron-left w-4 h-4';
   } else {
     panel.classList.remove('expanded');
     // 展開アイコン
-    icon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>`;
+    icon.className = 'fas fa-chevron-right w-4 h-4';
   }
 }
 
@@ -439,10 +439,10 @@ function renderCopilotImagesPreview() {
       ${appState.get('copilotImages').map((img, i) => `
         <div style="position: relative; width: 56px; height: 56px; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; flex: 0 0 auto; background: #f8fafc;">
           <img src="${img.data_url}" style="width: 100%; height: 100%; object-fit: cover;" />
-          <button type="button" onclick="removeCopilotImageAt(${i})" style="position: absolute; top: 4px; right: 4px; width: 18px; height: 18px; border-radius: 9px; border: 0; background: rgba(15, 23, 42, 0.65); color: white; font-size: 12px; line-height: 18px; cursor: pointer;">❌</button>
+          <button type="button" onclick="removeCopilotImageAt(${i})" style="position: absolute; top: 4px; right: 4px; width: 18px; height: 18px; border-radius: 9px; border: 0; background: rgba(15, 23, 42, 0.65); color: white; font-size: 12px; line-height: 18px; cursor: pointer;"><i class="fas fa-times"></i></button>
         </div>
       `).join('')}
-      <button type="button" onclick="clearCopilotImages()" class="apex-button-secondary px-3 py-1.5 text-xs">🧹 画像クリア</button>
+      <button type="button" onclick="clearCopilotImages()" class="apex-button-secondary px-3 py-1.5 text-xs"><i class="fas fa-broom"></i> 画像クリア</button>
     </div>
   `;
 }

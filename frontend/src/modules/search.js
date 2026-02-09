@@ -248,7 +248,7 @@ export function displaySearchResults(data) {
     summarySpan.textContent = '検索結果なし';
     listDiv.innerHTML = `
       <div class="empty-state">
-        <div class="empty-state-icon">🔍</div>
+        <div class="empty-state-icon"><i class="fas fa-search" style="color: #94a3b8;"></i></div>
         <div class="empty-state-title">検索結果が見つかりませんでした</div>
         <div class="empty-state-subtitle">別のキーワードで検索してみてください</div>
       </div>
@@ -273,7 +273,7 @@ export function displaySearchResults(data) {
             <div class="search-result-header-left">
               <span class="badge search-result-badge-white">#${fileIndex + 1}</span>
               <div>
-                <div class="search-result-filename">📄 ${originalFilename}</div>
+                <div class="search-result-filename"><i class="fas fa-file"></i> ${originalFilename}</div>
                 <div class="search-result-path">${fileResult.object_name}</div>
               </div>
             </div>
@@ -289,7 +289,7 @@ export function displaySearchResults(data) {
                 class="search-result-download-btn"
                 title="ファイルをダウンロード"
               >
-                📥 ダウンロード
+                <i class="fas fa-download"></i> ダウンロード
               </button>
             </div>
           </div>
@@ -298,7 +298,7 @@ export function displaySearchResults(data) {
         <!-- ページ画像グリッド -->
         <div class="card-body">
           <div class="search-result-body-title">
-            🖼️ マッチしたページ画像（距離が小さい順）
+            <i class="fas fa-images"></i> マッチしたページ画像（距離が小さい順）
           </div>
           <div class="search-result-images-grid">
             ${fileResult.matched_images.map((img, imgIndex) => {
@@ -357,7 +357,7 @@ export function displaySearchResults(data) {
                   <!-- 画像情報 -->
                   <div class="search-result-image-info">
                     <div class="search-result-image-title">
-                      📄 ページ ${img.page_number}
+                      <i class="fas fa-file"></i> ページ ${img.page_number}
                     </div>
                     <div class="search-result-image-similarity">
                       距離: ${img.vector_distance.toFixed(4)}
