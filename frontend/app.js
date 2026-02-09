@@ -405,7 +405,7 @@ function handleDropForMultipleInput(event) {
   document.getElementById('uploadMultipleBtn').disabled = false;
   
   // ドラッグオーバースタイルを解除
-  event.currentTarget.classList.remove('border-purple-400');
+  event.currentTarget.classList.remove('border-blue-800');
   event.currentTarget.classList.add('border-gray-300');
 }
 
@@ -428,7 +428,7 @@ function displaySelectedFiles() {
   contentDiv.innerHTML = selectedMultipleFiles.map((file, index) => `
     <div class="flex items-center justify-between p-2 bg-white border border-gray-200 rounded">
       <div class="flex items-center gap-2 flex-1">
-        <span class="text-xs font-semibold text-purple-600">#${index + 1}</span>
+        <span class="text-xs font-semibold text-blue-800">#${index + 1}</span>
         <div class="flex-1">
           <div class="text-sm font-medium text-gray-800">📄 ${file.name}</div>
           <div class="text-xs text-gray-500">${utilsFormatFileSize(file.size)}</div>
@@ -1442,19 +1442,19 @@ async function deleteDocument(documentId, filename) {
 function handleDragOver(event) {
   event.preventDefault();
   event.stopPropagation();
-  event.currentTarget.classList.add('border-purple-400', 'bg-purple-50');
+  event.currentTarget.classList.add('border-blue-800', 'bg-blue-50');
 }
 
 function handleDragLeave(event) {
   event.preventDefault();
   event.stopPropagation();
-  event.currentTarget.classList.remove('border-purple-400', 'bg-purple-50');
+  event.currentTarget.classList.remove('border-blue-800', 'bg-blue-50');
 }
 
 function handleDropForInput(event, inputId) {
   event.preventDefault();
   event.stopPropagation();
-  event.currentTarget.classList.remove('border-purple-400', 'bg-purple-50');
+  event.currentTarget.classList.remove('border-blue-800', 'bg-blue-50');
   
   const files = event.dataTransfer.files;
   if (files.length > 0) {
@@ -2062,7 +2062,7 @@ function initImageSearchDropZone() {
   dropZone.addEventListener('dragover', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    dropZone.style.borderColor = '#667eea';
+    dropZone.style.borderColor = '#1a365d';
     dropZone.style.background = '#f0f4ff';
   });
   
@@ -2113,9 +2113,9 @@ function initImageSearchPaste() {
   
   // ペーストゾーンのフォーカススタイル
   pasteZone.addEventListener('focus', () => {
-    pasteZone.style.borderColor = '#667eea';
+    pasteZone.style.borderColor = '#1a365d';
     pasteZone.style.background = '#e0e7ff';
-    pasteZone.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.1)';
+    pasteZone.style.boxShadow = '0 0 0 3px rgba(26, 54, 93, 0.1)';
   });
   
   pasteZone.addEventListener('blur', () => {
@@ -2127,7 +2127,7 @@ function initImageSearchPaste() {
   // ホバー効果
   pasteZone.addEventListener('mouseenter', () => {
     if (document.activeElement !== pasteZone) {
-      pasteZone.style.borderColor = '#667eea';
+      pasteZone.style.borderColor = '#1a365d';
       pasteZone.style.background = '#f0f4ff';
     }
   });

@@ -38,9 +38,9 @@
     </div>
 
     <!-- 設定サブタブ（管理タブがアクティブな時のみ表示） -->
-    <div id="adminSubTabs" class="apex-tabs" style="flex-shrink: 0; margin: 0; display: none; background: #f8fafc; border-top: 1px solid #e2e8f0;">
-      <div class="apex-tab active" onclick="switchAdminSubTab('database', event)" style="font-size: 14px; padding: 12px 20px;">🗄️ DB管理</div>
-      <div class="apex-tab" onclick="switchAdminSubTab('settings', event)" style="font-size: 14px; padding: 12px 20px;">⚙️ OCI設定</div>
+    <div id="adminSubTabs" class="apex-tabs" style="flex-shrink: 0; margin: 0; display: none; background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 0;">
+      <div class="apex-tab active" onclick="switchAdminSubTab('database', event)" style="font-size: 14px; padding: 12px 20px; flex: 1; text-align: center;">🗄️ DB管理</div>
+      <div class="apex-tab" onclick="switchAdminSubTab('settings', event)" style="font-size: 14px; padding: 12px 20px; flex: 1; text-align: center;">⚙️ OCI設定</div>
     </div>
 
     <!-- AI Assistant 浮動ボタン -->
@@ -171,7 +171,7 @@
               id="searchTypeTextTab"
               class="search-type-tab active"
               onclick="window.searchModule.switchSearchType('text')"
-              style="padding: 12px 24px; font-weight: 600; font-size: 14px; border: none; background: none; cursor: pointer; border-bottom: 3px solid #667eea; color: #667eea; transition: all 0.3s;"
+              style="padding: 12px 24px; font-weight: 600; font-size: 14px; border: none; background: none; cursor: pointer; border-bottom: 3px solid #1a365d; color: #1a365d; transition: all 0.3s;"
             >
               📝 テキスト検索
             </button>
@@ -227,7 +227,7 @@
                   transition: all 0.3s;
                   margin-bottom: 12px;
                 "
-                onmouseover="this.style.borderColor='#667eea'; this.style.background='#f0f4ff';"
+                onmouseover="this.style.borderColor='#1a365d'; this.style.background='#f0f4ff';"
                 onmouseout="this.style.borderColor='#cbd5e1'; this.style.background='#f8fafc';"
               >
                 <div id="imageSearchPreview" style="display: none;">
@@ -329,7 +329,7 @@
         <div style="padding: 24px;">
           <div style="margin-bottom: 16px;">
             <label class="form-label">ファイル選択 (PDF, XLSX, XLS, DOCX, DOC, PPT, PPTX, PNG, JPG, JPEG, TXT, MD) - 最大10ファイル</label>
-            <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-purple-400 transition cursor-pointer" 
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-800 transition cursor-pointer" 
                  onclick="document.getElementById('fileInputMultiple').click()"
                  ondragover="handleDragOver(event)"
                  ondragleave="handleDragLeave(event)"
@@ -339,7 +339,7 @@
               </svg>
               <p class="text-gray-600 font-medium mb-2">ファイルをドラッグ＆ドロップまたはクリックしてアップロード</p>
               <p class="text-sm text-gray-500">対応形式: PDF, XLSX, XLS, DOCX, DOC, PPT, PPTX, PNG, JPG, JPEG, TXT, MD</p>
-              <p class="text-xs text-purple-600 font-semibold mt-2">☆ 最大10ファイルまで同時アップロード可能</p>
+              <p class="text-xs text-blue-800 font-semibold mt-2">☆ 最大10ファイルまで同時アップロード可能</p>
               <input type="file" id="fileInputMultiple" class="hidden" accept=".pdf,.xlsx,.xls,.docx,.doc,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md" multiple onchange="handleMultipleFileSelect(event)">
             </div>
           </div>
@@ -436,7 +436,7 @@
                 <input 
                   type="text" 
                   id="userOcid" 
-                  class="w-full font-mono text-sm px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500"
+                  class="w-full font-mono text-sm px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-800 focus:border-blue-800"
                   placeholder="ocid1.user.oc1..aaaa..." 
                 />
               </div>
@@ -446,7 +446,7 @@
                 <input 
                   type="text" 
                   id="tenancyOcid" 
-                  class="w-full font-mono text-sm px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500"
+                  class="w-full font-mono text-sm px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-800 focus:border-blue-800"
                   placeholder="ocid1.tenancy.oc1..aaaa..." 
                 />
               </div>
@@ -456,7 +456,7 @@
                 <input 
                   type="text" 
                   id="fingerprint" 
-                  class="w-full font-mono text-sm px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500"
+                  class="w-full font-mono text-sm px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-800 focus:border-blue-800"
                   placeholder="aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99" 
                 />
               </div>
@@ -465,7 +465,7 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Region*</label>
                 <select 
                   id="region" 
-                  class="w-full font-mono text-sm px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500"
+                  class="w-full font-mono text-sm px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-800 focus:border-blue-800"
                 >
                   <option value="ap-osaka-1">ap-osaka-1</option>
                   <option value="us-chicago-1">us-chicago-1</option>
@@ -474,7 +474,7 @@
               
               <div class="md:col-span-2">
                 <label class="block text-sm font-medium text-gray-700 mb-2">Private Key Content*</label>
-                <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-purple-400 transition cursor-pointer" 
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-800 transition cursor-pointer" 
                      onclick="document.getElementById('privateKeyFileInput').click()"
                      ondragover="handleDragOver(event)"
                      ondragleave="handleDragLeave(event)"
@@ -494,7 +494,7 @@
           <div class="flex items-center gap-3">
             <button 
               onclick="saveOciSettings()" 
-              class="apex-button px-6 py-2 bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 transition rounded-md shadow-sm font-medium"
+              class="apex-button px-6 py-2 bg-blue-800 text-white hover:bg-blue-900 disabled:opacity-50 transition rounded-md shadow-sm font-medium"
             >
               💾 APIキーを保存
             </button>
@@ -852,13 +852,13 @@
         <div class="login-card">
           <div class="login-card-header">
             <div class="flex items-center justify-between gap-3">
-              <div class="text-slate-900">
-                <div class="text-xs font-semibold tracking-wide text-slate-600">WELCOME BACK</div>
+              <div class="text-white">
+                <div class="text-xs font-semibold tracking-wide text-white/70">WELCOME BACK</div>
                 <div class="text-xl font-semibold tracking-tight">ログイン</div>
               </div>
               <div class="login-badge">AI</div>
             </div>
-            <div class="text-sm text-slate-600 mt-2">
+            <div class="text-sm text-white/70 mt-2">
               このシステムを使用するにはログインが必要です。
             </div>
           </div>
@@ -871,7 +871,7 @@
 
             <form id="loginForm" class="space-y-4" onsubmit="handleLogin(event)" autocomplete="on">
               <div class="space-y-1.5">
-                <label for="loginUsername" class="form-label">ユーザー名</label>
+                <label for="loginUsername" class="form-label" style="color: rgba(255,255,255,0.8);">ユーザー名</label>
                 <div class="login-input-wrap">
                   <div class="login-input-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5">
@@ -894,7 +894,7 @@
               </div>
 
               <div class="space-y-1.5">
-                <label for="loginPassword" class="form-label">パスワード</label>
+                <label for="loginPassword" class="form-label" style="color: rgba(255,255,255,0.8);">パスワード</label>
                 <div class="login-input-wrap">
                   <div class="login-input-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5">
@@ -929,12 +929,13 @@
                 class="modal-button modal-button-primary w-full justify-center login-submit"
                 type="submit"
                 id="loginSubmitBtn"
+                style="background: #ffffff; color: #0f2847; font-weight: 600;"
               >
                 ログイン
               </button>
             </form>
 
-            <div class="text-xs text-slate-500 mt-4 leading-relaxed">
+            <div class="text-xs text-white/50 mt-4 leading-relaxed">
               セッション情報はブラウザに保存されます。
             </div>
           </div>

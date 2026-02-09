@@ -44,8 +44,8 @@ export function switchSearchType(type) {
   
   if (type === 'text') {
     // テキスト検索タブをアクティブに
-    textTab.style.borderBottomColor = '#667eea';
-    textTab.style.color = '#667eea';
+    textTab.style.borderBottomColor = '#1a365d';
+    textTab.style.color = '#1a365d';
     imageTab.style.borderBottomColor = 'transparent';
     imageTab.style.color = '#64748b';
     
@@ -53,8 +53,8 @@ export function switchSearchType(type) {
     imagePanel.style.display = 'none';
   } else {
     // 画像検索タブをアクティブに
-    imageTab.style.borderBottomColor = '#667eea';
-    imageTab.style.color = '#667eea';
+    imageTab.style.borderBottomColor = '#1a365d';
+    imageTab.style.color = '#1a365d';
     textTab.style.borderBottomColor = 'transparent';
     textTab.style.color = '#64748b';
     
@@ -319,7 +319,7 @@ export function displaySearchResults(data) {
                     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                   "
                   onclick="window.searchModule.showSearchImageModal(${fileIndex}, ${imgIndex})"
-                  onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 16px rgba(102, 126, 234, 0.3)'; this.style.borderColor='#667eea';"
+                  onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 16px rgba(15, 40, 71, 0.3)'; this.style.borderColor='#1a365d';"
                   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'; this.style.borderColor='#e2e8f0';"
                 >
                   <!-- サムネイル画像 -->
@@ -342,7 +342,7 @@ export function displaySearchResults(data) {
                       position: absolute;
                       top: 8px;
                       right: 8px;
-                      background: rgba(102, 126, 234, 0.95);
+                      background: rgba(26, 54, 93, 0.95);
                       color: white;
                       padding: 4px 8px;
                       border-radius: 4px;

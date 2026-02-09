@@ -330,7 +330,7 @@ export function displayOciObjectsList(data) {
         📥 ダウンロード (${selectedOciObjects.length}件)
       </button>
       <button 
-        class="hidden px-3 py-1 text-xs rounded transition-colors ${canExecuteAction ? 'bg-purple-500 hover:bg-purple-600 text-white' : 'bg-purple-300 text-white cursor-not-allowed'}" 
+        class="hidden px-3 py-1 text-xs rounded transition-colors ${canExecuteAction ? 'bg-blue-700 hover:bg-blue-800 text-white' : 'bg-blue-300 text-white cursor-not-allowed'}" 
         onclick="window.ociModule.convertToImages()" 
         ${canExecuteAction ? '' : 'disabled'}
         title="${canExecuteAction ? `選択されたファイル（フォルダ配下の子ファイルを含む）をページ毎に画像化: ${selectedOciObjects.length}件` : 'ページ画像化するファイルを選択してください'}"
@@ -1749,7 +1749,7 @@ function showProcessProgressUI(objectNames, operationType) {
     `;
   });
   
-  const borderColor = operationType === 'delete' ? 'border-red-400' : 'border-purple-400';
+  const borderColor = operationType === 'delete' ? 'border-red-400' : 'border-blue-600';
   
   progressDiv.innerHTML = `
     <div class="bg-white border-2 ${borderColor} rounded-lg p-4" style="margin-bottom: 16px;">
@@ -2066,7 +2066,7 @@ export async function loadDbStorage() {
     
     storageDiv.innerHTML = `
       <!-- 全体サマリ -->
-      <div class="card" style="margin-bottom: 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+      <div class="card" style="margin-bottom: 24px; background: linear-gradient(135deg, #1a365d 0%, #0f2847 100%); color: white; border: none;">
         <div class="card-body">
           <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; opacity: 0.9;">全体ストレージ使用状況</h3>
           <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;">

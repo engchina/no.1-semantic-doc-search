@@ -65,8 +65,8 @@ export function showLoading(message = '処理中...') {
           <svg class="loading-spinner-svg" viewBox="0 0 50 50">
             <defs>
               <linearGradient id="spinner-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
-                <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+                <stop offset="0%" style="stop-color:#1a365d;stop-opacity:1" />
+                <stop offset="100%" style="stop-color:#0f2847;stop-opacity:1" />
               </linearGradient>
             </defs>
             <circle class="loading-spinner-circle" cx="25" cy="25" r="20" fill="none" stroke-width="4"></circle>
@@ -76,10 +76,10 @@ export function showLoading(message = '処理中...') {
         <div class="loading-progress-container hidden w-full mt-4">
           <div class="flex justify-between mb-1">
             <span class="text-sm font-medium text-gray-700">進捗状況</span>
-            <span class="loading-progress-percent text-sm font-medium text-purple-600">0%</span>
+            <span class="loading-progress-percent text-sm font-medium text-blue-800">0%</span>
           </div>
           <div class="w-full bg-gray-200 rounded-full h-2.5">
-            <div class="loading-progress-bar bg-purple-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+            <div class="loading-progress-bar bg-blue-800 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
           </div>
         </div>
         <div class="loading-cancel-container hidden mt-4"></div>
@@ -146,8 +146,8 @@ export function showImageModal(imageUrl, filename = '', images = null, currentIn
             top: 50%;
             transform: translateY(-50%);
             background: rgba(255, 255, 255, 0.9);
-            border: 2px solid #667eea;
-            color: #667eea;
+            border: 2px solid #1a365d;
+            color: #1a365d;
             width: 48px;
             height: 48px;
             border-radius: 50%;
@@ -162,8 +162,8 @@ export function showImageModal(imageUrl, filename = '', images = null, currentIn
             z-index: 10001;
           "
           onclick="event.stopPropagation()"
-          onmouseover="this.style.background='#667eea'; this.style.color='white'; this.style.transform='translateY(-50%) scale(1.1)';"
-          onmouseout="this.style.background='rgba(255, 255, 255, 0.9)'; this.style.color='#667eea'; this.style.transform='translateY(-50%) scale(1)';"
+          onmouseover="this.style.background='#1a365d'; this.style.color='white'; this.style.transform='translateY(-50%) scale(1.1)';"
+          onmouseout="this.style.background='rgba(255, 255, 255, 0.9)'; this.style.color='#1a365d'; this.style.transform='translateY(-50%) scale(1)';"
         >&lt;</button>
       ` : ''}
       
@@ -222,8 +222,8 @@ export function showImageModal(imageUrl, filename = '', images = null, currentIn
             top: 50%;
             transform: translateY(-50%);
             background: rgba(255, 255, 255, 0.9);
-            border: 2px solid #667eea;
-            color: #667eea;
+            border: 2px solid #1a365d;
+            color: #1a365d;
             width: 48px;
             height: 48px;
             border-radius: 50%;
@@ -238,8 +238,8 @@ export function showImageModal(imageUrl, filename = '', images = null, currentIn
             z-index: 10001;
           "
           onclick="event.stopPropagation()"
-          onmouseover="this.style.background='#667eea'; this.style.color='white'; this.style.transform='translateY(-50%) scale(1.1)';"
-          onmouseout="this.style.background='rgba(255, 255, 255, 0.9)'; this.style.color='#667eea'; this.style.transform='translateY(-50%) scale(1)';"
+          onmouseover="this.style.background='#1a365d'; this.style.color='white'; this.style.transform='translateY(-50%) scale(1.1)';"
+          onmouseout="this.style.background='rgba(255, 255, 255, 0.9)'; this.style.color='#1a365d'; this.style.transform='translateY(-50%) scale(1)';"
         >&gt;</button>
       ` : ''}
     </div>

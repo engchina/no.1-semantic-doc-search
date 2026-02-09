@@ -529,9 +529,9 @@ function showModal({
   // バリアント別のスタイル設定（インラインスタイルを使用）
   const variantConfig = {
     default: {
-      iconBgStyle: 'background: linear-gradient(135deg, #3b82f6 0%, #4f46e5 100%);',
+      iconBgStyle: 'background: linear-gradient(135deg, #1a365d 0%, #0f2847 100%);',
       iconSvg: '<svg style="width:24px;height:24px;color:white;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
-      confirmBtnStyle: 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;'
+      confirmBtnStyle: 'background: linear-gradient(135deg, #1a365d 0%, #0f2847 100%); color: white;'
     },
     danger: {
       iconBgStyle: 'background: linear-gradient(135deg, #ef4444 0%, #e11d48 100%);',
@@ -710,11 +710,11 @@ function showModal({
       }
       
       .modern-modal-btn-confirm:hover {
-        box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        box-shadow: 0 4px 8px rgba(15, 40, 71, 0.35);
       }
       
       .modern-modal-btn-confirm:active {
-        box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+        box-shadow: 0 2px 4px rgba(15, 40, 71, 0.25);
       }
       
       /* 警告ブロック */

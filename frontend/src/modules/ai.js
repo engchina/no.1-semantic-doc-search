@@ -234,7 +234,7 @@ function renderCopilotMessages() {
               <img 
                 src="${img.data_url}" 
                 style="max-width: 120px; max-height: 120px; border-radius: 8px; border: 2px solid #e2e8f0; object-fit: contain; transition: all 0.2s;" 
-                onmouseover="this.style.borderColor='#667eea'; this.style.transform='scale(1.05)';" 
+                onmouseover="this.style.borderColor='#1a365d'; this.style.transform='scale(1.05)';" 
                 onmouseout="this.style.borderColor='#e2e8f0'; this.style.transform='scale(1)';" 
               />
               ${img.filename ? `<div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.6); color: white; font-size: 10px; padding: 2px 4px; border-radius: 0 0 6px 6px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${img.filename}</div>` : ''}

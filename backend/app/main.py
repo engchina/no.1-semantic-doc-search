@@ -1,6 +1,7 @@
 """
 セマンティック文書検索システム - メインAPIアプリケーション
 """
+import asyncio
 import io
 import json
 import logging
@@ -680,7 +681,7 @@ async def list_oci_objects(
         vectorization_status = {}
         if file_object_names:
             try:
-                vectorization_status = image_vectorizer.get_vectorization_status(bucket_name, file_object_names)
+                vectorization_status = await asyncio.to_thread(image_vectorizer.get_vectorization_status, bucket_name, file_object_names)
             except Exception as e:
                 logger.warning(f"ベクトル化状態取得エラー: {e}")
         
@@ -1432,7 +1433,7 @@ async def delete_document(document_id: str):
         if bucket_name:
             try:
                 logger.info(f"[DEBUG] get_file_id_by_object_name呼び出し: bucket={bucket_name}, object_name={object_name}")
-                file_id = image_vectorizer.get_file_id_by_object_name(bucket_name, object_name)
+                file_id = await asyncio.to_thread(image_vectorizer.get_file_id_by_object_name, bucket_name, object_name)
                 if file_id:
                     logger.info(f"[DEBUG] FILE_ID取得成功: FILE_ID={file_id}, object_name={object_name}")
                 else:
@@ -1448,7 +1449,7 @@ async def delete_document(document_id: str):
                 logger.info(f"[DEBUG] FILE_INFOレコード削除開始: FILE_ID={file_id}")
                 
                 # FILE_INFOレコードを削除（IMG_EMBEDDINGSはCASCADE制約で自動削除）
-                delete_result = database_service.delete_file_info_records([str(file_id)])
+                delete_result = await asyncio.to_thread(database_service.delete_file_info_records, [str(file_id)])
                 
                 logger.info(f"[DEBUG] delete_file_info_records結果: {delete_result}")
                 
@@ -1540,7 +1541,7 @@ async def search_documents(query: SearchQuery, request: Request):
         logger.info(f"検索開始: query='{query.query}', top_k={query.top_k}, min_score={query.min_score}, filename_filter='{query.filename_filter}'")
         
         # 1. テキストクエリからembeddingベクトルを生成
-        query_embedding = image_vectorizer.generate_text_embedding(query.query)
+        query_embedding = await asyncio.to_thread(image_vectorizer.generate_text_embedding, query.query)
         if query_embedding is None:
             logger.error("クエリのembedding生成に失敗")
             return SearchResponse(
@@ -1737,7 +1738,7 @@ async def search_documents_by_image(
         
         # 1. 画像からembeddingベクトルを生成
         image_data = io.BytesIO(await image.read())
-        query_embedding = image_vectorizer.generate_embedding(image_data, image.content_type)
+        query_embedding = await asyncio.to_thread(image_vectorizer.generate_embedding, image_data, image.content_type)
         
         if query_embedding is None:
             logger.error("画像のembedding生成に失敗")
@@ -2002,7 +2003,7 @@ async def get_img_redirect(bucket: str, object_name: str):
 async def get_db_settings():
     """DB設定を取得（接続確認なし - パフォーマンス最適化）"""
     try:
-        settings_dict = database_service.get_settings()
+        settings_dict = await asyncio.to_thread(database_service.get_settings)
         settings = DatabaseSettings(**settings_dict)
         
         # 注意: is_connected()はDB接続を試みるため、設定取得時には呼び出さない
@@ -2022,7 +2023,7 @@ async def save_db_settings(settings: DatabaseSettings):
     """DB設定を保存"""
     try:
         settings_dict = settings.model_dump()
-        success = database_service.save_settings(settings_dict)
+        success = await asyncio.to_thread(database_service.save_settings, settings_dict)
         
         if success:
             return {"success": True, "message": "DB設定を保存しました"}
@@ -2060,7 +2061,7 @@ async def test_db_connection(request: DatabaseConnectionTestRequest):
 async def get_db_info():
     """データベース情報を取得"""
     try:
-        info_dict = database_service.get_database_info()
+        info_dict = await asyncio.to_thread(database_service.get_database_info)
         
         if info_dict:
             info = DatabaseInfo(**info_dict)
@@ -2076,14 +2077,15 @@ async def get_db_info():
 async def get_db_tables():
     """テーブル一覧を取得"""
     try:
-        tables_list = database_service.get_tables()
+        result = await asyncio.to_thread(database_service.get_tables)
         
-        tables = [TableInfo(**table) for table in tables_list]
+        tables_data = result.get("tables", []) if isinstance(result, dict) else result
+        tables = [TableInfo(**table) for table in tables_data]
         
         return DatabaseTablesResponse(
             success=True,
             tables=tables,
-            total=len(tables)
+            total=result.get("total", len(tables)) if isinstance(result, dict) else len(tables)
         )
             
     except Exception as e:
@@ -2098,7 +2100,7 @@ async def get_db_tables():
 async def get_database_settings():
     """データベース接続設定を取得（接続確認なし - パフォーマンス最適化）"""
     try:
-        settings = database_service.get_settings()
+        settings = await asyncio.to_thread(database_service.get_settings)
         
         # 注意: is_connected()はDB接続を試みるため、設定取得時には呼び出さない
         # 接続確認が必要な場合は明示的に/api/settings/database/testを使用する
@@ -2116,7 +2118,7 @@ async def get_database_settings():
 async def get_database_env_info(include_password: bool = False):
     """環境変数からDB接続情報を取得"""
     try:
-        result = database_service.get_env_connection_info()
+        result = await asyncio.to_thread(database_service.get_env_connection_info)
         
         # パスワードをマスク（include_password=Trueの場合はマスクしない）
         if result.get("password") and not include_password:
@@ -2141,7 +2143,7 @@ async def save_database_settings(settings: DatabaseSettings):
         # 設定をdict形式に変換
         settings_dict = settings.model_dump()
         
-        success = database_service.save_settings(settings_dict)
+        success = await asyncio.to_thread(database_service.save_settings, settings_dict)
         
         if not success:
             raise HTTPException(status_code=500, detail="設定の保存に失敗しました")
@@ -2193,7 +2195,7 @@ async def test_database_connection(request: DatabaseConnectionTestRequest):
 async def get_database_info():
     """データベース情報を取得"""
     try:
-        info = database_service.get_database_info()
+        info = await asyncio.to_thread(database_service.get_database_info)
         
         if info:
             return DatabaseInfoResponse(
@@ -2220,7 +2222,7 @@ async def get_database_tables(
     """データベースのテーブル一覧を取得（ページング対応）"""
     import math
     try:
-        result = database_service.get_tables(page=page, page_size=page_size)
+        result = await asyncio.to_thread(database_service.get_tables, page, page_size)
         tables = result.get("tables", [])
         total = result.get("total", 0)
         
@@ -2251,7 +2253,7 @@ async def get_database_tables(
 async def refresh_table_statistics():
     """テーブルの統計情報を更新"""
     try:
-        result = database_service.refresh_table_statistics()
+        result = await asyncio.to_thread(database_service.refresh_table_statistics)
         return result
     except Exception as e:
         logger.error(f"統計情報更新エラー: {e}")
@@ -2275,7 +2277,7 @@ async def delete_database_tables(request: dict):
                 message="削除するテーブルが指定されていません"
             )
         
-        result = database_service.delete_tables(table_names)
+        result = await asyncio.to_thread(database_service.delete_tables, table_names)
         
         return TableBatchDeleteResponse(
             success=result.get("success", False),
@@ -2301,7 +2303,7 @@ async def get_table_data(
     from app.models.database import TableDataResponse
     import math
     try:
-        result = database_service.get_table_data(table_name=table_name, page=page, page_size=page_size)
+        result = await asyncio.to_thread(database_service.get_table_data, table_name, page, page_size)
         
         if not result.get("success", False):
             return TableDataResponse(
@@ -2361,7 +2363,7 @@ async def delete_file_info_records(request: FileInfoDeleteRequest):
                 message="削除するレコードが指定されていません"
             )
         
-        result = database_service.delete_file_info_records(file_ids)
+        result = await asyncio.to_thread(database_service.delete_file_info_records, file_ids)
         
         return TableBatchDeleteResponse(
             success=result.get("success", False),
@@ -2400,7 +2402,7 @@ async def delete_table_data(table_name: str, request: dict):
                 message="削除するレコードが指定されていません"
             )
         
-        result = database_service.delete_table_data(table_name, primary_keys)
+        result = await asyncio.to_thread(database_service.delete_table_data, table_name, primary_keys)
         
         return TableDataDeleteResponse(
             success=result.get("success", False),
@@ -2420,7 +2422,7 @@ async def delete_table_data(table_name: str, request: dict):
 async def get_database_storage():
     """データベースストレージ情報を取得"""
     try:
-        storage_info = database_service.get_storage_info()
+        storage_info = await asyncio.to_thread(database_service.get_storage_info)
         
         if storage_info:
             from app.models.database import DatabaseStorageInfo, TablespaceInfo
@@ -2469,7 +2471,7 @@ async def upload_wallet(file: UploadFile = File(...)):
             f.write(content)
         
         # Walletアップロード処理
-        result = database_service.upload_wallet(str(temp_file))
+        result = await asyncio.to_thread(database_service.upload_wallet, str(temp_file))
         
         # 一時ファイル削除
         try:
