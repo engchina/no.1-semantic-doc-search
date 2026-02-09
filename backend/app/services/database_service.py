@@ -924,7 +924,7 @@ class DatabaseService:
             logger.error(f"Walletアップロードエラー: {e}")
             return {
                 "success": False,
-                "message": f"Walletアップロードエラー: {str(e)}",
+                "message": f"Walletのアップロードに失敗しました: {str(e)}",
                 "available_services": []
             }
     
@@ -988,7 +988,7 @@ class DatabaseService:
             logger.error(f"接続テストエラー: {e}")
             return {
                 "success": False,
-                "message": f"接続エラー: {str(e)}"
+                "message": f"接続に失敗しました: {str(e)}"
             }
     
     async def test_connection_async(self, settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1107,7 +1107,7 @@ class DatabaseService:
             logger.error(f"接続テストエラー（async）: {e}")
             return {
                 "success": False,
-                "message": f"接続エラー: {str(e)}"
+                "message": f"接続に失敗しました: {str(e)}"
             }
     
     def get_database_info(self) -> Optional[Dict[str, Any]]:
@@ -1707,7 +1707,7 @@ class DatabaseService:
             logger.error(f"環境変数情報取得エラー: {e}")
             return {
                 "success": False,
-                "message": f"エラー: {str(e)}",
+                "message": f"環境変数情報の取得に失敗しました: {str(e)}",
                 "username": None,
                 "dsn": None,
                 "wallet_exists": False,
@@ -1839,7 +1839,7 @@ class DatabaseService:
             logger.error(f"Walletダウンロードエラー: {e}")
             return {
                 "success": False,
-                "message": f"Walletダウンロードエラー: {str(e)}",
+                "message": f"Walletのダウンロードに失敗しました: {str(e)}",
                 "available_services": []
             }
     

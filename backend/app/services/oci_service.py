@@ -326,7 +326,7 @@ class OCIService:
             logger.error(f"接続テストエラー: {e}")
             return {
                 "success": False,
-                "message": f"接続エラー: {str(e)}"
+                "message": f"接続に失敗しました: {str(e)}"
             }
     
     def get_oci_config(self) -> Dict[str, Any]:
@@ -400,7 +400,7 @@ class OCIService:
             logger.error(f"Namespace取得エラー: {e}")
             return {
                 "success": False,
-                "message": f"Namespace取得エラー: {str(e)}"
+                "message": f"Namespaceの取得に失敗しました: {str(e)}"
             }
     
     def save_object_storage_settings(self, bucket_name: str, namespace: str) -> Dict[str, Any]:
@@ -484,7 +484,7 @@ class OCIService:
             logger.error(f"Object Storage設定保存エラー: {e}")
             return {
                 "success": False,
-                "message": f"Object Storage設定保存エラー: {str(e)}"
+                "message": f"Object Storage設定の保存に失敗しました: {str(e)}"
             }
     
     def list_objects(self, bucket_name: str, namespace: str, prefix: str = "", page_size: int = 50, page_token: Optional[str] = None, include_metadata: bool = False) -> Dict[str, Any]:
@@ -577,7 +577,7 @@ class OCIService:
             logger.error(f"オブジェクト一覧取得エラー: {e}")
             return {
                 "success": False,
-                "message": f"オブジェクト一覧取得エラー: {str(e)}",
+                "message": f"オブジェクト一覧の取得に失敗しました: {str(e)}",
                 "objects": [],
                 "next_start_with": None,
                 "prefixes": []
@@ -719,7 +719,7 @@ class OCIService:
             logger.error(f"メタデータ取得エラー: {e}")
             return {
                 "success": False,
-                "message": f"メタデータ取得エラー: {str(e)}"
+                "message": f"メタデータの取得に失敗しました: {str(e)}"
             }
     
     def delete_objects(self, bucket_name: str, namespace: str, object_names: list) -> Dict[str, Any]:
@@ -892,7 +892,7 @@ class OCIService:
             logger.error(f"オブジェクト削除エラー: {e}")
             return {
                 "success": False,
-                "message": f"オブジェクト削除エラー: {str(e)}"
+                "message": f"オブジェクトの削除に失敗しました: {str(e)}"
             }
     
     def download_object(self, object_name: str) -> Optional[bytes]:

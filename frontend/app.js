@@ -275,7 +275,7 @@ async function switchAdminSubTab(subTabName, event) {
         
         // その他のエラーの場合
         utilsHideLoading();
-        utilsShowToast(`設定読み込みエラー: ${error.message}`, 'error');
+        utilsShowToast(`設定の読み込みに失敗しました: ${error.message}`, 'error');
         return;
       }
       
@@ -301,7 +301,7 @@ async function switchAdminSubTab(subTabName, event) {
     }
     console.error('SubTab initialization error:', error);
     utilsHideLoading();
-    utilsShowToast(`設定読み込みエラー: ${error.message}`, 'error');
+    utilsShowToast(`設定の読み込みに失敗しました: ${error.message}`, 'error');
   }
 }
 
@@ -562,7 +562,7 @@ async function uploadMultipleDocuments() {
     if (uploadBtn) {
       uploadBtn.disabled = false;
     }
-    utilsShowToast(`アップロードエラー: ${error.message}`, 'error');
+    utilsShowToast(`アップロードに失敗しました: ${error.message}`, 'error');
   }
 }
 
@@ -726,8 +726,8 @@ async function processUploadStreamingResponse(response, totalFiles) {
           
         case 'error':
           processingCompleted = true;
-          updateUploadOverallStatus(`エラー: ${data.message}`);
-          utilsShowToast(`エラー: ${data.message}`, 'error');
+          updateUploadOverallStatus(data.message);
+          utilsShowToast(data.message, 'error');
           const uploadBtnError = document.getElementById('uploadMultipleBtn');
           if (uploadBtnError) {
             uploadBtnError.disabled = false;
@@ -884,7 +884,7 @@ async function uploadDocument() {
     
   } catch (error) {
     utilsHideLoading();
-    utilsShowToast(`アップロードエラー: ${error.message}`, 'error');
+    utilsShowToast(`アップロードに失敗しました: ${error.message}`, 'error');
   }
 }
 
@@ -894,7 +894,7 @@ async function loadDocuments() {
     appState.set('documentsCache', data.documents);
     displayDocumentsList(data.documents);
   } catch (error) {
-    utilsShowToast(`エラー: ${error.message}`, 'error');
+    utilsShowToast(error.message, 'error');
   }
 }
 
@@ -925,7 +925,7 @@ window.refreshDocumentsWithNotification = async function() {
     utilsShowToast('文書一覧を再取得しました', 'success');
   } catch (error) {
     utilsHideLoading();
-    utilsShowToast(`文書一覧再取得エラー: ${error.message}`, 'error');
+    utilsShowToast(`文書一覧の再取得に失敗しました: ${error.message}`, 'error');
   }
 }
 

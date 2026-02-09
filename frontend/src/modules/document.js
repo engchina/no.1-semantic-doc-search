@@ -112,7 +112,7 @@ export async function loadOciObjects(showLoadingOverlay = true) {
     }
     
     if (!data.success) {
-      utilsShowToast(`エラー: ${data.message || 'オブジェクト一覧取得失敗'}`, 'error');
+      utilsShowToast(data.message || 'オブジェクト一覧の取得に失敗しました', 'error');
       updateDocumentsStatusBadge('エラー', 'error');
       return;
     }
@@ -147,7 +147,7 @@ export async function loadOciObjects(showLoadingOverlay = true) {
     if (showLoadingOverlay) {
       utilsHideLoading();
     }
-    utilsShowToast(`OCI Object Storage一覧取得エラー: ${error.message}`, 'error');
+    utilsShowToast(`OCI Object Storage一覧の取得に失敗しました: ${error.message}`, 'error');
     updateDocumentsStatusBadge('エラー', 'error');
     
     // エラー時もバッジをリセット
@@ -838,7 +838,7 @@ export async function downloadSelectedOciObjects() {
     
   } catch (error) {
     console.error('ダウンロードエラー:', error);
-    utilsShowToast(`ダウンロードエラー: ${error.message}`, 'error');
+    utilsShowToast(`ダウンロードに失敗しました: ${error.message}`, 'error');
     
     // エラー時も一覧を再読み込みして状態を同期
     utilsHideLoading();
@@ -933,7 +933,7 @@ export async function convertSelectedOciObjectsToImages() {
     
   } catch (error) {
     console.error('ページ画像化エラー:', error);
-    utilsShowToast(`ページ画像化エラー: ${error.message}`, 'error');
+    utilsShowToast(`ページ画像化に失敗しました: ${error.message}`, 'error');
     
     // エラー時も一覧を再読み込みして状態を同期
     utilsHideLoading();

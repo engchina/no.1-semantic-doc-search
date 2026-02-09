@@ -158,7 +158,7 @@ export async function performImageSearch() {
     
   } catch (error) {
     utilsHideLoading();
-    utilsShowToast(`画像検索エラー: ${error.message}`, 'error');
+    utilsShowToast(`画像検索に失敗しました: ${error.message}`, 'error');
   }
 }
 
@@ -230,7 +230,7 @@ export async function performSearch() {
     
   } catch (error) {
     utilsHideLoading();
-    utilsShowToast(`検索エラー: ${error.message}`, 'error');
+    utilsShowToast(`検索に失敗しました: ${error.message}`, 'error');
   }
 }
 
@@ -433,7 +433,7 @@ export async function downloadFile(bucket, encodedObjectName) {
     
     utilsShowToast('ファイルを開きました', 'success');
   } catch (error) {
-    utilsShowToast(`ダウンロードエラー: ${error.message}`, 'error');
+    utilsShowToast(`ダウンロードに失敗しました: ${error.message}`, 'error');
   }
 }
 

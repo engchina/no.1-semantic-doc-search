@@ -145,7 +145,7 @@ export async function refreshDbConnectionFromEnv() {
     
   } catch (error) {
     utilsHideLoading();
-    utilsShowToast(`接続設定再取得エラー: ${error.message}`, 'error');
+    utilsShowToast(`接続設定の再取得に失敗しました: ${error.message}`, 'error');
   }
 }
 
@@ -218,7 +218,7 @@ export async function retryLoadDbSettings() {
         dbContent.insertAdjacentHTML('afterbegin', retryHtml);
       }
     } else {
-      utilsShowToast(`再読み込みエラー: ${error.message}`, 'error');
+      utilsShowToast(`再読み込みに失敗しました: ${error.message}`, 'error');
     }
   }
 }
@@ -312,7 +312,7 @@ export async function uploadWalletFile(file) {
     
   } catch (error) {
     utilsHideLoading();
-    utilsShowToast(`Walletアップロードエラー: ${error.message}`, 'error');
+    utilsShowToast(`Walletのアップロードに失敗しました: ${error.message}`, 'error');
     
     const walletStatus = document.getElementById('walletStatus');
     walletStatus.style.display = 'block';
@@ -357,7 +357,7 @@ export async function saveDbConnection() {
     
   } catch (error) {
     utilsHideLoading();
-    utilsShowToast(`保存エラー: ${error.message}`, 'error');
+    utilsShowToast(`保存に失敗しました: ${error.message}`, 'error');
   }
 }
 

@@ -42,7 +42,7 @@ def handle_api_errors(func: Callable) -> Callable:
             logger.error(f"バリデーションエラー in {func.__name__}: {e}")
             return JSONResponse(
                 status_code=400,
-                content={"success": False, "message": f"入力値エラー: {str(e)}"}
+                content={"success": False, "message": f"入力値に問題があります: {str(e)}"}
             )
         except KeyError as e:
             # 必須パラメータ不足
@@ -56,7 +56,7 @@ def handle_api_errors(func: Callable) -> Callable:
             logger.error(f"予期しないエラー in {func.__name__}: {e}", exc_info=True)
             return JSONResponse(
                 status_code=500,
-                content={"success": False, "message": f"サーバーエラー: {str(e)}"}
+                content={"success": False, "message": f"サーバー処理に失敗しました: {str(e)}"}
             )
     
     return wrapper
@@ -89,7 +89,7 @@ def handle_sync_errors(func: Callable) -> Callable:
             logger.error(f"バリデーションエラー in {func.__name__}: {e}")
             return JSONResponse(
                 status_code=400,
-                content={"success": False, "message": f"入力値エラー: {str(e)}"}
+                content={"success": False, "message": f"入力値に問題があります: {str(e)}"}
             )
         except KeyError as e:
             logger.error(f"必須パラメータ不足 in {func.__name__}: {e}")
@@ -101,7 +101,7 @@ def handle_sync_errors(func: Callable) -> Callable:
             logger.error(f"予期しないエラー in {func.__name__}: {e}", exc_info=True)
             return JSONResponse(
                 status_code=500,
-                content={"success": False, "message": f"サーバーエラー: {str(e)}"}
+                content={"success": False, "message": f"サーバー処理に失敗しました: {str(e)}"}
             )
     
     return wrapper

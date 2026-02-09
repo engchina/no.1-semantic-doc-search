@@ -499,7 +499,7 @@ async def test_object_storage_connection(request: ObjectStorageSettingsRequest):
         if not namespace_result.get("success"):
             return {
                 "success": False,
-                "message": f"Namespace取得エラー: {namespace_result.get('message')}"
+                "message": f"Namespaceの取得に失敗しました: {namespace_result.get('message')}"
             }
         
         # Bucketへのアクセスをテスト
@@ -530,14 +530,14 @@ async def test_object_storage_connection(request: ObjectStorageSettingsRequest):
             logger.error(f"Bucketアクセスエラー: {bucket_e}")
             return {
                 "success": False,
-                "message": f"Bucket '{request.bucket_name}' へのアクセスに失敗: {str(bucket_e)}"
+                "message": f"Bucket '{request.bucket_name}' へのアクセスに失敗しました: {str(bucket_e)}"
             }
         
     except Exception as e:
         logger.error(f"Object Storage接続テストエラー: {e}")
         return {
             "success": False,
-            "message": f"接続テストエラー: {str(e)}"
+            "message": f"接続テストに失敗しました: {str(e)}"
         }
 
 @app.get("/oci/objects")
@@ -2129,7 +2129,7 @@ async def get_database_env_info(include_password: bool = False):
         logger.error(f"環境変数情報取得エラー: {e}")
         return {
             "success": False,
-            "message": f"エラー: {str(e)}",
+            "message": f"環境変数情報の取得に失敗しました: {str(e)}",
             "username": None,
             "dsn": None,
             "wallet_exists": False,
@@ -2259,7 +2259,7 @@ async def refresh_table_statistics():
         logger.error(f"統計情報更新エラー: {e}")
         return {
             "success": False,
-            "message": f"エラー: {str(e)}",
+            "message": f"統計情報の更新に失敗しました: {str(e)}",
             "updated_count": 0
         }
 
@@ -2627,7 +2627,7 @@ def get_database_connection_info():
         logger.error(f"接続情報解析エラー: {e}")
         return {
             "success": False,
-            "message": f"解析エラー: {str(e)}"
+            "message": f"接続情報の解析に失敗しました: {str(e)}"
         }
 
 @app.get("/database/target")

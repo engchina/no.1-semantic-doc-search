@@ -240,7 +240,7 @@ export async function testOciConnection() {
     
   } catch (error) {
     utilsHideLoading();
-    utilsShowToast('接続テスト中にエラーが発生しました', 'error');
+    utilsShowToast('接続テストに失敗しました', 'error');
   } finally {
     ociLoading = false;
     ociAction = null;
@@ -289,7 +289,7 @@ export function handlePrivateKeyFileSelect(event) {
     };
     reader.readAsText(file);
   } catch (error) {
-    utilsShowToast('ファイル処理中にエラーが発生しました: ' + error.message, 'error');
+    utilsShowToast('ファイルの処理に失敗しました: ' + error.message, 'error');
     event.target.value = '';
   }
 }
