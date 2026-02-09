@@ -569,8 +569,8 @@ export async function loadDbTables() {
     // ステータスバッジを更新（総件数を表示）
     if (statusBadge) {
       statusBadge.textContent = `${data.total}件`;
-      statusBadge.style.background = '#10b981';
-      statusBadge.style.color = '#fff';
+      statusBadge.style.background = '#e2e8f0';
+      statusBadge.style.color = '#64748b';
     }
     
     // ヘッダーチェックボックスの状態を判定
@@ -856,7 +856,7 @@ export function showTablePreview(tableName, columns, rows, total, paginationData
         <button class="apex-button-secondary apex-button-xs" onclick="refreshTableData()">
           <i class="fas fa-sync-alt"></i> 再取得
         </button>
-        <span class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #dcfce7; color: #166534;">
+        <span class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">
           ${total}件
         </span>
       </div>
