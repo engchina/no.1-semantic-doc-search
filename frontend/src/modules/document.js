@@ -140,7 +140,7 @@ export async function loadOciObjects(showLoadingOverlay = true) {
     const totalCount = data.pagination?.total || 0;
     const statistics = data.statistics || { file_count: 0, page_image_count: 0, total_count: 0 }
     
-    updateDocumentsStatusBadge(`${totalCount}件`, 'success');
+    updateDocumentsStatusBadge(`合計: ${totalCount}件`, 'success');
     updateDocumentsStatisticsBadges(statistics, 'success');
     
   } catch (error) {
@@ -314,7 +314,7 @@ export function displayOciObjectsList(data) {
         すべて解除
       </button>
       <button 
-        class="px-3 py-1 text-xs rounded transition-colors ${canExecuteAction ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}" 
+        class="px-2 py-1 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50 transition-colors ${canExecuteAction ? '' : 'opacity-40 cursor-not-allowed'}" 
         onclick="window.ociModule.deleteSelected()" 
         ${canExecuteAction ? '' : 'disabled'}
         title="${canExecuteAction ? `選択されたアイテム（フォルダ配下の子アイテムを含む）を削除: ${selectedOciObjects.length}件` : '削除するオブジェクトを選択してください'}"
@@ -322,7 +322,7 @@ export function displayOciObjectsList(data) {
         <i class="fas fa-trash-alt"></i> 削除 (${selectedOciObjects.length}件)
       </button>
       <button 
-        class="px-3 py-1 text-xs rounded transition-colors ${canExecuteAction ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-blue-300 text-white cursor-not-allowed'}" 
+        class="px-2 py-1 text-xs rounded border border-blue-300 text-blue-600 hover:bg-blue-50 transition-colors ${canExecuteAction ? '' : 'opacity-40 cursor-not-allowed'}" 
         onclick="window.ociModule.downloadSelected()" 
         ${canExecuteAction ? '' : 'disabled'}
         title="${canExecuteAction ? `選択されたアイテム（フォルダ配下の子アイテムを含む）をZIPでダウンロード: ${selectedOciObjects.length}件` : 'ダウンロードするオブジェクトを選択してください'}"

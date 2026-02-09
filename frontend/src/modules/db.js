@@ -559,7 +559,7 @@ export async function loadDbTables() {
         </div>
       `;
       if (statusBadge) {
-        statusBadge.textContent = '0件';
+        statusBadge.textContent = '合計: 0件';
         statusBadge.style.background = '#e2e8f0';
         statusBadge.style.color = '#64748b';
       }
@@ -568,7 +568,7 @@ export async function loadDbTables() {
     
     // ステータスバッジを更新（総件数を表示）
     if (statusBadge) {
-      statusBadge.textContent = `${data.total}件`;
+      statusBadge.textContent = `合計: ${data.total}件`;
       statusBadge.style.background = '#e2e8f0';
       statusBadge.style.color = '#64748b';
     }
@@ -584,7 +584,7 @@ export async function loadDbTables() {
           <button onclick="selectAllDbTables()" class="px-2 py-1 border rounded text-xs hover:bg-gray-100 ${dbTablesBatchDeleteLoading ? 'opacity-50 cursor-not-allowed' : ''}" ${dbTablesBatchDeleteLoading ? 'disabled' : ''}>すべて選択</button>
           <button onclick="clearAllDbTables()" class="px-2 py-1 border rounded text-xs hover:bg-gray-100 ${dbTablesBatchDeleteLoading ? 'opacity-50 cursor-not-allowed' : ''}" ${dbTablesBatchDeleteLoading ? 'disabled' : ''}>すべて解除</button>
           <button onclick="deleteSelectedDbTables()" class="px-2 py-1 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50 ${(selectedDbTables.length === 0 || dbTablesBatchDeleteLoading) ? 'opacity-40 cursor-not-allowed' : ''}" ${(selectedDbTables.length === 0 || dbTablesBatchDeleteLoading) ? 'disabled' : ''}>
-            ${dbTablesBatchDeleteLoading ? '<span class="spinner spinner-sm"></span> 処理中...' : `削除 (${selectedDbTables.length})`}
+            ${dbTablesBatchDeleteLoading ? '<span class="spinner spinner-sm"></span> 処理中...' : `<i class="fas fa-trash-alt"></i> 削除 (${selectedDbTables.length})`}
           </button>
         </div>
       </div>
@@ -781,7 +781,7 @@ export function showTablePreview(tableName, columns, rows, total, paginationData
             <i class="fas fa-sync-alt"></i> 再取得
           </button>
           <span class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">
-            0件
+            合計: 0件
           </span>
         </div>
       </div>
@@ -830,7 +830,7 @@ export function showTablePreview(tableName, columns, rows, total, paginationData
         <button onclick="selectAllTableData()" class="px-2 py-1 border rounded text-xs hover:bg-gray-100">すべて選択</button>
         <button onclick="clearAllTableData()" class="px-2 py-1 border rounded text-xs hover:bg-gray-100">すべて解除</button>
         <button onclick="deleteSelectedTableData()" class="px-2 py-1 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50 ${selectedTableDataRows.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}" ${selectedTableDataRows.length === 0 ? 'disabled' : ''}>
-          削除 (${selectedTableDataRows.length})
+          <i class="fas fa-trash-alt"></i> 削除 (${selectedTableDataRows.length})
         </button>
       </div>
     </div>
@@ -857,7 +857,7 @@ export function showTablePreview(tableName, columns, rows, total, paginationData
           <i class="fas fa-sync-alt"></i> 再取得
         </button>
         <span class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">
-          ${total}件
+          合計: ${total}件
         </span>
       </div>
     </div>
