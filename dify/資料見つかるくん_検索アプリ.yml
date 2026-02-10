@@ -3,7 +3,7 @@ app:
   icon: 🤖
   icon_background: '#FFEAD5'
   mode: advanced-chat
-  name: ★検索アプリv5
+  name: 資料見つかるくん_検索アプリ
   use_icon_as_answer_icon: false
 dependencies: []
 kind: app
@@ -91,18 +91,6 @@ workflow:
       type: custom
       zIndex: 0
     - data:
-        isInIteration: false
-        isInLoop: false
-        sourceType: code
-        targetType: iteration
-      id: 1769778791889-source-1769782657385-target
-      source: '1769778791889'
-      sourceHandle: source
-      target: '1769782657385'
-      targetHandle: target
-      type: custom
-      zIndex: 0
-    - data:
         isInIteration: true
         isInLoop: false
         iteration_id: '1769782657385'
@@ -167,10 +155,34 @@ workflow:
       targetHandle: target
       type: custom
       zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: answer
+      id: 1769778791889-source-1770710762406-target
+      source: '1769778791889'
+      sourceHandle: source
+      target: '1770710762406'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: answer
+        targetType: iteration
+      id: 1770710762406-source-1769782657385-target
+      source: '1770710762406'
+      sourceHandle: source
+      target: '1769782657385'
+      targetHandle: target
+      type: custom
+      zIndex: 0
     nodes:
     - data:
         desc: ''
-        selected: false
+        selected: true
         title: 開始
         type: start
         variables:
@@ -182,7 +194,7 @@ workflow:
           required: true
           type: text-input
           variable: API_ENDPOINT
-      height: 108
+      height: 109
       id: '1755676467814'
       position:
         x: 0
@@ -190,7 +202,7 @@ workflow:
       positionAbsolute:
         x: 0
         y: 76
-      selected: false
+      selected: true
       sourcePosition: right
       targetPosition: left
       type: custom
@@ -226,7 +238,7 @@ workflow:
         type: http-request
         url: '{{#1755676467814.API_ENDPOINT#}}/ai/api/search'
         variables: []
-      height: 139
+      height: 141
       id: '1757826211520'
       position:
         x: 342
@@ -238,7 +250,7 @@ workflow:
       sourcePosition: right
       targetPosition: left
       type: custom
-      width: 241
+      width: 242
     - data:
         code: "def main(json_string: str):\n    import json\n\n    # JSONをパース\n  \
           \  data = json.loads(json_string)\n    \n    # 結果が空の場合の処理\n    if not data.get(\"\
@@ -270,7 +282,7 @@ workflow:
           - body
           value_type: string
           variable: json_string
-      height: 51
+      height: 52
       id: '1769778791889'
       position:
         x: 683
@@ -282,7 +294,7 @@ workflow:
       sourcePosition: right
       targetPosition: left
       type: custom
-      width: 241
+      width: 242
     - data:
         error_handle_mode: terminated
         flatten_output: true
@@ -305,10 +317,10 @@ workflow:
       height: 260
       id: '1769782657385'
       position:
-        x: 1024
+        x: 1324
         y: 0
       positionAbsolute:
-        x: 1024
+        x: 1324
         y: 0
       selected: false
       sourcePosition: right
@@ -330,7 +342,7 @@ workflow:
         x: 60
         y: 106
       positionAbsolute:
-        x: 1084
+        x: 1384
         y: 106
       selectable: false
       sourcePosition: right
@@ -349,20 +361,20 @@ workflow:
         variables:
         - - conversation
           - output_array
-      height: 108
+      height: 109
       id: '1769782668763'
       parentId: '1769782657385'
       position:
         x: 1147
         y: 76
       positionAbsolute:
-        x: 2171
+        x: 2471
         y: 76
       selected: false
       sourcePosition: right
       targetPosition: left
       type: custom
-      width: 241
+      width: 242
       zIndex: 1002
     - data:
         isInIteration: true
@@ -378,27 +390,27 @@ workflow:
           - item
           value_type: object
           variable: item
-      height: 51
+      height: 52
       id: '1769782731963'
       parentId: '1769782657385'
       position:
         x: 826
         y: 104
       positionAbsolute:
-        x: 1850
+        x: 2150
         y: 104
       selected: false
       sourcePosition: right
       targetPosition: left
       type: custom
-      width: 241
+      width: 242
       zIndex: 1002
     - data:
         isInIteration: true
         isInLoop: false
         iteration_id: '1769782657385'
         selected: false
-        template: '{{ item.pages }}'
+        template: '{{ item.pages | replace(''['', '''') | replace('']'', '''') }}'
         title: pages
         type: template-transform
         variables:
@@ -407,20 +419,20 @@ workflow:
           - item
           value_type: object
           variable: item
-      height: 51
+      height: 52
       id: '1769782766997'
       parentId: '1769782657385'
       position:
         x: 505
         y: 104
       positionAbsolute:
-        x: 1529
+        x: 1829
         y: 104
       selected: false
       sourcePosition: right
       targetPosition: left
       type: custom
-      width: 241
+      width: 242
       zIndex: 1002
     - data:
         isInIteration: true
@@ -436,20 +448,20 @@ workflow:
           - item
           value_type: object
           variable: item
-      height: 51
+      height: 52
       id: '1769782770648'
       parentId: '1769782657385'
       position:
         x: 184
         y: 104
       positionAbsolute:
-        x: 1208
+        x: 1508
         y: 104
       selected: false
       sourcePosition: right
       targetPosition: left
       type: custom
-      width: 241
+      width: 242
       zIndex: 1002
     - data:
         answer: '
@@ -457,12 +469,10 @@ workflow:
           {{#1769782731963.output#}}
 
 
-          **ページ番号：**
-
-          {{#1769782766997.output#}}
+          **ページ番号：** {{#1769782766997.output#}}
 
 
-          **ダウンロード⬇️**
+          **ダウンロードURL：**
 
           {{#1769782770648.output#}}
 
@@ -477,23 +487,44 @@ workflow:
         title: 回答
         type: answer
         variables: []
-      height: 140
+      height: 157
       id: '1769782864770'
       parentId: '1769782657385'
       position:
         x: 1468
         y: 60
       positionAbsolute:
-        x: 2492
+        x: 2792
         y: 60
-      selected: true
+      selected: false
       sourcePosition: right
       targetPosition: left
       type: custom
-      width: 241
+      width: 242
       zIndex: 1002
+    - data:
+        answer: '以下の資料が見つかりました。
+
+          ---'
+        selected: false
+        title: 回答 2
+        type: answer
+        variables: []
+      height: 100
+      id: '1770710762406'
+      position:
+        x: 1024
+        y: 0
+      positionAbsolute:
+        x: 1024
+        y: 0
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
     viewport:
-      x: -805.6999999999999
-      y: 317
-      zoom: 0.7
+      x: 308.32736011977295
+      y: 428.8178566883405
+      zoom: 0.4942890415346643
   rag_pipeline_variables: []
