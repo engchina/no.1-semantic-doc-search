@@ -220,7 +220,7 @@ export function displayOciObjectsList(data) {
             onclick="window.ociModule.setFilterPageImages('done')" 
             class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterPageImages === 'done' ? 'bg-green-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
           >
-            <i class="fas fa-check"></i> 完了
+            完了
           </button>
           <button 
             onclick="window.ociModule.setFilterPageImages('not_done')" 
@@ -232,7 +232,7 @@ export function displayOciObjectsList(data) {
       </div>
       <div class="w-px h-6 bg-gray-300"></div>
       <div class="flex items-center gap-2">
-        <span class="text-xs font-medium text-gray-600"><i class="fas fa-hashtag"></i> ベクトル化:</span>
+        <span class="text-xs font-medium text-gray-600"><i class="fas fa-vector-square"></i> ベクトル化:</span>
         <div class="flex gap-1">
           <button 
             onclick="window.ociModule.setFilterEmbeddings('all')" 
@@ -244,7 +244,7 @@ export function displayOciObjectsList(data) {
             onclick="window.ociModule.setFilterEmbeddings('done')" 
             class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterEmbeddings === 'done' ? 'bg-green-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
           >
-            <i class="fas fa-check"></i> 完了
+            完了
           </button>
           <button 
             onclick="window.ociModule.setFilterEmbeddings('not_done')" 
@@ -343,7 +343,7 @@ export function displayOciObjectsList(data) {
         ${canExecuteAction ? '' : 'disabled'}
         title="${canExecuteAction ? `選択されたファイルの画像をベクトル化してDBに保存: ${selectedOciObjects.length}件` : 'ベクトル化するファイルを選択してください'}"
       >
-        <i class="fas fa-hashtag"></i> ベクトル化 (${selectedOciObjects.length}件)
+        ベクトル化 (${selectedOciObjects.length}件)
       </button>
     </div>
   `;
@@ -457,13 +457,13 @@ function generateObjectRow(obj, allOciObjects, selectedOciObjects, ociObjectsBat
   // ページ画像化状態（ページ画像の場合は空表示）
   const hasPageImages = obj.has_page_images;
   const pageImagesStatusHtml = (isPageImage || hasPageImages == null) ? '' :
-    (hasPageImages ? '<span class="badge badge-success"><i class="fas fa-check"></i> 完了</span>' : 
+    (hasPageImages ? '<span class="badge badge-success">完了</span>' : 
     '<span class="badge badge-neutral">未実行</span>');
   
   // ベクトル化状態（ページ画像の場合は空表示）
   const hasEmbeddings = obj.has_embeddings;
   const embeddingsStatusHtml = (isPageImage || hasEmbeddings == null) ? '' :
-    (hasEmbeddings ? '<span class="badge badge-success"><i class="fas fa-check"></i> 完了</span>' : 
+    (hasEmbeddings ? '<span class="badge badge-success">完了</span>' : 
     '<span class="badge badge-neutral">未実行</span>');
   
   return `
@@ -1726,7 +1726,7 @@ function showProcessProgressUI(objectNames, operationType) {
   
   const totalFiles = objectNames.length;
   const operationLabel = operationType === 'delete' ? 'オブジェクトを削除中' : 'ファイルをベクトル化中';
-  const operationIcon = operationType === 'delete' ? '<i class="fas fa-trash-alt"></i>' : '<i class="fas fa-hashtag"></i>';
+  const operationIcon = operationType === 'delete' ? '<i class="fas fa-trash-alt"></i>' : '';
   
   // 各ファイルのHTMLを生成
   let filesHtml = '';

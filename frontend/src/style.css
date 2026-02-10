@@ -152,7 +152,7 @@ tr:hover{background:#f8fafc}
 .result-container .dataframe{margin:0;}
 
 /* Toast Notification */
-.toast-container{position:fixed;top:80px;right:24px;z-index:10000;display:flex;flex-direction:column;gap:12px;max-width:400px;}
+.toast-container{position:fixed;top:80px;right:24px;z-index:10000;display:flex;flex-direction:column;gap:12px;max-width:450px;}
 .toast{background:#fff;border-radius:8px;padding:16px;box-shadow:0 4px 12px rgba(0,0,0,.15);display:flex;align-items:start;gap:12px;animation:toast-slide-in .3s ease-out;min-width:320px;}
 @keyframes toast-slide-in{from{transform:translateX(400px);opacity:0}to{transform:translateX(0);opacity:1}}
 @keyframes toast-slide-out{from{transform:translateX(0);opacity:1}to{transform:translateX(400px);opacity:0}}

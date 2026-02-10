@@ -1064,7 +1064,7 @@ function showToast(message, type = 'info', duration = 4000) {
     border-left:4px solid ${typeConfig.accent};
     padding:14px 16px;border-radius:10px;
     box-shadow:0 8px 24px rgba(0,0,0,.25),0 2px 8px rgba(0,0,0,.15);
-    max-width:380px;min-width:280px;
+    max-width:450px;min-width:280px;
     animation:toast-slide-in .3s ease-out;
     font-size:14px;font-weight:500;
     backdrop-filter:blur(8px);

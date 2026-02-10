@@ -700,13 +700,13 @@ async function processUploadStreamingResponse(response, totalFiles) {
           processingCompleted = true;
           updateUploadOverallStatus(
             data.success ? 
-              `<i class="fas fa-check"></i> すべて完了しました (${data.success_count}件)` : 
+              `すべて完了しました (${data.success_count}件)` : 
               `完了: 成功 ${data.success_count}件、失敗 ${data.failed_count}件`
           );
           
           // 成功時のトースト
           if (data.success) {
-            utilsShowToast(`${data.success_count}件のファイルアップロードが完了しました。一覧に反映するには、登録済み文書の「再取得」を推してください。`, 'success');
+            utilsShowToast(`${data.success_count}件のファイルアップロードが完了しました。<br />一覧に反映するには、登録済み文書の「再取得」を押してください。`, 'success');
           } else {
             utilsShowToast(data.message, 'warning');
           }
