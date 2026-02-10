@@ -2860,7 +2860,7 @@ async def vectorize_documents(request: VectorizeRequest):
     """
     選択されたファイルを画像ベクトル化してDBに保存（並列処理版）
     - ファイルが未画像化の場合は自動的にページ画像化を実行してからベクトル化
-    - 既存の画像イメージやembeddingがある場合は削除してから再作成
+    - 既存の画像イメージやEmbeddingがある場合は削除してから再作成
     - Server-Sent Events (SSE)でリアルタイム進捗状況を送信
     """
     object_names = request.object_names

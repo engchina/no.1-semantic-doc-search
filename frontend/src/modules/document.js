@@ -978,7 +978,7 @@ export async function vectorizeSelectedOciObjects() {
   // 確認モーダルを表示
   const confirmed = await utilsShowConfirmModal(
     `選択された<strong>${selectedOciObjects.length}件のファイル</strong>を画像ベクトル化してデータベースに保存します。
-<warning>既存の画像イメージやembeddingがある場合は削除してから再作成します。</warning>
+<warning>既存の画像イメージやEmbeddingがある場合は削除してから再作成します。</warning>
 <small>※ファイルが未画像化の場合は、自動的にページ画像化を実行してからベクトル化します。</small>
 処理には時間がかかる場合があります。実行しますか？`,
     'ベクトル化確認',
