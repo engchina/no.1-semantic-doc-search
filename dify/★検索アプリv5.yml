@@ -234,7 +234,7 @@ workflow:
       positionAbsolute:
         x: 342
         y: 60
-      selected: true
+      selected: false
       sourcePosition: right
       targetPosition: left
       type: custom
@@ -452,13 +452,21 @@ workflow:
       width: 241
       zIndex: 1002
     - data:
-        answer: '{{#1769782770648.output#}}
+        answer: '
 
+          {{#1769782731963.output#}}
+
+
+          **ページ番号：**
 
           {{#1769782766997.output#}}
 
 
-          {{#1769782731963.output#}}'
+          **ダウンロード⬇️**
+
+          {{#1769782770648.output#}}
+
+          ---'
         isInIteration: true
         isInLoop: false
         iteration_id: '1769782657385'
@@ -475,14 +483,14 @@ workflow:
       positionAbsolute:
         x: 2492
         y: 60
-      selected: false
+      selected: true
       sourcePosition: right
       targetPosition: left
       type: custom
       width: 241
       zIndex: 1002
     viewport:
-      x: -2.9500000000000455
-      y: 286.34999999999997
+      x: -805.6999999999998
+      y: 317
       zoom: 0.7
   rag_pipeline_variables: []
