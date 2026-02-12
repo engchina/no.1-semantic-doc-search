@@ -12,7 +12,7 @@
 // ========================================
 import { appState, getSelectedOciObjects, toggleOciObjectSelection, setAllOciObjectsSelection } from '../state.js';
 import { apiCall as authApiCall, forceLogout as authForceLogout, showLoginModal as authShowLoginModal } from './auth.js';
-import { showLoading as utilsShowLoading, hideLoading as utilsHideLoading, showToast as utilsShowToast, showConfirmModal as utilsShowConfirmModal, updateStatusBadge as utilsUpdateStatusBadge } from './utils.js';
+import { showLoading as utilsShowLoading, hideLoading as utilsHideLoading, showToast as utilsShowToast, showConfirmModal as utilsShowConfirmModal, updateStatusBadge as utilsUpdateStatusBadge, showImageModal as utilsShowImageModal } from './utils.js';
 
 // ========================================
 // OCI Objects管理
@@ -176,6 +176,11 @@ export function displayOciObjectsList(data) {
   
   // 現在のページに表示されているオブジェクトを保存
   appState.set('currentPageOciObjects', objects);
+  
+  // バケット名を保存（画像プレビュー用）
+  if (data.bucket_name) {
+    appState.set('ociBucketName', data.bucket_name);
+  }
   
   // デバッグログ
   console.log('========== displayOciObjectsList ==========');
@@ -451,7 +456,28 @@ export function displayOciObjectsList(data) {
 function generateObjectRow(obj, allOciObjects, selectedOciObjects, ociObjectsBatchDeleteLoading) {
   const isFolder = obj.name.endsWith('/');
   const isPageImage = isGeneratedPageImage(obj.name, allOciObjects);
-  const icon = isFolder ? '<i class="fas fa-folder-open"></i>' : (isPageImage ? '<i class="fas fa-image"></i>' : '<i class="fas fa-file"></i>');
+  
+  // 画像ファイルかどうかを判定（PNG, JPG, JPEG）
+  // 注: 元のファイルではなく、生成されたページ画像のみプレビュー可能
+  const isImageFile = !isFolder && /^.+\.(png|jpg|jpeg)$/i.test(obj.name);
+  const isPreviewable = isPageImage; // ページ画像のみプレビュー可能
+  
+  // アイコンまたはサムネイル画像
+  let typeCellContent;
+  if (isImageFile && isPreviewable) {
+    // ページ画像の場合はサムネイルを表示（プレビュー可能）
+    // 統一サイズ（20x20px）で表示し、クリックでプレビュー
+    const bucketName = appState.get('ociBucketName') || '';
+    const thumbnailUrl = getAuthenticatedImageUrl(bucketName, obj.name);
+    // オブジェクト名をエスケープ
+    const escapedName = obj.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    typeCellContent = `<img src="${thumbnailUrl}" alt="${obj.name.split('/').pop()}" class="file-type-thumbnail" style="width: 20px; height: 20px; border-radius: 2px; object-fit: cover; cursor: pointer; vertical-align: middle; border: 1px solid #e2e8f0;" onclick="window.ociModule.showImagePreview('${escapedName}')" onmouseover="this.style.borderColor='#1a365d'; this.style.boxShadow='0 1px 4px rgba(0,0,0,0.2)';" onmouseout="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none';" title="クリックでプレビュー" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2720%27 height=%2720%27%3E%3Crect fill=%27%23f1f5f9%27 width=%2720%27 height=%2720%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 fill=%27%2394a3b8%27 font-size=%2712%27%3E?%3C/text%3E%3C/svg%3E';" />`;
+  } else {
+    // フォルダ、元ファイル、または画像以外のファイルはアイコンを表示
+    const icon = isFolder ? '<i class="fas fa-folder-open"></i>' : (isPageImage ? '<i class="fas fa-image"></i>' : '<i class="fas fa-file"></i>');
+    typeCellContent = icon;
+  }
+  
   const isChecked = selectedOciObjects.includes(obj.name);
   
   // ページ画像化状態（ページ画像の場合は空表示）
@@ -479,7 +505,7 @@ function generateObjectRow(obj, allOciObjects, selectedOciObjects, ociObjectsBat
           />
         ` : ''}
       </td>
-      <td>${icon}</td>
+      <td>${typeCellContent}</td>
       <td>${obj.name}</td>
       <td>${obj.size ? formatBytes(obj.size) : '-'}</td>
       <td>${obj.time_created || '-'}</td>
@@ -502,6 +528,38 @@ function formatBytes(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+}
+
+/**
+ * 認証トークン付きの画像URLを生成します。
+ * 
+ * @private
+ * @param {string} bucket - バケット名
+ * @param {string} objectName - オブジェクト名
+ * @returns {string} 認証トークン付きのURL
+ */
+function getAuthenticatedImageUrl(bucket, objectName) {
+  const token = localStorage.getItem('loginToken');
+  const baseUrl = `/ai/api/object/${bucket}/${encodeURIComponent(objectName)}`;
+  if (token) {
+    return `${baseUrl}?token=${encodeURIComponent(token)}`;
+  }
+  return baseUrl;
+}
+
+/**
+ * 画像プレビューモーダルを表示します。
+ * 登録済み文書一覧のサムネイルクリック時に呼び出されます。
+ * 
+ * @param {string} objectName - オブジェクト名
+ */
+export function showImagePreview(objectName) {
+  const bucketName = appState.get('ociBucketName') || '';
+  const imageUrl = getAuthenticatedImageUrl(bucketName, objectName);
+  const filename = objectName.split('/').pop();
+  
+  // 共通のshowImageModal関数を呼び出し
+  utilsShowImageModal(imageUrl, filename);
 }
 
 /**
@@ -1951,7 +2009,8 @@ window.ociModule = {
   convertToImages: convertSelectedOciObjectsToImages,
   vectorizeSelected: vectorizeSelectedOciObjects,
   deleteSelected: deleteSelectedOciObjects,
-  closeProcessProgress: closeProcessProgress
+  closeProcessProgress: closeProcessProgress,
+  showImagePreview
 }
 
 // デフォルトエクスポート

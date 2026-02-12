@@ -347,9 +347,9 @@ button:focus-visible,a:focus-visible{outline:2px solid #1a365d;outline-offset:2p
 .login-brand-mark{background:linear-gradient(135deg,#1a365d 0%,#2563eb 55%,#3b82f6 110%);box-shadow:0 14px 36px rgba(37,99,235,.2),0 10px 30px rgba(26,54,93,.2)}
 .login-alert{display:flex;align-items:flex-start;gap:10px;background:rgba(254,242,242,.9);border:1px solid rgba(239,68,68,.25);border-radius:12px;padding:12px 12px;color:#991b1b}
 .login-alert-icon{width:20px;height:20px;border-radius:9999px;display:flex;align-items:center;justify-content:center;background:#ef4444;color:white;font-weight:900;flex:0 0 auto;margin-top:1px}
-.login-input-wrap{position:relative}
+.login-input-wrap{position:relative;width:100%}
 .login-input-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;pointer-events:none;z-index:1}
-.login-input{border-radius:12px;padding-left:40px;padding-right:44px;background:rgba(255,255,255,.95);border-color:rgba(226,232,240,.95)}
+.login-input{border-radius:12px;padding:10px 12px 10px 40px;background:rgba(255,255,255,.95);border-color:rgba(226,232,240,.95);height:44px;box-sizing:border-box;line-height:1.5}
 .login-input::-ms-reveal,.login-input::-ms-clear{display:none}
 .login-input::-webkit-credentials-auto-fill-button,.login-input::-webkit-textfield-decoration-container{display:none !important}
 .login-input:focus{border-color:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.2)}
