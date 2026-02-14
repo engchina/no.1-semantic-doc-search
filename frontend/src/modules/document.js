@@ -195,7 +195,7 @@ export function displayOciObjectsList(data) {
   const filterHtml = `
     <div class="flex items-center gap-4 mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
       <div class="flex items-center gap-2">
-        <span class="text-xs font-medium text-gray-600"><i class="fas fa-folder-open"></i> 表示タイプ:</span>
+        <span class="text-xs font-medium text-gray-600"><i class="fas fa-folder-open"></i> 表示タイプ：</span>
         <div class="flex gap-1">
           <button 
             onclick="window.ociModule.setDisplayType('files_only')" 
@@ -237,7 +237,7 @@ export function displayOciObjectsList(data) {
       </div>
       <div class="w-px h-6 bg-gray-300"></div>
       <div class="flex items-center gap-2">
-        <span class="text-xs font-medium text-gray-600"><i class="fas fa-vector-square"></i> ベクトル化:</span>
+        <span class="text-xs font-medium text-gray-600"> ベクトル化：</span>
         <div class="flex gap-1">
           <button 
             onclick="window.ociModule.setFilterEmbeddings('all')" 
