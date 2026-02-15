@@ -40,16 +40,12 @@ stop_port() {
 }
 
 main() {
-  require_cmd git
   require_cmd npm
   require_cmd lsof
 
   [[ -d "${PROJECT_ROOT}" ]] || { log "ERROR: project dir not found: ${PROJECT_ROOT}"; exit 1; }
   [[ -d "${FRONTEND_DIR}" ]] || { log "ERROR: frontend dir not found: ${FRONTEND_DIR}"; exit 1; }
   [[ -x "${SERVICE_SCRIPT}" ]] || { log "ERROR: service script is not executable: ${SERVICE_SCRIPT}"; exit 1; }
-
-  log "updating repository"
-  git -C "${PROJECT_ROOT}" pull --ff-only
 
   log "building frontend"
   npm --prefix "${FRONTEND_DIR}" run build
