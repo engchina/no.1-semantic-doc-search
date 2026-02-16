@@ -237,7 +237,7 @@ export function displayOciObjectsList(data) {
       </div>
       <div class="w-px h-6 bg-gray-300"></div>
       <div class="flex items-center gap-2">
-        <span class="text-xs font-medium text-gray-600"> ベクトル化：</span>
+        <span class="text-xs font-medium text-gray-600">ベクトル化：</span>
         <div class="flex gap-1">
           <button 
             onclick="window.ociModule.setFilterEmbeddings('all')" 
