@@ -66,8 +66,6 @@
   Font Awesome Free by Fonticons, Inc. - https://fontawesome.com
   License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License)
   ```
-- `oci` と `oracledb` はデュアルライセンスです。
-- `numpy` は配布物に追加ライセンス/例外表記が含まれるため、再配布時は NumPy 配布物の `LICENSES` も確認してください。
 
 ### 参考リンク（公式情報）
 
