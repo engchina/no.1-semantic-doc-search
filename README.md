@@ -58,8 +58,14 @@
 
 ### 注意事項
 
-- `fpdf2` は `LGPL-3.0-only` です。配布形態に応じてライセンス要件を確認してください。
-- `@fortawesome/fontawesome-free` は複合ライセンスです（単一MITではありません）。
+- `fpdf2` は `LGPL-3.0-only` です。動的インポートで使用する場合、LGPLは伝播しません。再配布時は以下のライセンス文書を同梱してください：
+  - GNU Lesser General Public License v3.0: <https://www.gnu.org/licenses/lgpl-3.0.txt>
+  - fpdf2 作者: David Ansermino (@davidanson) - https://github.com/py-pdf/fpdf2
+- `@fortawesome/fontawesome-free` は複合ライセンスです（単一MITではありません）。CC BY 4.0 に基づき、以下の帰属表示が必要です：
+  ```
+  Font Awesome Free by Fonticons, Inc. - https://fontawesome.com
+  License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License)
+  ```
 - `oci` と `oracledb` はデュアルライセンスです。
 - `numpy` は配布物に追加ライセンス/例外表記が含まれるため、再配布時は NumPy 配布物の `LICENSES` も確認してください。
 
