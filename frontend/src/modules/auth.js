@@ -153,8 +153,17 @@ export function toggleLoginPassword() {
   const input = document.getElementById('loginPassword');
   if (!input) return;
   input.type = input.type === 'password' ? 'text' : 'password';
-  input.focus();
-  input.setSelectionRange(input.value.length, input.value.length);
+  try {
+    input.focus({ preventScroll: true });
+  } catch {
+    input.focus();
+  }
+  try {
+    input.setSelectionRange(input.value.length, input.value.length);
+  } catch (error) {
+    // Safariではtype切替直後にキャレット指定で例外になる場合がある
+    console.debug('[AUTH.JS] setSelectionRange skipped:', error);
+  }
 }
 
 // ========================================
