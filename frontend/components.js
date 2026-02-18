@@ -1022,6 +1022,19 @@ function renderLoading({
  * showToast('エラーが発生しました', 'error')
  */
 function showToast(message, type = 'info', duration = 4000) {
+  const SESSION_TIMEOUT_MESSAGE = 'ログインの有効期限が切れました。再度ログインしてください。';
+  const isSessionTimeoutMode = window.__toastSessionTimeoutMode === true;
+  
+  // セッション期限切れ中は専用メッセージ以外のトーストを抑止
+  if (isSessionTimeoutMode && message !== SESSION_TIMEOUT_MESSAGE) {
+    return null;
+  }
+
+  // セッション期限切れ通知を出す直前に既存トーストを掃除
+  if (message === SESSION_TIMEOUT_MESSAGE) {
+    clearAllToasts();
+  }
+
   const id = Date.now() + Math.random();
   
   // タイプ別のアイコン（SVG）とアクセントカラー
@@ -1097,6 +1110,24 @@ function showToast(message, type = 'info', duration = 4000) {
   }
 
   return id;
+}
+
+/**
+ * 現在表示されているトーストをすべて削除
+ */
+function clearAllToasts() {
+  const container = document.getElementById('toast-container');
+  if (container) {
+    container.innerHTML = '';
+  }
+}
+
+/**
+ * セッション期限切れ時のトースト抑止モード切り替え
+ * @param {boolean} enabled - true: 専用メッセージ以外を抑止
+ */
+function setSessionTimeoutToastMode(enabled) {
+  window.__toastSessionTimeoutMode = enabled === true;
 }
 
 // ========================================
@@ -1310,6 +1341,8 @@ if (typeof window !== 'undefined') {
     showModal,
     renderLoading,
     showToast,
+    clearAllToasts,
+    setSessionTimeoutToastMode,
     renderTable,
     renderCard,
     toggleCardCollapse,

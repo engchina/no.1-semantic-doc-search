@@ -214,6 +214,10 @@ export async function handleLogin(event) {
     const data = await response.json();
     
     if (data.status === 'success') {
+      if (window.UIComponents && window.UIComponents.setSessionTimeoutToastMode) {
+        window.UIComponents.setSessionTimeoutToastMode(false);
+      }
+
       // 状態管理に保存
       setAuthState(true, data.token, data.username);
       
@@ -275,6 +279,10 @@ export async function handleLogout() {
   } catch (error) {
     console.warn('ログアウトエラー:', error);
   } finally {
+    if (window.UIComponents && window.UIComponents.setSessionTimeoutToastMode) {
+      window.UIComponents.setSessionTimeoutToastMode(false);
+    }
+
     // 状態をクリア
     setAuthState(false, null, null);
     localStorage.removeItem('loginToken');
@@ -361,6 +369,10 @@ export async function checkLoginStatus() {
  */
 export function forceLogout() {
   console.log('[AUTH.JS] forceLogout が呼び出されました');
+  if (window.UIComponents && window.UIComponents.setSessionTimeoutToastMode) {
+    window.UIComponents.setSessionTimeoutToastMode(true);
+  }
+
   // セッションを完全にクリア
   setAuthState(false, null, null);
   localStorage.removeItem('loginToken');
@@ -368,6 +380,9 @@ export function forceLogout() {
   
   // ログイン画面を表示してユーザーに通知
   setTimeout(() => {
+    if (window.UIComponents && window.UIComponents.clearAllToasts) {
+      window.UIComponents.clearAllToasts();
+    }
     if (window.UIComponents && window.UIComponents.showToast) {
       window.UIComponents.showToast('ログインの有効期限が切れました。再度ログインしてください。', 'error');
     }
