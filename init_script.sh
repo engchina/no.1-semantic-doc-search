@@ -947,19 +947,34 @@ EOL
         # Configure wallet files to containers
         echo "Difyコンテナにウォレットファイルを設定中..."
         if [ -d "${WALLET_DIR}" ]; then
-            # Copy wallet to Dify containers
-            WORKER_CONTAINER=$(docker ps --filter "name=worker" --format "{{.Names}}" | head -n 1)
+            # Resolve exact containers by compose service label (avoid matching worker_beat)
+            WORKER_CONTAINER=$(docker ps --filter "label=com.docker.compose.service=worker" --format "{{.Names}}" | head -n 1)
+            API_CONTAINER=$(docker ps --filter "label=com.docker.compose.service=api" --format "{{.Names}}" | head -n 1)
+
+            # Fallback for environments where compose labels are unavailable
+            if [ -z "$WORKER_CONTAINER" ]; then
+                WORKER_CONTAINER=$(docker compose ps -q worker 2>/dev/null | head -n 1)
+            fi
+            if [ -z "$API_CONTAINER" ]; then
+                API_CONTAINER=$(docker compose ps -q api 2>/dev/null | head -n 1)
+            fi
+
+            # Copy wallet to Dify worker container
             if [ -n "$WORKER_CONTAINER" ]; then
                 echo "walletを${WORKER_CONTAINER}にコピー中..."
-                docker cp "${WALLET_DIR}" "${WORKER_CONTAINER}:/app/api/storage/wallet"
+                docker exec "$WORKER_CONTAINER" mkdir -p /app/api/storage/wallet
+                docker cp "${WALLET_DIR}/." "${WORKER_CONTAINER}:/app/api/storage/wallet/"
                 chown -R 1001:1001 volumes/app/storage/wallet 2>/dev/null || true
+            else
+                echo "警告: workerコンテナが見つかりません。walletコピーをスキップします。"
             fi
             
             # Fix NLTK download issues
             echo "NLTKダウンロード問題を修正中..."
-            API_CONTAINER=$(docker ps --filter "name=api" --format "{{.Names}}" | head -n 1)
             if [ -n "$API_CONTAINER" ]; then
                 docker exec "$API_CONTAINER" bash -c 'mkdir -p /tmp/nltk_data && export NLTK_DATA=/tmp/nltk_data && python -c "import nltk; nltk.download(\"punkt\", download_dir=\"/tmp/nltk_data\", quiet=True); nltk.download(\"punkt_tab\", download_dir=\"/tmp/nltk_data\", quiet=True)"' || true
+            else
+                echo "警告: apiコンテナが見つかりません。API側NLTK設定をスキップします。"
             fi
             
             if [ -n "$WORKER_CONTAINER" ]; then
@@ -968,7 +983,16 @@ EOL
             
             # Restart containers to apply configuration
             echo "設定を適用するためにコンテナを再起動中..."
-            docker restart "$WORKER_CONTAINER" "$API_CONTAINER" || true
+            RESTART_TARGETS=()
+            if [ -n "$WORKER_CONTAINER" ]; then
+                RESTART_TARGETS+=("$WORKER_CONTAINER")
+            fi
+            if [ -n "$API_CONTAINER" ]; then
+                RESTART_TARGETS+=("$API_CONTAINER")
+            fi
+            if [ "${#RESTART_TARGETS[@]}" -gt 0 ]; then
+                docker restart "${RESTART_TARGETS[@]}" || true
+            fi
             sleep 30
         fi
         
