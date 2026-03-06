@@ -12,6 +12,7 @@ INSTALL_DIR="/u01/aipoc"
 # Read configuration flags
 ENABLE_DIFY="false"
 COMPUTE_SUBNET_PRIVATE="auto"
+APT_BACKGROUND_SUSPENDED=0
 
 if [ -f "${INSTALL_DIR}/props/enable_dify.txt" ]; then
     ENABLE_DIFY=$(cat "${INSTALL_DIR}/props/enable_dify.txt")
@@ -121,6 +122,36 @@ retry_apt_get() {
     wait_for_apt_availability 1800
     retry_command apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=5 "$@"
 }
+
+suspend_apt_background_services() {
+    if ! command -v systemctl >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo "Temporarily suspending automatic apt background services during bootstrap..."
+    systemctl stop apt-daily.timer apt-daily-upgrade.timer || true
+    systemctl stop unattended-upgrades.service apt-daily.service apt-daily-upgrade.service || true
+    systemctl mask unattended-upgrades.service apt-daily.service apt-daily-upgrade.service >/dev/null 2>&1 || true
+    APT_BACKGROUND_SUSPENDED=1
+    wait_for_apt_availability 600
+}
+
+restore_apt_background_services() {
+    if [ "${APT_BACKGROUND_SUSPENDED:-0}" -ne 1 ]; then
+        return 0
+    fi
+
+    if ! command -v systemctl >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo "Restoring automatic apt background services..."
+    systemctl unmask unattended-upgrades.service apt-daily.service apt-daily-upgrade.service >/dev/null 2>&1 || true
+    systemctl start apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
+    APT_BACKGROUND_SUSPENDED=0
+}
+
+trap 'restore_apt_background_services' EXIT
 
 is_valid_ipv4() {
     local ip="${1:-}"
@@ -241,6 +272,7 @@ detect_access_ip() {
 cd "$INSTALL_DIR"
 
 export DEBIAN_FRONTEND=noninteractive
+suspend_apt_background_services
 
 # Install essential dependencies
 echo "必須の依存関係をインストール中..."
@@ -358,6 +390,8 @@ if [ ! -d "${INSTANTCLIENT_DIR}" ]; then
 else
     echo "Oracle Instant Clientは既にインストールされています。"
 fi
+
+restore_apt_background_services
 
 # Safe sourcing of profile
 set +eu
