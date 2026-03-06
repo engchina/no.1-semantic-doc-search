@@ -203,7 +203,7 @@ variables:
     visible: ${enable_dify}
     title: "Dify Branch/Tag"
     description: "Branch or tag name to clone from Dify repository"
-    default: "1.12.1"
+    default: "1.13.0"
 
   dify_bucket_name:
     type: string
