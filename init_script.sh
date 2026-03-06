@@ -11,12 +11,24 @@ INSTALL_DIR="/u01/aipoc"
 
 # Read configuration flags
 ENABLE_DIFY="false"
+COMPUTE_SUBNET_PRIVATE="auto"
 
 if [ -f "${INSTALL_DIR}/props/enable_dify.txt" ]; then
     ENABLE_DIFY=$(cat "${INSTALL_DIR}/props/enable_dify.txt")
 fi
 
+if [ -f "${INSTALL_DIR}/props/compute_subnet_is_private.txt" ]; then
+    COMPUTE_SUBNET_PRIVATE=$(tr -d '[:space:]' < "${INSTALL_DIR}/props/compute_subnet_is_private.txt" | tr '[:upper:]' '[:lower:]')
+    case "$COMPUTE_SUBNET_PRIVATE" in
+        true|false) ;;
+        *)
+            COMPUTE_SUBNET_PRIVATE="auto"
+            ;;
+    esac
+fi
+
 echo "Difyインストール有効: $ENABLE_DIFY"
+echo "ComputeサブネットPrivate判定: $COMPUTE_SUBNET_PRIVATE"
 NODE_VERSION="20.x"
 INSTANTCLIENT_VERSION="23.26.0.0.0"
 INSTANTCLIENT_ZIP="instantclient-basic-linux.x64-${INSTANTCLIENT_VERSION}.zip"
@@ -46,6 +58,122 @@ retry_command() {
 
     echo "Command failed after $max_attempts attempts."
     return $exit_code
+}
+
+is_valid_ipv4() {
+    local ip="${1:-}"
+    local octet=""
+
+    if [[ ! "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        return 1
+    fi
+
+    IFS='.' read -r -a octets <<< "$ip"
+    for octet in "${octets[@]}"; do
+        if [ "$octet" -lt 0 ] || [ "$octet" -gt 255 ]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+# OCI metadata for vnics only exposes privateIp in IMDS v2.
+detect_private_access_ip() {
+    local detected_ip=""
+    local default_iface=""
+
+    detected_ip=$(curl -s -m 5 -H "Authorization: Bearer Oracle" http://169.254.169.254/opc/v2/vnics/ 2>/dev/null | grep -oE '"privateIp"[[:space:]]*:[[:space:]]*"[0-9.]+"' | head -n 1 | cut -d '"' -f 4 || true)
+    if is_valid_ipv4 "$detected_ip"; then
+        echo "$detected_ip"
+        return 0
+    fi
+
+    default_iface=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')
+    if [ -n "$default_iface" ]; then
+        detected_ip=$(ip -4 addr show dev "$default_iface" scope global 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n 1)
+        if is_valid_ipv4 "$detected_ip"; then
+            echo "$detected_ip"
+            return 0
+        fi
+    fi
+
+    detected_ip=$(hostname -I 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i !~ /^127\./ && $i !~ /^169\.254\./) {print $i; exit}}')
+    if is_valid_ipv4 "$detected_ip"; then
+        echo "$detected_ip"
+        return 0
+    fi
+
+    return 1
+}
+
+detect_public_access_ip() {
+    local detected_ip=""
+    local vnic_id=""
+
+    # Prefer OCI control-plane query when OCI CLI is available.
+    # This avoids NAT egress IP being mistaken as instance public IP.
+    if command -v oci >/dev/null 2>&1; then
+        vnic_id=$(curl -s -m 5 -H "Authorization: Bearer Oracle" http://169.254.169.254/opc/v2/vnics/ 2>/dev/null | grep -oE '"vnicId"[[:space:]]*:[[:space:]]*"[^"]+"' | head -n 1 | cut -d '"' -f 4 || true)
+        if [ -n "$vnic_id" ]; then
+            detected_ip=$(oci network vnic get --vnic-id "$vnic_id" --auth instance_principal --query 'data."public-ip"' --raw-output 2>/dev/null | tr -d '[:space:]' || true)
+            if is_valid_ipv4 "$detected_ip"; then
+                echo "$detected_ip"
+                return 0
+            fi
+        fi
+    fi
+
+    detected_ip=$(curl -s -m 10 http://whatismyip.akamai.com/ 2>/dev/null || true)
+    if is_valid_ipv4 "$detected_ip"; then
+        echo "$detected_ip"
+        return 0
+    fi
+
+    return 1
+}
+
+# Detect access IP for URL generation.
+# true  (private subnet)  -> use private IP.
+# false (public subnet)   -> use public IP.
+# auto                    -> best effort: public first, then private.
+detect_access_ip() {
+    local detected_ip=""
+
+    if [ "$COMPUTE_SUBNET_PRIVATE" = "true" ]; then
+        detected_ip=$(detect_private_access_ip || true)
+        if is_valid_ipv4 "$detected_ip"; then
+            echo "$detected_ip"
+            return 0
+        fi
+    elif [ "$COMPUTE_SUBNET_PRIVATE" = "false" ]; then
+        detected_ip=$(detect_public_access_ip || true)
+        if is_valid_ipv4 "$detected_ip"; then
+            echo "$detected_ip"
+            return 0
+        fi
+
+        detected_ip=$(detect_private_access_ip || true)
+        if is_valid_ipv4 "$detected_ip"; then
+            echo "$detected_ip"
+            return 0
+        fi
+    else
+        # Unknown subnet mode: prefer private IP to avoid NAT egress IP false positives.
+        detected_ip=$(detect_private_access_ip || true)
+        if is_valid_ipv4 "$detected_ip"; then
+            echo "$detected_ip"
+            return 0
+        fi
+
+        detected_ip=$(detect_public_access_ip || true)
+        if is_valid_ipv4 "$detected_ip"; then
+            echo "$detected_ip"
+            return 0
+        fi
+    fi
+
+    echo "localhost"
+    return 1
 }
 
 cd "$INSTALL_DIR"
@@ -309,9 +437,9 @@ if [ -d "$PROJECT_DIR" ]; then
     sed -i "s|API_HOST=.*|API_HOST=0.0.0.0|g" .env
     sed -i "s|API_PORT=.*|API_PORT=8081|g" .env
     
-    # External IP
-    EXTERNAL_IP=$(curl -s -m 10 http://whatismyip.akamai.com/ || echo "")
-    echo "外部IP: $EXTERNAL_IP"
+    # Detect access IP (public subnet: public IP, private subnet: private IP)
+    EXTERNAL_IP=$(detect_access_ip || true)
+    echo "アクセス用IP: $EXTERNAL_IP"
     
     if [ -n "$EXTERNAL_IP" ]; then
         sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=$EXTERNAL_IP|g" .env
@@ -621,7 +749,7 @@ NGINX_EOF
     systemctl enable nginx
     
     # 完了メッセージ
-    EXTERNAL_IP=$(curl -s -m 10 http://whatismyip.akamai.com/ || echo "localhost")
+    EXTERNAL_IP=$(detect_access_ip || true)
     if [ "$ENABLE_DIFY" = "true" ]; then
         echo "========================================"
         echo "nginx設定が完了しました (Difyあり)。"
@@ -800,12 +928,12 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         
         cd "${INSTALL_DIR}/dify/docker"
         
-        # Get external IP
-        EXTERNAL_IP=$(curl -s -m 10 http://whatismyip.akamai.com/ || echo "localhost")
+        # Detect access IP (public subnet: public IP, private subnet: private IP)
+        EXTERNAL_IP=$(detect_access_ip || true)
         if [ "$EXTERNAL_IP" = "localhost" ]; then
-            echo "警告: 外部IPを取得できません。localhostを使用します。"
+            echo "警告: アクセス用IPを取得できません。localhostを使用します。"
         else
-            echo "外部IP: $EXTERNAL_IP"
+            echo "アクセス用IP: $EXTERNAL_IP"
         fi
         
         # Configure Dify environment
