@@ -60,6 +60,68 @@ retry_command() {
     return $exit_code
 }
 
+wait_for_apt_availability() {
+    local timeout="${1:-1800}"
+    local interval=5
+    local elapsed=0
+    local lock_holders=""
+    local service=""
+    local lock_files=(
+        /var/lib/apt/lists/lock
+        /var/cache/apt/archives/lock
+        /var/lib/dpkg/lock
+        /var/lib/dpkg/lock-frontend
+    )
+    local services=(
+        apt-daily.service
+        apt-daily-upgrade.service
+        unattended-upgrades.service
+    )
+    local active_services=()
+
+    while [ "$elapsed" -lt "$timeout" ]; do
+        active_services=()
+        for service in "${services[@]}"; do
+            if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$service"; then
+                active_services+=("$service")
+            fi
+        done
+
+        lock_holders=""
+        if command -v fuser >/dev/null 2>&1; then
+            lock_holders=$(fuser "${lock_files[@]}" 2>/dev/null | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ' | xargs 2>/dev/null || true)
+        else
+            lock_holders=$(ps -eo pid=,comm= | awk '$2 ~ /^(apt|apt-get|dpkg|unattended-upgr|unattended-upgrade|packagekitd)$/ {print $1}' | xargs 2>/dev/null || true)
+        fi
+
+        if [ ${#active_services[@]} -eq 0 ] && [ -z "$lock_holders" ]; then
+            return 0
+        fi
+
+        echo "apt/dpkg is busy. Waiting ${interval}s for package manager locks to clear..."
+        if [ ${#active_services[@]} -gt 0 ]; then
+            echo "Active package services: ${active_services[*]}"
+        fi
+        if [ -n "$lock_holders" ]; then
+            echo "Lock holder PIDs: $lock_holders"
+        fi
+
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+
+    echo "Timed out waiting for apt/dpkg availability after ${timeout}s."
+    if [ -n "$lock_holders" ]; then
+        ps -fp $lock_holders || true
+    fi
+    return 1
+}
+
+retry_apt_get() {
+    wait_for_apt_availability 1800
+    retry_command apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=5 "$@"
+}
+
 is_valid_ipv4() {
     local ip="${1:-}"
     local octet=""
@@ -182,8 +244,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Install essential dependencies
 echo "必須の依存関係をインストール中..."
-retry_command apt-get update -y
-retry_command apt-get install -y \
+retry_apt_get update -y
+retry_apt_get install -y \
     curl \
     wget \
     unzip \
@@ -235,8 +297,8 @@ fi
 echo "Node.js $NODE_VERSION LTS をインストール中..."
 if ! command -v node >/dev/null 2>&1; then
     curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash -
-    retry_command apt-get update -y
-    retry_command apt-get install -y nodejs
+    retry_apt_get update -y
+    retry_apt_get install -y nodejs
 else
     echo "Node.jsは既にインストールされています。"
 fi
@@ -246,7 +308,7 @@ echo "Node.jsとnpmのインストールを検証中..."
 node -v
 if ! command -v npm >/dev/null 2>&1; then
     echo "npmが見つかりません。明示的にインストール中..."
-    retry_command apt-get install -y npm
+    retry_apt_get install -y npm
 fi
 npm -v
 
@@ -284,7 +346,7 @@ if [ ! -d "${INSTANTCLIENT_DIR}" ]; then
     if [ ! -f "$LIBAIO_DEB" ]; then
         retry_command wget "$LIBAIO_URL"
     fi
-    dpkg -i "$LIBAIO_DEB" || apt-get install -f -y
+    dpkg -i "$LIBAIO_DEB" || retry_apt_get install -f -y
     
     sh -c "echo ${INSTANTCLIENT_DIR} > /etc/ld.so.conf.d/oracle-instantclient.conf"
     ldconfig
