@@ -129,9 +129,11 @@ suspend_apt_background_services() {
     fi
 
     echo "Temporarily suspending automatic apt background services during bootstrap..."
+    systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl stop apt-daily.timer apt-daily-upgrade.timer || true
     systemctl stop unattended-upgrades.service apt-daily.service apt-daily-upgrade.service || true
     systemctl mask unattended-upgrades.service apt-daily.service apt-daily-upgrade.service >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
     APT_BACKGROUND_SUSPENDED=1
     wait_for_apt_availability 600
 }
@@ -146,7 +148,9 @@ restore_apt_background_services() {
     fi
 
     echo "Restoring automatic apt background services..."
+    systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl unmask unattended-upgrades.service apt-daily.service apt-daily-upgrade.service >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl start apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
     APT_BACKGROUND_SUSPENDED=0
 }
