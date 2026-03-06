@@ -30,9 +30,9 @@ variableGroups:
       - instance_image_source_id
       - instance_shape
       - vcn_ai_vcn_id
-      - adb_subnet_type
-      - subnet_private_id      
-      - subnet_ai_subnet_id
+      - adb_use_private_subnet
+      - adb_subnet_id
+      - compute_subnet_id
       - ssh_authorized_keys
       - oci_bucket_name
       - show_ai_assistant
@@ -118,36 +118,33 @@ variables:
     dependsOn:
       compartmentId: ${compartment_ocid}
 
-  adb_subnet_type:
-    type: enum
+  adb_use_private_subnet:
+    type: boolean
     required: true
     visible: true
-    title: "ADB Subnet Type"
-    description: "ADBのサブネットタイプを選択（Private Subnetを選択すると専用サブネットを指定できます）"
-    enum:
-      - "PUBLIC"
-      - "PRIVATE"
-    default: "PUBLIC"
+    title: "Use Private Subnet for ADB"
+    description: "Enable to attach Autonomous Database to a private subnet. Disable to use no subnet."
+    default: false
 
-  subnet_private_id:
+  adb_subnet_id:
     type: oci:core:subnet:id
     required: true
     visible:
       eq:
-        - adb_subnet_type
-        - "PRIVATE"
-    title: "Private Subnet for ADB"
-    description: "ADB用のプライベートサブネットを選択"
+        - adb_use_private_subnet
+        - true
+    title: "ADB Subnet"
+    description: "Select private subnet for Autonomous Database"
     dependsOn:
       compartmentId: ${compartment_ocid}
       vcnId: ${vcn_ai_vcn_id}
 
-  subnet_ai_subnet_id:
+  compute_subnet_id:
     type: oci:core:subnet:id
     required: true
     visible: true
-    title: "Subnet"
-    description: "Select existing subnet"
+    title: "Compute Subnet"
+    description: "Select existing subnet for Compute instance (public or private)"
     dependsOn:
       compartmentId: ${compartment_ocid}
       vcnId: ${vcn_ai_vcn_id}
@@ -162,7 +159,7 @@ variables:
   oci_bucket_name:
     type: string
     title: "OCI Object Storage Bucket Name"
-    description: "バケット名を入力してください（文書保存用）"
+    description: "Enter the bucket name for document storage"
     required: true
     visible: true
     default: "semantic-doc-search"
@@ -172,7 +169,7 @@ variables:
     required: true
     visible: true
     title: "Show AI Assistant"
-    description: "AIアシスタントの表示制御 (true: 表示, false: 非表示)"
+    description: "Control AI Assistant visibility (true: show, false: hide)"
     default: true
 
   show_search_tab:
@@ -180,7 +177,7 @@ variables:
     required: true
     visible: true
     title: "Show Search Tab"
-    description: "🔍 検索タブの表示制御 (true: 表示, false: 非表示)"
+    description: "Control Search tab visibility (true: show, false: hide)"
     default: true
 
   enable_dify:
@@ -194,7 +191,7 @@ variables:
   external_api_keys:
     type: password
     title: "External API Keys"
-    description: "外部APIアクセス用のAPIキー（カンマ区切りで複数指定可能、例: secred-key-1,secred-key-2,secred-key-3）"
+    description: "API keys for external access (comma-separated values supported, e.g. secret-key-1,secret-key-2,secret-key-3)"
     required: true
     visible: ${enable_dify}
     confirmation: false
@@ -309,4 +306,3 @@ outputs:
     displayText: "Configured External API Keys for external access"
     type: copyableString
     visible: true
-

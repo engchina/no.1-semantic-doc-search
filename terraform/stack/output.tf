@@ -1,3 +1,7 @@
+locals {
+  instance_access_ip = data.oci_core_subnet.selected_compute_subnet.prohibit_public_ip_on_vnic ? oci_core_instance.generated_oci_core_instance.private_ip : oci_core_instance.generated_oci_core_instance.public_ip
+}
+
 output "autonomous_data_warehouse_admin_password" {
   #   value = random_string.autonomous_data_warehouse_admin_password.result
   value = var.adb_password
@@ -23,22 +27,22 @@ output "autonomous_data_warehouse_high_connection_string" {
 
 output "ssh_to_instance" {
   description = "convenient command to ssh to the instance"
-  value       = "ssh -o ServerAliveInterval=10 ubuntu@${oci_core_instance.generated_oci_core_instance.public_ip}"
+  value       = "ssh -o ServerAliveInterval=10 ubuntu@${local.instance_access_ip}"
 }
 
 output "application_url" {
   description = "URL to access the application"
-  value       = "http://${oci_core_instance.generated_oci_core_instance.public_ip}/ai"
+  value       = "http://${local.instance_access_ip}/ai"
 }
 
 output "api_url" {
   description = "URL to access the API"
-  value       = "http://${oci_core_instance.generated_oci_core_instance.public_ip}/ai/api"
+  value       = "http://${local.instance_access_ip}/ai/api"
 }
 
 output "dify_url" {
   description = "URL to access Dify (if enabled)"
-  value       = var.enable_dify ? "http://${oci_core_instance.generated_oci_core_instance.public_ip}/" : "Dify is not enabled"
+  value       = var.enable_dify ? "http://${local.instance_access_ip}/" : "Dify is not enabled"
 }
 
 output "dify_bucket_name" {

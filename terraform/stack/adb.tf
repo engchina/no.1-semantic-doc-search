@@ -18,7 +18,7 @@ resource "oci_database_autonomous_database" "generated_database_autonomous_datab
   is_preview_version_with_service_terms_accepted = false
   license_model                                  = var.license_model
   ncharacter_set                                 = "AL16UTF16"
-  subnet_id                                      = var.adb_subnet_type == "PRIVATE" ? var.subnet_private_id : null
+  subnet_id                                      = var.adb_use_private_subnet ? var.adb_subnet_id : null
 }
 
 resource "oci_database_autonomous_database_wallet" "generated_autonomous_data_warehouse_wallet" {

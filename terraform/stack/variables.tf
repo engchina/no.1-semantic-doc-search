@@ -28,14 +28,14 @@ variable "license_model" {
   default = ""
 }
 
-variable "adb_subnet_type" {
-  description = "ADBのサブネットタイプ (PUBLIC or PRIVATE)"
-  type        = string
-  default     = "PUBLIC"
+variable "adb_use_private_subnet" {
+  description = "Whether to use a private subnet for Autonomous Database"
+  type        = bool
+  default     = false
 }
 
-variable "subnet_private_id" {
-  description = "ADB用のプライベートサブネットID (adb_subnet_type=PRIVATEの場合に使用)"
+variable "adb_subnet_id" {
+  description = "Private subnet OCID for Autonomous Database (used when private subnet is enabled)"
   type        = string
   default     = ""
 }
@@ -68,8 +68,10 @@ variable "instance_image_source_id" {
   default = "ocid1.image.oc1.ap-osaka-1.aaaaaaaa7sbmd5q54w466eojxqwqfvvp554awzjpt2behuwsiefrxnwomq5a"
 }
 
-variable "subnet_ai_subnet_id" {
-  default = ""
+variable "compute_subnet_id" {
+  description = "Subnet OCID used for Compute instance"
+  type        = string
+  default     = ""
 }
 
 variable "ssh_authorized_keys" {

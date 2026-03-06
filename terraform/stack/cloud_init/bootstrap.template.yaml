@@ -76,6 +76,10 @@ write_files:
     permissions: "0644"
     content: |
       ${show_search_tab}
+  - path: "/u01/aipoc/props/compute_subnet_is_private.txt"
+    permissions: "0644"
+    content: |
+      ${compute_subnet_is_private}
   - path: "/u01/aipoc/wallet.zip"
     permissions: "0644"
     encoding: base64

@@ -3,6 +3,10 @@ data "oci_objectstorage_namespace" "tenant_namespace" {
   compartment_id = var.compartment_ocid
 }
 
+data "oci_core_subnet" "selected_compute_subnet" {
+  subnet_id = var.compute_subnet_id
+}
+
 data "template_file" "cloud_init_file" {
   template = file("./cloud_init/bootstrap.template.yaml")
 
@@ -26,6 +30,7 @@ data "template_file" "cloud_init_file" {
     external_api_keys = var.external_api_keys
     show_ai_assistant = var.show_ai_assistant
     show_search_tab   = var.show_search_tab
+    compute_subnet_is_private = data.oci_core_subnet.selected_compute_subnet.prohibit_public_ip_on_vnic
   }
 }
 
