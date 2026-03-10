@@ -44,7 +44,7 @@ workflow:
         image_file_size_limit: 10
         single_chunk_attachment_limit: 10
         video_file_size_limit: 100
-        workflow_file_upload_limit: 10
+        workflow_file_upload_limit: 20
       image:
         enabled: false
         number_limits: 3

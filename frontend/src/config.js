@@ -34,7 +34,7 @@ export const API_CONFIG = {
  * @property {Object.<string, string>} ALLOWED_MIME_TYPES - 拡張子とMIMEタイプのマッピング
  */
 export const UPLOAD_CONFIG = {
-  MAX_FILES: 10,
+  MAX_FILES: 20,
   MAX_FILE_SIZE: 200 * 1024 * 1024, // 200MB
   ALLOWED_EXTENSIONS: ['pdf', 'xlsx', 'xls', 'docx', 'doc', 'pptx', 'ppt', 'png', 'jpg', 'jpeg', 'txt', 'md'],
   ALLOWED_MIME_TYPES: {

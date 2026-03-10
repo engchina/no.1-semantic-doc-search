@@ -310,6 +310,10 @@ async def auth_middleware(request: Request, call_next):
     if session_data.get("expires_at") and session_data["expires_at"] < datetime.now():
         del SESSIONS[token]
         return JSONResponse(status_code=401, content={"detail": "セッションが期限切れです"})
+
+    request.state.auth_token = token
+    request.state.auth_username = session_data.get("username")
+    request.state.auth_session = session_data
     
     return await call_next(request)
 
@@ -378,6 +382,18 @@ def logout(request: Request):
             return {"status": "success", "message": "ログアウトしました"}
             
     return {"status": "success", "message": "既にログアウトしているか、無効なトークンです"}
+
+
+@app.get("/auth/status")
+async def auth_status(request: Request):
+    """現在の認証状態を返す"""
+    session_data = getattr(request.state, "auth_session", {}) or {}
+    expires_at = session_data.get("expires_at")
+    return {
+        "authenticated": True,
+        "username": getattr(request.state, "auth_username", None),
+        "expires_at": expires_at.isoformat() if isinstance(expires_at, datetime) else None
+    }
 
 # ========================================
 # OCI設定管理
@@ -1078,7 +1094,7 @@ async def upload_document(file: UploadFile = File(...)):
 @app.post("/documents/upload/multiple")
 async def upload_multiple_documents(files: List[UploadFile] = File(...)):
     """
-    複数の文書をObject Storageにアップロード(最大10ファイル) - SSEストリーミング対応
+    複数の文書をObject Storageにアップロード(最大20ファイル) - SSEストリーミング対応
     - ファイル検証(サイズ、拡張子、MIMEタイプ)
     - Object Storageに保存
     - ファイル名衝突回避(UUID)
@@ -1088,7 +1104,7 @@ async def upload_multiple_documents(files: List[UploadFile] = File(...)):
     async def generate_upload_events():
         try:
             # ファイル数チェック
-            max_files = 10
+            max_files = 20
             if len(files) > max_files:
                 error_data = {"type": "error", "message": f"アップロード可能なファイル数は最大{max_files}個です"}
                 yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"

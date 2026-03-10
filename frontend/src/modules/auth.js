@@ -345,30 +345,49 @@ export async function checkLoginStatus() {
   // ローカルストレージからトークンを取得
   const token = localStorage.getItem('loginToken');
   const user = localStorage.getItem('loginUser');
-  
-  if (token && user) {
-    setAuthState(true, token, user);
-    updateUserInfo();
-    
-    // AI Assistantボタンの表示制御（設定に応じて）
-    const showAiAssistant = appState.get('showAiAssistant');
-    const copilotBtn = document.getElementById('copilotToggleBtn');
-    if (copilotBtn && showAiAssistant) {
-      copilotBtn.style.display = 'flex';
-    }
-  } else {
-    const requireLogin = appState.get('requireLogin');
-    if (requireLogin) {
-      // ログインが必要な場合はログイン画面を表示
-      showLoginModal();
-    } else {
-      // デバッグモードでログイン不要の場合も、設定に応じてAI Assistantボタンを表示
-      const showAiAssistant = appState.get('showAiAssistant');
-      const copilotBtn = document.getElementById('copilotToggleBtn');
-      if (copilotBtn && showAiAssistant) {
-        copilotBtn.style.display = 'flex';
+
+  if (token) {
+    try {
+      const response = await fetchWithAuth('/ai/api/auth/status', {
+        method: 'GET',
+        timeout: 5000
+      });
+      const data = await response.json();
+      const resolvedUser = data.username || user;
+
+      setAuthState(true, token, resolvedUser || null);
+      if (resolvedUser) {
+        localStorage.setItem('loginUser', resolvedUser);
+      } else {
+        localStorage.removeItem('loginUser');
       }
+
+      updateUserInfo();
+      showAuthenticatedUi();
+      return;
+    } catch (error) {
+      console.warn('保存済みトークンの検証に失敗しました:', error);
+
+      const requireLogin = appState.get('requireLogin');
+      if (!requireLogin) {
+        clearStoredAuthState();
+        showAuthenticatedUi();
+      }
+      return;
     }
+  }
+
+  if (user) {
+    localStorage.removeItem('loginUser');
+  }
+
+  const requireLogin = appState.get('requireLogin');
+  if (requireLogin) {
+    // ログインが必要な場合はログイン画面を表示
+    showLoginModal();
+  } else {
+    // デバッグモードでログイン不要の場合も、設定に応じてAI Assistantボタンを表示
+    showAuthenticatedUi();
   }
 }
 
@@ -399,9 +418,81 @@ export function forceLogout() {
   }, 0);
 }
 
+function showAuthenticatedUi() {
+  const showAiAssistant = appState.get('showAiAssistant');
+  const copilotBtn = document.getElementById('copilotToggleBtn');
+  if (copilotBtn && showAiAssistant) {
+    copilotBtn.style.display = 'flex';
+  }
+}
+
+function clearStoredAuthState() {
+  setAuthState(false, null, null);
+  localStorage.removeItem('loginToken');
+  localStorage.removeItem('loginUser');
+}
+
 // ========================================
 // APIヘルパー関数
 // ========================================
+
+/**
+ * 認証トークン付きでfetchを実行します。
+ * 401時は既存の認証エラーハンドリングを適用し、Responseを返します。
+ *
+ * @async
+ * @param {string} endpoint - APIエンドポイント
+ * @param {Object} [options={}] - fetch APIのオプション
+ * @returns {Promise<Response>} fetchのレスポンス
+ */
+export async function fetchWithAuth(endpoint, options = {}) {
+  const apiBase = appState.get('apiBase') || '';
+  const url = apiBase ? `${apiBase}${endpoint}` : endpoint;
+  const headers = { ...(options.headers || {}) };
+
+  const loginToken = localStorage.getItem('loginToken');
+  if (loginToken) {
+    headers['Authorization'] = `Bearer ${loginToken}`;
+  }
+
+  const { timeout, ...fetchOptions } = options;
+  const controller = typeof timeout === 'number' && timeout > 0 ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), timeout) : null;
+
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      headers,
+      ...(controller ? { signal: controller.signal } : {})
+    });
+
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
+    const requireLogin = appState.get('requireLogin');
+    if (response.status === 401) {
+      if (requireLogin) {
+        forceLogout();
+      } else {
+        showLoginModal();
+      }
+      throw new Error('認証が必要です');
+    }
+
+    return response;
+  } catch (error) {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
+    if (error.name === 'AbortError') {
+      throw new Error('リクエストがタイムアウトしました。データベースが起動していない可能性があります。');
+    }
+
+    throw error;
+  }
+}
 
 /**
  * 認証トークン付きでAPIを呼び出すヘルパー関数です。
@@ -415,41 +506,12 @@ export function forceLogout() {
  */
 export async function apiCall(endpoint, options = {}) {
   console.log(`[AUTH.JS] apiCall が呼び出されました: ${endpoint}`);
-  const apiBase = appState.get('apiBase') || '';
-  const url = apiBase ? `${apiBase}${endpoint}` : endpoint;
-  const headers = options.headers || {};
-  
-  // トークンがあれば追加（localStorageから直接取得 - 確実にトークンを取得）
-  const loginToken = localStorage.getItem('loginToken');
-  if (loginToken) {
-    headers['Authorization'] = `Bearer ${loginToken}`;
-  }
-  
-  // タイムアウト設定（デフォルト10秒）
-  const timeout = options.timeout || 10000;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-  
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithAuth(endpoint, {
       ...options,
-      headers,
-      signal: controller.signal
+      timeout: options.timeout || 10000
     });
-    
-    clearTimeout(timeoutId);
-    
-    // 401エラーの場合、ログインが必要な場合は強制ログアウト（referenceプロジェクトに準拠）
-    const requireLogin = appState.get('requireLogin');
-    if (response.status === 401) {
-      if (requireLogin) {
-        forceLogout();
-      } else {
-        showLoginModal();
-      }
-      throw new Error('認証が必要です');
-    }
-    
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: response.statusText }));
       throw new Error(error.detail || 'リクエストに失敗しました');
@@ -457,12 +519,6 @@ export async function apiCall(endpoint, options = {}) {
     
     return await response.json();
   } catch (error) {
-    clearTimeout(timeoutId);
-    
-    if (error.name === 'AbortError') {
-      throw new Error('リクエストがタイムアウトしました。データベースが起動していない可能性があります。');
-    }
-    
     throw error;
   }
 }
@@ -481,6 +537,7 @@ window.authModule = {
   updateUserInfo,
   checkLoginStatus,
   forceLogout,
+  fetchWithAuth,
   apiCall,
   loadConfig
 };
@@ -494,5 +551,6 @@ window.handleLogout = handleLogout;
 window.updateUserInfo = updateUserInfo;
 window.checkLoginStatus = checkLoginStatus;
 window.forceLogout = forceLogout;
+window.fetchWithAuth = fetchWithAuth;
 window.apiCall = apiCall;
 window.loadConfig = loadConfig;

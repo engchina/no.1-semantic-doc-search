@@ -43,7 +43,7 @@ import markdown2
 
 logger = logging.getLogger(__name__)
 
-SOFFICE_MAX_RETRIES = 5
+SOFFICE_MAX_RETRIES = 10
 SOFFICE_RETRY_DELAYS = [1, 2, 4, 8]
 
 
@@ -263,7 +263,7 @@ def _run_soffice_convert_to_pdf(temp_file: Path, temp_dir: str, file_name: str) 
     LibreOfficeでOffice文書をPDFに変換します。
 
     stdout/stderrをログに残しつつ、短時間の一時的な失敗に備えて
-    指数バックオフで最大5回までリトライします。
+    指数バックオフで最大10回までリトライします。
     """
     command = [
         'soffice',

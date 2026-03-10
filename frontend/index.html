@@ -326,7 +326,7 @@
               <i class="fas fa-cloud-upload-alt text-gray-400" style="font-size: 48px; display: block; margin-bottom: 16px;"></i>
               <p class="text-gray-600 font-medium mb-2">ファイルをドラッグ＆ドロップまたはクリックしてアップロード</p>
               <p class="text-sm text-gray-500">対応形式: PDF, XLSX, XLS, DOCX, DOC, PPT, PPTX, PNG, JPG, JPEG, TXT, MD</p>
-              <p class="text-xs text-blue-800 font-semibold mt-2">* 最大10ファイルまで同時アップロード可能</p>
+              <p class="text-xs text-blue-800 font-semibold mt-2">* 最大20ファイルまで同時アップロード可能</p>
               <input type="file" id="fileInputMultiple" class="hidden" accept=".pdf,.xlsx,.xls,.docx,.doc,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md" multiple onchange="handleMultipleFileSelect(event)">
             </div>
           </div>
@@ -335,7 +335,7 @@
           <div id="selectedFilesList" style="margin-bottom: 16px; display: none;">
             <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
               <div class="flex items-center justify-between mb-3">
-                <span class="text-sm font-semibold text-gray-700">選択されたファイル (<span id="selectedFilesCount">0</span>/10)</span>
+                <span class="text-sm font-semibold text-gray-700">選択されたファイル (<span id="selectedFilesCount">0</span>/20)</span>
                 <button onclick="clearMultipleFileSelection()" class="text-xs text-red-600 hover:text-red-800 hover:underline">すべてクリア</button>
               </div>
               <div id="selectedFilesListContent" class="space-y-2"></div>

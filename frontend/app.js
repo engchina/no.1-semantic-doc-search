@@ -3,7 +3,7 @@
 // ========================================
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import { appState, setAuthState } from './src/state.js';
-import { apiCall as authApiCall, loadConfig as authLoadConfig, showLoginModal as authShowLoginModal, 
+import { apiCall as authApiCall, fetchWithAuth as authFetchWithAuth, loadConfig as authLoadConfig, showLoginModal as authShowLoginModal, 
          checkLoginStatus as authCheckLoginStatus, forceLogout as authForceLogout } from './src/modules/auth.js';
 import { 
   showToast as utilsShowToast, 
@@ -16,6 +16,7 @@ import {
 import {
   loadOciSettings,
 } from './src/modules/oci.js';
+import { UPLOAD_CONFIG } from './src/config.js';
 // DB関連機能はdocument.jsモジュールに移動済み
 import { 
   loadDbStorage,
@@ -355,7 +356,7 @@ const isGeneratedPageImage = (objectName, allObjects) => {
 
 // 複数ファイルアップロード用の状態管理
 let selectedMultipleFiles = [];
-const MAX_FILES = 10;
+const MAX_FILES = UPLOAD_CONFIG.MAX_FILES;
 
 /**
  * 複数ファイル選択ハンドラー
@@ -367,7 +368,7 @@ function handleMultipleFileSelect(event) {
     return;
   }
   
-  // 最大10ファイルチェック
+  // 最大ファイル数チェック
   if (files.length > MAX_FILES) {
     utilsShowToast(`アップロード可能なファイル数は最大${MAX_FILES}個です`, 'warning');
     event.target.value = '';
@@ -393,7 +394,7 @@ function handleDropForMultipleInput(event) {
     return;
   }
   
-  // 最大10ファイルチェック
+  // 最大ファイル数チェック
   if (files.length > MAX_FILES) {
     utilsShowToast(`アップロード可能なファイル数は最大${MAX_FILES}個です`, 'warning');
     return;
@@ -522,33 +523,15 @@ async function uploadMultipleDocuments() {
       formData.append('files', file);
     });
     
-    // 認証ヘッダーを設定
-    const headers = {};
-    if (loginToken) {
-      headers['Authorization'] = `Bearer ${loginToken}`;
-    }
-    
     // API呼び出し（SSE）
-    const response = await fetch('/ai/api/documents/upload/multiple', {
+    const response = await authFetchWithAuth('/ai/api/documents/upload/multiple', {
       method: 'POST',
-      headers: headers,
       body: formData
     });
     
     if (!response.ok) {
-      // 401エラーの場合は強制ログアウト（referenceプロジェクトに準拠）
-      if (response.status === 401) {
-        hideUploadProgressUI();
-        const uploadBtn = document.getElementById('uploadMultipleBtn');
-        if (uploadBtn) uploadBtn.disabled = false;
-        
-        const requireLogin = appState.get('requireLogin');
-        if (requireLogin) {
-          authForceLogout();
-          throw new Error('無効または期限切れのトークンです');
-        }
-      }
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const errorData = await response.json().catch(() => ({ detail: `HTTP error! status: ${response.status}` }));
+      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
     }
     
     // SSEストリーミング処理
