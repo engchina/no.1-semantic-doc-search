@@ -43,6 +43,9 @@ import markdown2
 
 logger = logging.getLogger(__name__)
 
+SOFFICE_MAX_RETRIES = 5
+SOFFICE_RETRY_DELAYS = [1, 2, 4, 8]
+
 
 # ========================================
 # ジョブ状態管理
@@ -255,6 +258,96 @@ def _convert_text_to_pdf(temp_file: Path, file_ext: str, temp_dir: str) -> Optio
         return None
 
 
+def _run_soffice_convert_to_pdf(temp_file: Path, temp_dir: str, file_name: str) -> None:
+    """
+    LibreOfficeでOffice文書をPDFに変換します。
+
+    stdout/stderrをログに残しつつ、短時間の一時的な失敗に備えて
+    指数バックオフで最大5回までリトライします。
+    """
+    command = [
+        'soffice',
+        '--headless',
+        '--convert-to', 'pdf',
+        '--outdir', str(temp_dir),
+        str(temp_file),
+    ]
+    last_error: Optional[subprocess.CalledProcessError] = None
+
+    for attempt in range(1, SOFFICE_MAX_RETRIES + 1):
+        logger.info(
+            f"LibreOffice PDF変換開始 ({file_name}): "
+            f"attempt={attempt}/{SOFFICE_MAX_RETRIES}, command={command}"
+        )
+
+        try:
+            result = subprocess.run(
+                command,
+                check=True,
+                timeout=300,
+                capture_output=True,
+                text=True
+            )
+
+            stdout = result.stdout.strip()
+            stderr = result.stderr.strip()
+            logger.info(
+                f"LibreOffice PDF変換成功 ({file_name}): "
+                f"attempt={attempt}/{SOFFICE_MAX_RETRIES}, returncode={result.returncode}"
+            )
+            if stdout:
+                logger.info(f"LibreOffice stdout ({file_name}): {stdout}")
+            if stderr:
+                logger.warning(f"LibreOffice stderr ({file_name}): {stderr}")
+            return
+
+        except subprocess.CalledProcessError as exc:
+            last_error = exc
+            stdout = (exc.stdout or "").strip()
+            stderr = (exc.stderr or "").strip()
+            logger.warning(
+                f"LibreOffice PDF変換失敗 ({file_name}): "
+                f"attempt={attempt}/{SOFFICE_MAX_RETRIES}, returncode={exc.returncode}"
+            )
+            if stdout:
+                logger.warning(f"LibreOffice stdout ({file_name}): {stdout}")
+            if stderr:
+                logger.warning(f"LibreOffice stderr ({file_name}): {stderr}")
+
+            if attempt < SOFFICE_MAX_RETRIES:
+                delay = SOFFICE_RETRY_DELAYS[min(attempt - 1, len(SOFFICE_RETRY_DELAYS) - 1)]
+                logger.info(
+                    f"LibreOffice PDF変換をリトライ ({file_name}): "
+                    f"{delay}秒後に再試行"
+                )
+                time.sleep(delay)
+
+        except subprocess.TimeoutExpired as exc:
+            stdout = (exc.stdout or "").strip()
+            stderr = (exc.stderr or "").strip()
+            logger.warning(
+                f"LibreOffice PDF変換タイムアウト ({file_name}): "
+                f"attempt={attempt}/{SOFFICE_MAX_RETRIES}, timeout={exc.timeout}秒"
+            )
+            if stdout:
+                logger.warning(f"LibreOffice stdout ({file_name}): {stdout}")
+            if stderr:
+                logger.warning(f"LibreOffice stderr ({file_name}): {stderr}")
+
+            if attempt < SOFFICE_MAX_RETRIES:
+                delay = SOFFICE_RETRY_DELAYS[min(attempt - 1, len(SOFFICE_RETRY_DELAYS) - 1)]
+                logger.info(
+                    f"LibreOffice PDF変換をリトライ ({file_name}): "
+                    f"{delay}秒後に再試行"
+                )
+                time.sleep(delay)
+            else:
+                raise
+
+    if last_error is not None:
+        raise last_error
+
+
 # ========================================
 # ワーカー関数（ProcessPoolで実行）
 # ========================================
@@ -288,11 +381,7 @@ def _convert_file_to_images_worker(
             images = pil_images
         elif file_ext in ['ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx']:
             # LibreOfficeでPDFに変換
-            subprocess.run(
-                ['soffice', '--headless', '--convert-to', 'pdf', '--outdir', str(temp_dir), str(temp_file)],
-                check=True,
-                timeout=300
-            )
+            _run_soffice_convert_to_pdf(temp_file, temp_dir, file_name)
             # 変換されたPDFファイルを検索（元のファイル名をベースに生成される）
             pdf_path = Path(temp_dir) / "temp.pdf"
             if not pdf_path.exists():
@@ -975,24 +1064,29 @@ class ParallelProcessor:
                         async def delete_page_image(page_image_name: str):
                             try:
                                 async with semaphore:
-                                    await asyncio.to_thread(
+                                    delete_result = await asyncio.to_thread(
                                         oci_service.delete_object,
-                                        object_name=page_image_name
+                                        object_name=page_image_name,
+                                        bucket_name=bucket_name,
+                                        namespace=namespace
                                     )
+                                    if not delete_result.get("success"):
+                                        raise Exception(delete_result.get("message", "ページ画像の削除に失敗しました"))
                                     return True
                             except Exception as e:
                                 logger.error(f"ページ画像削除エラー ({page_image_name}): {e}")
                                 return False
                         
                         delete_tasks = [delete_page_image(img) for img in page_images_to_delete]
-                        await asyncio.gather(*delete_tasks, return_exceptions=True)
+                        delete_results = await asyncio.gather(*delete_tasks, return_exceptions=True)
+                        deleted_count = sum(result is True for result in delete_results)
                         
                         await event_queue.put({
                             'type': 'cleanup_complete',
                             'file_index': file_idx,
                             'file_name': obj_name,
                             'total_files': total_files,
-                            'deleted_count': len(page_images_to_delete)
+                            'deleted_count': deleted_count
                         })
                     
                 else:

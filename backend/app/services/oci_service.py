@@ -894,6 +894,67 @@ class OCIService:
                 "success": False,
                 "message": f"オブジェクトの削除に失敗しました: {str(e)}"
             }
+
+    def delete_object(
+        self,
+        object_name: str,
+        bucket_name: Optional[str] = None,
+        namespace: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Object Storage内の単一オブジェクトを削除
+
+        Args:
+            object_name: 削除するオブジェクト名
+            bucket_name: バケット名。未指定時は環境変数から取得
+            namespace: ネームスペース。未指定時は環境変数またはOCI SDKから取得
+
+        Returns:
+            削除結果
+        """
+        try:
+            client = self.get_object_storage_client()
+            if not client:
+                raise Exception("Object Storage Clientの取得に失敗しました")
+
+            resolved_bucket_name = bucket_name or os.environ.get("OCI_BUCKET")
+            if not resolved_bucket_name:
+                raise Exception("OCI_BUCKETが設定されていません")
+
+            resolved_namespace = namespace
+            if not resolved_namespace:
+                namespace_result = self.get_namespace()
+                if not namespace_result.get("success"):
+                    raise Exception(namespace_result.get("message", "Namespace取得失敗"))
+                resolved_namespace = namespace_result.get("namespace")
+
+            self._retry_api_call(
+                client.delete_object,
+                namespace_name=resolved_namespace,
+                bucket_name=resolved_bucket_name,
+                object_name=object_name
+            )
+
+            logger.info(f"オブジェクト削除成功: {object_name}")
+            return {
+                "success": True,
+                "message": f"オブジェクトを削除しました: {object_name}"
+            }
+
+        except Exception as e:
+            error_str = str(e)
+            if "ObjectNotFound" in error_str or "NoSuchKey" in error_str or "404" in error_str:
+                logger.info(f"削除対象は既に存在しません: {object_name}")
+                return {
+                    "success": True,
+                    "message": f"削除対象は既に存在しません: {object_name}"
+                }
+
+            logger.error(f"単一オブジェクト削除エラー: {object_name} - {e}")
+            return {
+                "success": False,
+                "message": f"オブジェクトの削除に失敗しました: {str(e)}"
+            }
     
     def download_object(self, object_name: str) -> Optional[bytes]:
         """
