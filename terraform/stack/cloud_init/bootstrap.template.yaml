@@ -45,10 +45,10 @@ write_files:
     permissions: "0644"
     content: |
       ${dify_branch}
-  - path: "/u01/aipoc/props/bucket_region.txt"
+  - path: "/u01/aipoc/props/deploy_region.txt"
     permissions: "0644"
     content: |
-      ${bucket_region}
+      ${deploy_region}
   - path: "/u01/aipoc/props/bucket_namespace.txt"
     permissions: "0644"
     content: |

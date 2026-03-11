@@ -519,8 +519,8 @@ if [ -d "$PROJECT_DIR" ]; then
     fi
 
     # Set OCI deploy region from Terraform-provided stack configuration
-    if [ -f "${INSTALL_DIR}/props/bucket_region.txt" ]; then
-        DEPLOY_REGION=$(tr -d '[:space:]' < "${INSTALL_DIR}/props/bucket_region.txt")
+    if [ -f "${INSTALL_DIR}/props/deploy_region.txt" ]; then
+        DEPLOY_REGION=$(tr -d '[:space:]' < "${INSTALL_DIR}/props/deploy_region.txt")
         if [ -n "$DEPLOY_REGION" ]; then
             sed -i "s|OCI_REGION_DEPLOY=.*|OCI_REGION_DEPLOY=${DEPLOY_REGION}|g" .env
         fi
@@ -932,7 +932,7 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         "${INSTALL_DIR}/props/adb_password.txt"
         "${INSTALL_DIR}/props/bucket_namespace.txt"
         "${INSTALL_DIR}/props/dify_bucket.txt"
-        "${INSTALL_DIR}/props/bucket_region.txt"
+        "${INSTALL_DIR}/props/deploy_region.txt"
         "${INSTALL_DIR}/props/oci_access_key.txt"
         "${INSTALL_DIR}/props/oci_secret_key.txt"
     )
@@ -954,7 +954,7 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         ORACLE_WALLET_PASSWORD=$(cat "${INSTALL_DIR}/props/adb_password.txt")
         BUCKET_NAMESPACE=$(cat "${INSTALL_DIR}/props/bucket_namespace.txt")
         BUCKET_NAME=$(cat "${INSTALL_DIR}/props/dify_bucket.txt")
-        BUCKET_REGION=$(cat "${INSTALL_DIR}/props/bucket_region.txt")
+        DEPLOY_REGION=$(cat "${INSTALL_DIR}/props/deploy_region.txt")
         OCI_ACCESS_KEY=$(cat "${INSTALL_DIR}/props/oci_access_key.txt")
         OCI_SECRET_KEY=$(cat "${INSTALL_DIR}/props/oci_secret_key.txt")
         
@@ -1065,9 +1065,9 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         sed -i "s|STORAGE_TYPE=opendal|STORAGE_TYPE=oci-storage|g" .env
         
         # Configure OCI object storage environment variables
-        OCI_ENDPOINT="https://${BUCKET_NAMESPACE}.compat.objectstorage.${BUCKET_REGION}.oraclecloud.com"
+        OCI_ENDPOINT="https://${BUCKET_NAMESPACE}.compat.objectstorage.${DEPLOY_REGION}.oraclecloud.com"
         OCI_BUCKET_NAME=${BUCKET_NAME}
-        OCI_REGION=${BUCKET_REGION}
+        OCI_REGION=${DEPLOY_REGION}
         
         echo "OCIエンドポイント: $OCI_ENDPOINT"
         echo "OCIバケット: $OCI_BUCKET_NAME"

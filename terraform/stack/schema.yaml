@@ -11,6 +11,7 @@ variableGroups:
   - title: Hidden
     visible: false
     variables:
+      - region
       - instance_boot_volume_size
       - instance_boot_volume_vpus
       - instance_flex_shape_memory
@@ -19,7 +20,7 @@ variableGroups:
   - title: Required Configuration
     visible: true
     variables:
-      - region
+      - deploy_region
       - compartment_ocid
       - availability_domain
       - adb_name
@@ -50,11 +51,17 @@ variableGroups:
 
 variables:
   region:
+    title: Region
+    type: oci:identity:region:name
+    required: true
+    visible: false
+
+  deploy_region:
     title: "Deploy Region"
     type: enum
     required: true
     visible: true
-    description: "Select the OCI region for deployment"
+    description: "Select the target OCI region for this deployment"
     enum:
       - "ap-osaka-1"
       - "ap-tokyo-1"
@@ -72,7 +79,7 @@ variables:
     visible: true
     title: "Availability domain"
     dependsOn:
-      region: ${region}
+      region: ${deploy_region}
       compartmentId: ${compartment_ocid}
 
   adb_name:

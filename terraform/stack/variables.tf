@@ -2,10 +2,9 @@ variable "availability_domain" {
   default = "bxtG:AP-OSAKA-1-AD-1"
 }
 
-variable "region" {
-  description = "OCI deploy region selected in Resource Manager"
+variable "deploy_region" {
+  description = "Target OCI region for this deployment"
   type        = string
-  default     = "ap-osaka-1"
 }
 
 variable "compartment_ocid" {

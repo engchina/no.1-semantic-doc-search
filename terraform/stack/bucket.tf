@@ -1,10 +1,12 @@
-# バケットネームスペース取得(デフォルトリージョン)
+# バケットネームスペース取得(deploy_region)
 data "oci_objectstorage_namespace" "bucket_namespace" {
+  provider       = oci.deploy_region
   compartment_id = var.compartment_ocid
 }
 
-# Object Storageバケットの作成(デフォルトリージョン)
+# Object Storageバケットの作成(deploy_region)
 resource "oci_objectstorage_bucket" "document_storage_bucket" {
+  provider       = oci.deploy_region
   compartment_id = var.compartment_ocid
   namespace      = data.oci_objectstorage_namespace.bucket_namespace.namespace
   name           = var.oci_bucket_name
@@ -28,7 +30,7 @@ resource "null_resource" "document_bucket_cleanup" {
   triggers = {
     bucket_name = oci_objectstorage_bucket.document_storage_bucket.name
     namespace   = oci_objectstorage_bucket.document_storage_bucket.namespace
-    region      = var.region
+    region      = var.deploy_region
   }
 
   provisioner "local-exec" {
@@ -42,6 +44,7 @@ resource "null_resource" "document_bucket_cleanup" {
 # Dify用のバケットを作成(オプション)
 resource "oci_objectstorage_bucket" "dify_storage_bucket" {
   count          = var.enable_dify ? 1 : 0
+  provider       = oci.deploy_region
   compartment_id = var.compartment_ocid
   namespace      = data.oci_objectstorage_namespace.bucket_namespace.namespace
   name           = var.dify_bucket_name
@@ -67,7 +70,7 @@ resource "null_resource" "dify_bucket_cleanup" {
   triggers = {
     bucket_name = oci_objectstorage_bucket.dify_storage_bucket[0].name
     namespace   = oci_objectstorage_bucket.dify_storage_bucket[0].namespace
-    region      = var.region
+    region      = var.deploy_region
   }
 
   provisioner "local-exec" {
