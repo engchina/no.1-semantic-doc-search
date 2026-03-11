@@ -1,5 +1,5 @@
 locals {
-  instance_access_ip = data.oci_core_subnet.selected_compute_subnet.prohibit_public_ip_on_vnic ? oci_core_instance.generated_oci_core_instance.private_ip : oci_core_instance.generated_oci_core_instance.public_ip
+  instance_access_ip = local.compute_subnet_prohibits_public_ip ? oci_core_instance.generated_oci_core_instance.private_ip : oci_core_instance.generated_oci_core_instance.public_ip
 }
 
 output "autonomous_data_warehouse_admin_password" {
