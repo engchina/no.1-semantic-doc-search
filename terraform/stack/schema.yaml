@@ -50,10 +50,15 @@ variableGroups:
 
 variables:
   region:
-    title: Region
-    type: oci:identity:region:name
+    title: "Deploy Region"
+    type: enum
     required: true
-    visible: false
+    visible: true
+    description: "Select the OCI region for deployment"
+    enum:
+      - "ap-osaka-1"
+      - "ap-tokyo-1"
+    default: "ap-osaka-1"
 
   compartment_ocid:
     type: oci:identity:compartment:id

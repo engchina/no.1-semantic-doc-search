@@ -174,12 +174,12 @@ class OCIService:
         # 環境変数から基本設定を取得
         bucket_name = os.environ.get("OCI_BUCKET")
         namespace = os.environ.get("OCI_NAMESPACE", "")  # 空でもOK
-        region = os.environ.get("OCI_REGION")
+        env_region = os.environ.get("OCI_REGION")
         
         # Configファイルがない場合、環境変数のみで返す
         if not os.path.exists(self.config_file) or not os.path.exists(self.key_file):
             return OCISettings(
-                region=region,
+                region=env_region,
                 bucket_name=bucket_name,
                 namespace=namespace
             )
@@ -191,7 +191,7 @@ class OCIService:
             
             if 'DEFAULT' not in config:
                 return OCISettings(
-                    region=region,
+                    region=env_region,
                     bucket_name=bucket_name,
                     namespace=namespace
                 )
@@ -206,9 +206,8 @@ class OCIService:
             with open(self.key_file, 'r') as f:
                 key_content = f.read()
             
-            # Regionは環境変数を優先、なければconfigファイルから取得
-            if not region:
-                region = defaults.get('region')
+            # 保存済みのRegionを優先し、未設定時のみ環境変数をフォールバックに使う
+            region = defaults.get('region') or env_region
                 
             return OCISettings(
                 user_ocid=defaults.get('user'),
@@ -222,7 +221,7 @@ class OCIService:
         except Exception as e:
             logger.error(f"設定ファイルの読み込みエラー: {e}")
             return OCISettings(
-                region=region,
+                region=env_region,
                 bucket_name=bucket_name,
                 namespace=namespace
             )
@@ -263,6 +262,10 @@ class OCIService:
             
             # Configファイルのパーミッションも600に設定
             os.chmod(self.config_file, 0o600)
+
+            # 保存後はキャッシュを破棄して次回読み込みで最新設定を使う
+            self._oci_config = None
+            self._object_storage_client = None
             
             logger.info(f"OCI設定を保存しました: config={self.config_file}, region={settings.region}")
                 

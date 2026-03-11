@@ -33,6 +33,29 @@ let ociAction = null;
 let ociSaveResult = null;
 let ociConnectionTestResult = null;
 
+function ensureRegionOption(region) {
+  const regionSelect = document.getElementById('region');
+  if (!regionSelect || !region) return;
+
+  const hasOption = Array.from(regionSelect.options).some((option) => option.value === region);
+  if (!hasOption) {
+    const option = document.createElement('option');
+    option.value = region;
+    option.textContent = region;
+    regionSelect.appendChild(option);
+  }
+}
+
+function syncRegionInput(region) {
+  const normalizedRegion = region || 'us-chicago-1';
+  ensureRegionOption(normalizedRegion);
+  const regionSelect = document.getElementById('region');
+  if (regionSelect) {
+    regionSelect.value = normalizedRegion;
+  }
+  return normalizedRegion;
+}
+
 // ========================================
 // OCI設定ロード/保存関数
 // ========================================
@@ -44,15 +67,13 @@ export async function loadOciSettings() {
   try {
     const data = await authApiCall('/ai/api/oci/settings');
     ociSettings = data.settings;
-    // Regionは環境変数から取得、なければus-chicago-1をデフォルトにする
-    ociSettings.region = ociSettings.region || 'us-chicago-1';
+    ociSettings.region = syncRegionInput(ociSettings.region);
     ociSettingsStatus = data.status;
     
     // UIに反映
     document.getElementById('userOcid').value = ociSettings.user_ocid || '';
     document.getElementById('tenancyOcid').value = ociSettings.tenancy_ocid || '';
     document.getElementById('fingerprint').value = ociSettings.fingerprint || '';
-    document.getElementById('region').value = ociSettings.region;
     document.getElementById('bucketName').value = ociSettings.bucket_name || '';
     document.getElementById('namespace').value = ociSettings.namespace || '';
     
@@ -155,8 +176,7 @@ export async function saveOciSettings() {
     
     // レスポンスから設定を更新
     ociSettings = result.settings;
-    // Regionはレスポンスの値を使用、なければデフォルト値
-    ociSettings.region = ociSettings.region || 'us-chicago-1';
+    ociSettings.region = syncRegionInput(ociSettings.region);
     ociSettingsStatus = result.status;
     
     ociSaveResult = {
@@ -406,14 +426,13 @@ export async function refreshObjectStorageSettings() {
     
     // ociSettingsとociSettingsStatusを更新
     ociSettings = settings;
-    ociSettings.region = ociSettings.region || 'us-chicago-1';
+    ociSettings.region = syncRegionInput(ociSettings.region);
     ociSettingsStatus = data.status;
     
     // OCI APIキー設定をUIに反映
     document.getElementById('userOcid').value = ociSettings.user_ocid || '';
     document.getElementById('tenancyOcid').value = ociSettings.tenancy_ocid || '';
     document.getElementById('fingerprint').value = ociSettings.fingerprint || '';
-    document.getElementById('region').value = ociSettings.region;
     
     // Bucket Nameを設定
     const bucketNameInput = document.getElementById('bucketName');

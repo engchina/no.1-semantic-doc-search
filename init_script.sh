@@ -517,6 +517,14 @@ if [ -d "$PROJECT_DIR" ]; then
     if [ -n "${OCI_REGION:-}" ]; then
         sed -i "s|OCI_REGION=.*|OCI_REGION=${OCI_REGION}|g" .env
     fi
+
+    # Set OCI deploy region from Terraform-provided stack configuration
+    if [ -f "${INSTALL_DIR}/props/bucket_region.txt" ]; then
+        DEPLOY_REGION=$(tr -d '[:space:]' < "${INSTALL_DIR}/props/bucket_region.txt")
+        if [ -n "$DEPLOY_REGION" ]; then
+            sed -i "s|OCI_REGION_DEPLOY=.*|OCI_REGION_DEPLOY=${DEPLOY_REGION}|g" .env
+        fi
+    fi
     
     # Set OCI Namespace (get from OCI API or properties)
     if [ -f "${INSTALL_DIR}/props/oci_namespace.txt" ]; then

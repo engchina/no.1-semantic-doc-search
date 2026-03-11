@@ -3,7 +3,7 @@ variable "availability_domain" {
 }
 
 variable "region" {
-  description = "OCI Region (Resource Managerが自動設定)"
+  description = "OCI deploy region selected in Resource Manager"
   type        = string
   default     = "ap-osaka-1"
 }
