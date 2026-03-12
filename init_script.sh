@@ -1080,13 +1080,14 @@ if [ "$ENABLE_DIFY" = "true" ]; then
         sed -i "s|OCI_REGION=.*|OCI_REGION=${OCI_REGION}|g" .env
         
         # Update URL configuration (Difyをルートパスで動作)
-        # 注意: CONSOLE_API_URLなどはベースURLのみ。フロントエンドが/console/api/xxxを自動追加する
-        echo "URL設定を更新中 (ルートパス)..."
-        sed -i "s|^CONSOLE_API_URL=.*|CONSOLE_API_URL=http://${EXTERNAL_IP}|" .env
-        sed -i "s|^CONSOLE_WEB_URL=.*|CONSOLE_WEB_URL=http://${EXTERNAL_IP}|" .env
-        sed -i "s|^SERVICE_API_URL=.*|SERVICE_API_URL=http://${EXTERNAL_IP}|" .env
-        sed -i "s|^APP_API_URL=.*|APP_API_URL=http://${EXTERNAL_IP}|" .env
-        sed -i "s|^APP_WEB_URL=.*|APP_WEB_URL=http://${EXTERNAL_IP}|" .env
+        # 空文字にすることでフロントエンドが相対パスを使用する
+        # これによりポートフォワード等でもアクセス元のホスト名で正しく動作する
+        echo "URL設定を更新中 (相対パス)..."
+        sed -i "s|^CONSOLE_API_URL=.*|CONSOLE_API_URL=|" .env
+        sed -i "s|^CONSOLE_WEB_URL=.*|CONSOLE_WEB_URL=|" .env
+        sed -i "s|^SERVICE_API_URL=.*|SERVICE_API_URL=|" .env
+        sed -i "s|^APP_API_URL=.*|APP_API_URL=|" .env
+        sed -i "s|^APP_WEB_URL=.*|APP_WEB_URL=|" .env
         sed -i "s|^FILES_URL=.*|FILES_URL=|" .env
         
         # Configure file upload and processing limits
