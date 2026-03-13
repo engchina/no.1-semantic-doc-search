@@ -1,0 +1,555 @@
+app:
+  description: ''
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  mode: advanced-chat
+  name: 資料見つかるくん_検索アプリ
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables:
+  - description: ''
+    id: 4c7690f2-435d-460b-878d-426b79df21ec
+    name: output_array
+    selector:
+    - conversation
+    - output_array
+    value: []
+    value_type: array[string]
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        attachment_image_file_size_limit: 2
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 100
+        file_upload_limit: 20
+        image_file_batch_limit: 10
+        image_file_size_limit: 10
+        single_chunk_attachment_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 10
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInLoop: false
+        sourceType: start
+        targetType: http-request
+      id: 1755676467814-source-1757826211520-target
+      source: '1755676467814'
+      sourceHandle: source
+      target: '1757826211520'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: http-request
+        targetType: code
+      id: 1757826211520-source-1769778791889-target
+      source: '1757826211520'
+      sourceHandle: source
+      target: '1769778791889'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        sourceType: template-transform
+        targetType: template-transform
+      id: 1769782766997-source-1769782731963-target
+      source: '1769782766997'
+      sourceHandle: source
+      target: '1769782731963'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        sourceType: iteration-start
+        targetType: template-transform
+      id: 1769782657385start-source-1769782770648-target
+      source: 1769782657385start
+      sourceHandle: source
+      target: '1769782770648'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        sourceType: template-transform
+        targetType: template-transform
+      id: 1769782770648-source-1769782766997-target
+      source: '1769782770648'
+      sourceHandle: source
+      target: '1769782766997'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        sourceType: template-transform
+        targetType: variable-aggregator
+      id: 1769782731963-source-1769782668763-target
+      source: '1769782731963'
+      sourceHandle: source
+      target: '1769782668763'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        sourceType: variable-aggregator
+        targetType: answer
+      id: 1769782668763-source-1769782864770-target
+      source: '1769782668763'
+      sourceHandle: source
+      target: '1769782864770'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: answer
+      id: 1769778791889-source-1770710762406-target
+      source: '1769778791889'
+      sourceHandle: source
+      target: '1770710762406'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: answer
+        targetType: iteration
+      id: 1770710762406-source-1769782657385-target
+      source: '1770710762406'
+      sourceHandle: source
+      target: '1769782657385'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        desc: ''
+        selected: true
+        title: 開始
+        type: start
+        variables:
+        - default: http://10.0.1.65/
+          hint: ''
+          label: API_ENDPOINT
+          max_length: 120
+          options: []
+          placeholder: ''
+          required: true
+          type: text-input
+          variable: API_ENDPOINT
+        - default: http://localhost
+          hint: ''
+          label: PROXY_SERVER
+          max_length: 120
+          options: []
+          placeholder: ''
+          required: true
+          type: text-input
+          variable: PROXY_SERVER
+      height: 134
+      id: '1755676467814'
+      position:
+        x: 0
+        y: 76
+      positionAbsolute:
+        x: 0
+        y: 76
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    - data:
+        authorization:
+          config: null
+          type: no-auth
+        body:
+          data:
+          - id: key-value-41
+            key: ''
+            type: text
+            value: "{\n    \"query\": \"{{#sys.query#}}\",\n    \"top_k\": 10,\n \
+              \   \"min_score\": 0.7\n  }"
+          type: json
+        headers: 'Authorization:ApiKey secret
+
+          Content-Type:application/json'
+        method: POST
+        params: ''
+        retry_config:
+          max_retries: 3
+          retry_enabled: true
+          retry_interval: 100
+        selected: false
+        ssl_verify: true
+        timeout:
+          max_connect_timeout: 0
+          max_read_timeout: 0
+          max_write_timeout: 0
+        title: Search Images
+        type: http-request
+        url: '{{#1755676467814.API_ENDPOINT#}}/ai/api/search'
+        variables: []
+      height: 139
+      id: '1757826211520'
+      position:
+        x: 342
+        y: 60
+      positionAbsolute:
+        x: 342
+        y: 60
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        code: "def main(json_string: str, proxy_server: str):\n    import json\n \
+          \   from urllib.parse import urlparse, urlunparse\n\n    def replace_host(url:\
+          \ str, new_host: str) -> str:\n        if not url:\n            return url\n\
+          \n        parsed = urlparse(url)\n\n        # new_host に scheme がない場合は元の\
+          \ scheme を使う\n        if \"://\" not in new_host:\n            netloc =\
+          \ new_host\n            scheme = parsed.scheme or \"http\"\n        else:\n\
+          \            proxy_parsed = urlparse(new_host)\n            netloc = proxy_parsed.netloc\n\
+          \            scheme = proxy_parsed.scheme or parsed.scheme or \"http\"\n\
+          \n        return urlunparse((\n            scheme,\n            netloc,\n\
+          \            parsed.path,\n            parsed.params,\n            parsed.query,\n\
+          \            parsed.fragment,\n        ))\n\n    # JSONをパース\n    data =\
+          \ json.loads(json_string)\n\n    # 結果が空の場合の処理\n    if not data.get(\"success\"\
+          ) or not data.get(\"results\"):\n        return {\"result\": []}\n\n   \
+          \ result = []\n    for file_result in data[\"results\"]:\n        file_url\
+          \ = file_result.get(\"url\", \"\")\n        file_url = replace_host(file_url,\
+          \ proxy_server)\n\n        original_filename = file_result.get(\"original_filename\"\
+          , \"\")\n        matched_images = file_result.get(\"matched_images\", [])\n\
+          \n        if not matched_images:\n            continue\n\n        image_urls\
+          \ = []\n        pages = []\n\n        for img in matched_images:\n     \
+          \       if \"url\" in img:\n                url = img[\"url\"]\n       \
+          \         url = replace_host(url, proxy_server)  # ここも置換\n             \
+          \   page_num = img[\"page_number\"]\n                image_urls.append(f\"\
+          ![]({url})\")\n                pages.append(page_num)\n\n        result.append({\n\
+          \            \"file\": f\"[{original_filename}]({file_url})\",\n       \
+          \     \"pages\": pages,\n            \"images\": image_urls,\n        })\n\
+          \n    return {\"result\": result}"
+        code_language: python3
+        outputs:
+          result:
+            children: null
+            type: array[object]
+        selected: false
+        title: FORMAT HTTP RESULT
+        type: code
+        variables:
+        - value_selector:
+          - '1757826211520'
+          - body
+          value_type: string
+          variable: json_string
+        - value_selector:
+          - '1755676467814'
+          - PROXY_SERVER
+          value_type: string
+          variable: proxy_server
+      height: 51
+      id: '1769778791889'
+      position:
+        x: 687.0462155377559
+        y: 104
+      positionAbsolute:
+        x: 687.0462155377559
+        y: 104
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    - data:
+        error_handle_mode: terminated
+        flatten_output: true
+        height: 260
+        is_parallel: false
+        iterator_input_type: array[object]
+        iterator_selector:
+        - '1769778791889'
+        - result
+        output_selector:
+        - '1769782668763'
+        - output
+        output_type: array[string]
+        parallel_nums: 10
+        selected: false
+        start_node_id: 1769782657385start
+        title: LOOP FORMATTED RESULT
+        type: iteration
+        width: 1804
+      height: 260
+      id: '1769782657385'
+      position:
+        x: 1336.1386466132676
+        y: 0
+      positionAbsolute:
+        x: 1336.1386466132676
+        y: 0
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 1804
+      zIndex: 1
+    - data:
+        desc: ''
+        isInIteration: true
+        selected: false
+        title: ''
+        type: iteration-start
+      draggable: false
+      height: 48
+      id: 1769782657385start
+      parentId: '1769782657385'
+      position:
+        x: 60
+        y: 106
+      positionAbsolute:
+        x: 1396.1386466132676
+        y: 106
+      selectable: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom-iteration-start
+      width: 44
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        output_type: array[string]
+        selected: false
+        title: OUTPUT
+        type: variable-aggregator
+        variables:
+        - - conversation
+          - output_array
+      height: 108
+      id: '1769782668763'
+      parentId: '1769782657385'
+      position:
+        x: 1147
+        y: 76
+      positionAbsolute:
+        x: 2483.1386466132676
+        y: 76
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        selected: false
+        template: '{{ item.images | join(''\n'') }}'
+        title: images
+        type: template-transform
+        variables:
+        - value_selector:
+          - '1769782657385'
+          - item
+          value_type: object
+          variable: item
+      height: 51
+      id: '1769782731963'
+      parentId: '1769782657385'
+      position:
+        x: 826
+        y: 104
+      positionAbsolute:
+        x: 2162.1386466132676
+        y: 104
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        selected: false
+        template: '{{ item.pages | replace(''['', '''') | replace('']'', '''') }}'
+        title: pages
+        type: template-transform
+        variables:
+        - value_selector:
+          - '1769782657385'
+          - item
+          value_type: object
+          variable: item
+      height: 51
+      id: '1769782766997'
+      parentId: '1769782657385'
+      position:
+        x: 505
+        y: 104
+      positionAbsolute:
+        x: 1841.1386466132676
+        y: 104
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        selected: false
+        template: '{{ item.file }}'
+        title: file
+        type: template-transform
+        variables:
+        - value_selector:
+          - '1769782657385'
+          - item
+          value_type: object
+          variable: item
+      height: 51
+      id: '1769782770648'
+      parentId: '1769782657385'
+      position:
+        x: 184
+        y: 104
+      positionAbsolute:
+        x: 1520.1386466132676
+        y: 104
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        answer: '
+
+          {{#1769782731963.output#}}
+
+
+          **ページ番号：** {{#1769782766997.output#}}
+
+
+          **ダウンロードURL：**
+
+          {{#1769782770648.output#}}
+
+
+          ---
+
+          '
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1769782657385'
+        selected: false
+        title: 回答
+        type: answer
+        variables: []
+      height: 156
+      id: '1769782864770'
+      parentId: '1769782657385'
+      position:
+        x: 1468
+        y: 60
+      positionAbsolute:
+        x: 2804.1386466132676
+        y: 60
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+      zIndex: 1002
+    - data:
+        answer: '以下の資料が見つかりました。
+
+          ---'
+        selected: false
+        title: 回答 2
+        type: answer
+        variables: []
+      height: 99
+      id: '1770710762406'
+      position:
+        x: 1024
+        y: 0
+      positionAbsolute:
+        x: 1024
+        y: 0
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 241
+    viewport:
+      x: 399.0909253562859
+      y: 314.30186422158863
+      zoom: 0.37460104444931847
+  rag_pipeline_variables: []
