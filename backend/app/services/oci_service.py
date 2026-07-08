@@ -20,9 +20,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from dotenv import find_dotenv, load_dotenv
+from dotenv import dotenv_values, find_dotenv, load_dotenv, set_key
 import oci
-from app.models.oci import OCISettings
+from app.models.oci import EnterpriseAISettings, OCISettings
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,7 @@ class OCIService:
     def __init__(self):
         self.config_file = OCI_CONFIG_FILE
         self.key_file = OCI_KEY_FILE
+        self.env_file = Path(__file__).parents[3] / ".env"
         self._oci_config = None
         self._object_storage_client = None
     
@@ -249,6 +250,7 @@ class OCIService:
             
             # Configファイルを保存（Regionを含む）
             config = configparser.ConfigParser()
+            config.read(self.config_file)
             config['DEFAULT'] = {
                 'user': settings.user_ocid,
                 'fingerprint': settings.fingerprint,
@@ -273,6 +275,27 @@ class OCIService:
         except Exception as e:
             logger.error(f"設定ファイルの保存エラー: {e}")
             return False
+
+    def get_enterprise_ai_settings(self) -> EnterpriseAISettings:
+        """.envからOCI Generative AI OpenAI互換設定を取得する。"""
+        values = dotenv_values(self.env_file)
+        return EnterpriseAISettings(
+            base_url=values.get("OCI_ENTERPRISE_AI_BASE_URL") or "",
+            project=values.get("OCI_ENTERPRISE_AI_PROJECT") or None,
+            api_key=values.get("OCI_ENTERPRISE_AI_API_KEY") or "",
+            model=values.get("OCI_ENTERPRISE_AI_MODEL") or "",
+        )
+
+    def save_enterprise_ai_settings(self, settings: EnterpriseAISettings) -> None:
+        """OCI Generative AI OpenAI互換設定を.envへ保存する。"""
+        self.env_file.touch(exist_ok=True)
+        for key, value in {
+            "OCI_ENTERPRISE_AI_BASE_URL": settings.base_url.rstrip("/"),
+            "OCI_ENTERPRISE_AI_PROJECT": settings.project or "",
+            "OCI_ENTERPRISE_AI_API_KEY": settings.api_key,
+            "OCI_ENTERPRISE_AI_MODEL": settings.model,
+        }.items():
+            set_key(self.env_file, key, value)
 
     def test_connection(self, settings: Optional[OCISettings] = None) -> Dict[str, Any]:
         """

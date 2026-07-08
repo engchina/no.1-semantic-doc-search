@@ -35,18 +35,21 @@ const API_BASE = import.meta.env.VITE_API_BASE || '';
  * @param {boolean} [config.show_ai_assistant=true] - AIアシスタントを表示するかどうか
  * @param {boolean} [config.show_search_tab=true] - 検索タブを表示するかどうか
  */
+function syncCopilotVisibility(showAiAssistant = appState.get('showAiAssistant')) {
+  const isOpen = appState.get('copilotOpen');
+  const button = document.getElementById('copilotToggleBtn');
+  const panel = document.getElementById('copilotPanel');
+  if (button) button.style.display = showAiAssistant && !isOpen ? 'flex' : 'none';
+  if (panel) panel.style.display = showAiAssistant && isOpen ? 'flex' : 'none';
+}
+
 function applyUIFeatureToggles(config) {
+  const modelName = document.getElementById('copilotModelName');
+  if (modelName) modelName.textContent = config.enterprise_ai_model || '未設定';
+
   // AI Assistantの表示制御
   const showAiAssistant = config.show_ai_assistant !== false; // デフォルトはtrue
-  const copilotToggleBtn = document.getElementById('copilotToggleBtn');
-  const copilotPanel = document.getElementById('copilotPanel');
-  
-  if (showAiAssistant) {
-    if (copilotToggleBtn) copilotToggleBtn.style.display = 'block';
-  } else {
-    if (copilotToggleBtn) copilotToggleBtn.style.display = 'none';
-    if (copilotPanel) copilotPanel.style.display = 'none';
-  }
+  syncCopilotVisibility(showAiAssistant);
   
   // 検索タブの表示制御
   const showSearchTab = config.show_search_tab !== false; // デフォルトはtrue
@@ -246,10 +249,7 @@ export async function handleLogin(event) {
       
       // AI Assistantボタンの表示制御（設定に応じて）
       const showAiAssistant = appState.get('showAiAssistant');
-      const copilotBtn = document.getElementById('copilotToggleBtn');
-      if (copilotBtn && showAiAssistant) {
-        copilotBtn.style.display = 'flex';
-      }
+      syncCopilotVisibility(showAiAssistant);
     }
   } catch (error) {
     if (errorMessage) {
@@ -419,11 +419,7 @@ export function forceLogout() {
 }
 
 function showAuthenticatedUi() {
-  const showAiAssistant = appState.get('showAiAssistant');
-  const copilotBtn = document.getElementById('copilotToggleBtn');
-  if (copilotBtn && showAiAssistant) {
-    copilotBtn.style.display = 'flex';
-  }
+  syncCopilotVisibility();
 }
 
 function clearStoredAuthState() {

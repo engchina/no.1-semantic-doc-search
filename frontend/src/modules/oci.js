@@ -120,9 +120,72 @@ export async function loadOciSettings() {
       ociSettings.bucket_name,
       namespaceInput?.value
     );
+    await loadEnterpriseAiSettings();
     
   } catch (error) {
     // 初回ロード時はエラーでも表示しない（未設定扱い）
+  }
+}
+
+async function loadEnterpriseAiSettings() {
+  const data = await authApiCall('/ai/api/oci/enterprise-ai/settings');
+  const settings = data.settings;
+  document.getElementById('enterpriseAiBaseUrl').value = settings.base_url || '';
+  document.getElementById('enterpriseAiProject').value = settings.project || '';
+  document.getElementById('enterpriseAiApiKey').value = settings.api_key || '';
+  document.getElementById('enterpriseAiModel').value = settings.model || '';
+  document.getElementById('copilotModelName').textContent = settings.model || '未設定';
+  const badge = document.getElementById('enterpriseAiStatusBadge');
+  badge.textContent = data.is_configured ? '設定済み' : '未設定';
+  badge.style.background = data.is_configured ? '#10b981' : '#e2e8f0';
+  badge.style.color = data.is_configured ? '#fff' : '#64748b';
+}
+
+export async function saveEnterpriseAiSettings() {
+  const settings = getEnterpriseAiSettingsFromForm();
+  if (!settings.base_url || !settings.api_key || !settings.model) {
+    utilsShowToast('Base URL、API Key、Modelを入力してください', 'warning');
+    return;
+  }
+  try {
+    utilsShowLoading('OCI Enterprise AI設定を保存中...');
+    const result = await authApiCall('/ai/api/oci/enterprise-ai/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings)
+    });
+    await loadEnterpriseAiSettings();
+    utilsShowToast(result.message, 'success');
+  } catch (error) {
+    utilsShowToast(`設定保存エラー: ${error.message}`, 'error');
+  } finally {
+    utilsHideLoading();
+  }
+}
+
+function getEnterpriseAiSettingsFromForm() {
+  return {
+    base_url: document.getElementById('enterpriseAiBaseUrl').value.trim(),
+    project: document.getElementById('enterpriseAiProject').value.trim() || null,
+    api_key: document.getElementById('enterpriseAiApiKey').value.trim(),
+    model: document.getElementById('enterpriseAiModel').value.trim()
+  };
+}
+
+export async function testEnterpriseAiConnection() {
+  const settings = getEnterpriseAiSettingsFromForm();
+  if (!settings.base_url || !settings.api_key || !settings.model) {
+    utilsShowToast('Base URL、API Key、Modelを入力してください', 'warning');
+    return;
+  }
+  try {
+    utilsShowLoading('OCI Enterprise AI接続テスト中...');
+    const result = await authApiCall('/ai/api/oci/enterprise-ai/test', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings)
+    });
+    utilsShowToast(result.message, 'success');
+  } catch (error) {
+    utilsShowToast(`接続テストエラー: ${error.message}`, 'error');
+  } finally {
+    utilsHideLoading();
   }
 }
 
@@ -583,3 +646,5 @@ window.handlePrivateKeyFileSelect = handlePrivateKeyFileSelect;
 window.clearPrivateKey = clearPrivateKey;
 window.refreshObjectStorageSettings = refreshObjectStorageSettings;
 window.testObjectStorageConnection = testObjectStorageConnection;
+window.saveEnterpriseAiSettings = saveEnterpriseAiSettings;
+window.testEnterpriseAiConnection = testEnterpriseAiConnection;

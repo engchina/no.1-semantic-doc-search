@@ -290,10 +290,17 @@ button:focus-visible,a:focus-visible{outline:2px solid #1a365d;outline-offset:2p
 .sandbox-results-clear-btn{padding:4px 8px;background:white;border:1px solid #e2e8f0;border-radius:4px;font-size:11px;color:#64748b;cursor:pointer}
 .sandbox-results-content{flex-grow:1;overflow-y:auto;padding:0 16px 16px 16px}
 
-.copilot-image-grid{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;justify-content:flex-start;align-items:flex-start}
-.copilot-image-grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}
-.copilot-image-grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
-.copilot-image-item{width:clamp(90px,12vw,140px);height:auto;max-height:clamp(90px,12vw,140px);object-fit:contain;border-radius:10px;border:1px solid #e2e8f0;cursor:pointer;margin:0}
+.copilot-message-images{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.copilot-image-card,.copilot-image-preview-open{position:relative;display:block;padding:0;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;background:#f8fafc;cursor:pointer;transition:border-color .2s,box-shadow .2s}
+.copilot-image-card{width:136px;height:88px}
+.copilot-image-card:hover,.copilot-image-card:focus-visible,.copilot-image-preview-open:hover,.copilot-image-preview-open:focus-visible{border-color:#60a5fa;box-shadow:0 0 0 2px rgba(96,165,250,.3);outline:0}
+.copilot-image-thumbnail,.copilot-image-preview-thumbnail{display:block;width:100%;height:100%;object-fit:contain;background:#fff}
+.copilot-image-filename{position:absolute;right:0;bottom:0;left:0;padding:3px 6px;background:rgba(15,23,42,.78);color:#fff;font-size:11px;line-height:16px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.copilot-image-preview-list{display:flex;gap:10px;align-items:center;overflow-x:auto;padding:10px 2px 2px}
+.copilot-image-preview-card{position:relative;flex:0 0 auto}
+.copilot-image-preview-open{width:96px;height:68px}
+.copilot-image-remove{position:absolute;top:-7px;right:-7px;width:28px;height:28px;border:2px solid #fff;border-radius:50%;background:#334155;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:background .2s,transform .2s}
+.copilot-image-remove:hover,.copilot-image-remove:focus-visible{background:#dc2626;transform:scale(1.08);outline:2px solid #fff;outline-offset:1px}
 
 .exec-code-block-container{position:relative;margin:12px 0}
 .exec-code-block-wrapper{background:#0f172a;border-radius:8px;overflow:hidden;border:1px solid #334155}

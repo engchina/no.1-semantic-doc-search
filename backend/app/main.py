@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pdf2image import convert_from_path
 from PIL import Image as PILImage
 from pydantic import BaseModel
+from openai import AsyncOpenAI
 
 # ログ設定
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s"
@@ -48,7 +49,7 @@ if env_path.exists():
     load_dotenv(env_path)
 
 # モデルのインポート
-from app.models.oci import OCISettings, OCISettingsResponse, OCIConnectionTestRequest, OCIConnectionTestResponse
+from app.models.oci import EnterpriseAISettings, OCISettings, OCISettingsResponse, OCIConnectionTestRequest, OCIConnectionTestResponse
 from app.models.document import DocumentUploadResponse, DocumentInfo, DocumentListResponse, DocumentDeleteRequest, DocumentDeleteResponse
 from app.models.search import SearchQuery, SearchResponse
 from app.models.database import (
@@ -328,7 +329,8 @@ def get_config():
         "debug": debug_mode,
         "require_login": not debug_mode,
         "show_ai_assistant": show_ai_assistant,
-        "show_search_tab": show_search_tab
+        "show_search_tab": show_search_tab,
+        "enterprise_ai_model": oci_service.get_enterprise_ai_settings().model
     }
 
 @app.post("/login")
@@ -398,6 +400,50 @@ async def auth_status(request: Request):
 # ========================================
 # OCI設定管理
 # ========================================
+
+@app.get("/oci/enterprise-ai/settings")
+async def get_enterprise_ai_settings():
+    settings = oci_service.get_enterprise_ai_settings()
+    configured = bool(settings.base_url and settings.api_key and settings.model)
+    if settings.api_key:
+        settings.api_key = "[CONFIGURED]"
+    return {"settings": settings, "is_configured": configured}
+
+@app.post("/oci/enterprise-ai/settings")
+async def save_enterprise_ai_settings(settings: EnterpriseAISettings):
+    if settings.api_key == "[CONFIGURED]":
+        settings.api_key = oci_service.get_enterprise_ai_settings().api_key
+    if not all((settings.base_url.strip(), settings.api_key.strip(), settings.model.strip())):
+        raise HTTPException(status_code=400, detail="Base URL、API Key、Modelが必要です")
+    if not settings.base_url.startswith("https://"):
+        raise HTTPException(status_code=400, detail="Base URLはhttps://で始まる必要があります")
+    oci_service.save_enterprise_ai_settings(settings)
+    return {"success": True, "message": "OCI Enterprise AI設定を保存しました"}
+
+@app.post("/oci/enterprise-ai/test")
+async def test_enterprise_ai_connection(settings: EnterpriseAISettings):
+    if settings.api_key == "[CONFIGURED]":
+        settings.api_key = oci_service.get_enterprise_ai_settings().api_key
+    if not all((settings.base_url.strip(), settings.api_key.strip(), settings.model.strip())):
+        raise HTTPException(status_code=400, detail="Base URL、API Key、Modelが必要です")
+    if not settings.base_url.startswith("https://"):
+        raise HTTPException(status_code=400, detail="Base URLはhttps://で始まる必要があります")
+    try:
+        options = {"base_url": settings.base_url.rstrip("/"), "api_key": settings.api_key}
+        if settings.project:
+            options["project"] = settings.project
+        client = AsyncOpenAI(**options)
+        await client.chat.completions.create(
+            model=settings.model,
+            messages=[{"role": "user", "content": "Reply with OK."}],
+            temperature=0.0,
+            seed=42,
+            max_tokens=1,
+        )
+        return {"success": True, "message": "接続テストに成功しました"}
+    except Exception as error:
+        logger.error(f"OCI Enterprise AI接続テストエラー: {error}")
+        raise HTTPException(status_code=502, detail=f"接続テストに失敗しました: {error}")
 
 @app.get("/oci/settings", response_model=OCISettingsResponse)
 async def get_oci_settings():

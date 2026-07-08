@@ -13,6 +13,7 @@ window.toggleCopilotExpand = toggleCopilotExpand;
 window.sendCopilotMessage = sendCopilotMessage;
 window.renderCopilotMessages = renderCopilotMessages;
 window.openCopilotImage = openCopilotImage;
+window.openCopilotPendingImage = openCopilotPendingImage;
 window.clearCopilotHistory = clearCopilotHistory;
 window.handleCopilotKeydown = handleCopilotKeydown;
 window.startNewConversation = startNewConversation;
@@ -50,6 +51,9 @@ function toggleCopilot() {
   const btn = document.getElementById('copilotToggleBtn');
   
   if (appState.get('copilotOpen')) {
+    appState.set('copilotExpanded', true);
+    panel.classList.add('expanded');
+    document.getElementById('copilotExpandIcon').className = 'fas fa-chevron-left w-4 h-4';
     panel.style.display = 'flex';
     btn.style.display = 'none';
   } else {
@@ -218,7 +222,7 @@ function renderCopilotMessages() {
     const isUser = msg.role === 'user';
     const content = isUser ? msg.content : renderMarkdown(msg.content);
     const imagesHtml = isUser && msg.images && msg.images.length > 0 ? `
-      <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+      <div class="copilot-message-images">
         ${msg.images.map((img, imgIdx) => {
           const imageKey = `img_${msgIdx}_${imgIdx}`;
           // 画像データをグローバルに保存
@@ -227,18 +231,19 @@ function renderCopilotMessages() {
             filename: img.filename || ''
           };
           return `
-            <div 
-              style="position: relative; cursor: pointer;"
+            <button
+              type="button"
+              class="copilot-image-card"
               onclick="openCopilotImage('${imageKey}')"
+              aria-label="${img.filename || `添付画像 ${imgIdx + 1}`}を拡大表示"
             >
               <img 
-                src="${img.data_url}" 
-                style="max-width: 120px; max-height: 120px; border-radius: 8px; border: 2px solid #e2e8f0; object-fit: contain; transition: all 0.2s;" 
-                onmouseover="this.style.borderColor='#1a365d'; this.style.transform='scale(1.05)';" 
-                onmouseout="this.style.borderColor='#e2e8f0'; this.style.transform='scale(1)';" 
+                src="${img.data_url}"
+                alt="${img.filename || `添付画像 ${imgIdx + 1}`}"
+                class="copilot-image-thumbnail"
               />
-              ${img.filename ? `<div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.6); color: white; font-size: 10px; padding: 2px 4px; border-radius: 0 0 6px 6px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${img.filename}</div>` : ''}
-            </div>
+              ${img.filename ? `<span class="copilot-image-filename" title="${img.filename}">${img.filename}</span>` : ''}
+            </button>
           `;
         }).join('')}
       </div>
@@ -264,6 +269,11 @@ function openCopilotImage(imageKey) {
   if (imageData) {
     showImageModal(imageData.data_url, imageData.filename);
   }
+}
+
+function openCopilotPendingImage(index) {
+  const image = appState.get('copilotImages')[index];
+  if (image) showImageModal(image.data_url, image.filename);
 }
 
 /**
@@ -435,11 +445,14 @@ function renderCopilotImagesPreview() {
   }
   
   preview.innerHTML = `
-    <div style="display: flex; gap: 10px; align-items: center; overflow-x: auto; padding: 10px 2px 0 2px;">
+    <div class="copilot-image-preview-list">
       ${appState.get('copilotImages').map((img, i) => `
-        <div style="position: relative; width: 56px; height: 56px; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; flex: 0 0 auto; background: #f8fafc;">
-          <img src="${img.data_url}" style="width: 100%; height: 100%; object-fit: cover;" />
-          <button type="button" onclick="removeCopilotImageAt(${i})" style="position: absolute; top: 4px; right: 4px; width: 18px; height: 18px; border-radius: 9px; border: 0; background: rgba(15, 23, 42, 0.65); color: white; font-size: 12px; line-height: 18px; cursor: pointer;"><i class="fas fa-times"></i></button>
+        <div class="copilot-image-preview-card">
+          <button type="button" class="copilot-image-preview-open" onclick="openCopilotPendingImage(${i})" aria-label="${img.filename || `添付画像 ${i + 1}`}を拡大表示">
+            <img src="${img.data_url}" alt="${img.filename || `添付画像 ${i + 1}`}" class="copilot-image-preview-thumbnail" />
+            <span class="copilot-image-filename" title="${img.filename || ''}">${img.filename || `画像 ${i + 1}`}</span>
+          </button>
+          <button type="button" class="copilot-image-remove" onclick="removeCopilotImageAt(${i})" aria-label="${img.filename || `添付画像 ${i + 1}`}を削除"><i class="fas fa-times"></i></button>
         </div>
       `).join('')}
       <button type="button" onclick="clearCopilotImages()" class="apex-button-secondary px-3 py-1.5 text-xs"><i class="fas fa-broom"></i> 画像クリア</button>
@@ -511,6 +524,8 @@ function showImageModal(imageUrl, filename = '') {
         ${filename ? `<span style="color: white; font-size: 14px; background: rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 6px;">${filename}</span>` : ''}
         <button 
           id="imageModalCloseBtn"
+          type="button"
+          aria-label="画像プレビューを閉じる"
           style="background: rgba(255, 255, 255, 0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;"
         >×</button>
       </div>
@@ -522,12 +537,18 @@ function showImageModal(imageUrl, filename = '') {
   `;
   
   document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.remove();
+    document.removeEventListener('keydown', window._imageModalEscapeHandler);
+    window._imageModalEscapeHandler = null;
+  };
   
   // 閉じるボタンのイベント設定
   const closeBtn = document.getElementById('imageModalCloseBtn');
   closeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    searchCloseImageModal();
+    closeModal();
   });
   closeBtn.addEventListener('mouseover', function() {
     this.style.background = 'rgba(255, 255, 255, 0.3)';
@@ -545,14 +566,12 @@ function showImageModal(imageUrl, filename = '') {
   });
   
   // 背景クリックで閉じる（1回だけ実行）
-  modal.addEventListener('click', () => {
-    searchCloseImageModal();
-  }, { once: true });
+  modal.addEventListener('click', closeModal, { once: true });
   
   // ESCキーで閉じる
   window._imageModalEscapeHandler = (e) => {
     if (e.key === 'Escape') {
-      searchCloseImageModal();
+      closeModal();
     }
   };
   document.addEventListener('keydown', window._imageModalEscapeHandler);

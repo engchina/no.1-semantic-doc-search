@@ -32,3 +32,10 @@ class OCIConnectionTestResponse(BaseModel):
     success: bool
     message: str
     details: Optional[Dict[str, Any]] = None
+
+class EnterpriseAISettings(BaseModel):
+    """OCI Generative AI OpenAI互換エンドポイント設定"""
+    base_url: str
+    project: Optional[str] = None
+    api_key: str
+    model: str

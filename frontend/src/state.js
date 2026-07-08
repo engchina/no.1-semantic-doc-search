@@ -129,7 +129,7 @@ export const appState = new StateManager({
   
   // AI Assistant関連
   copilotOpen: false,
-  copilotExpanded: false,
+  copilotExpanded: true,
   copilotMessages: [],
   copilotLoading: false,
   copilotImages: [],
