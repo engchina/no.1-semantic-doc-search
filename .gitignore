@@ -90,3 +90,7 @@ test_*.py
 
 # Python virtual environment (project specific)
 backend/.venv/
+
+# Sample
+sample_files/
+examples/
