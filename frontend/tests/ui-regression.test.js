@@ -145,10 +145,26 @@ test('AG-UI検索イベントは進捗を表示して結果を描画する', asy
   const stream = [
     { type: 'RUN_STARTED' },
     { type: 'STATE_SNAPSHOT', snapshot: { status: 'started', message: '検索開始', result: null } },
+    { type: 'STEP_STARTED', stepName: 'query_plan', message: '検索意図の整理' },
+    { type: 'STEP_FINISHED', stepName: 'query_plan' },
+    { type: 'STEP_STARTED', stepName: 'query_variants', message: '検索バリエーション生成' },
     { type: 'STATE_DELTA', delta: [{ op: 'replace', path: '/queryPlan', value: { variants: ['天井照明', 'ダウンライト'], intent: 'lighting', query_expansion_source: 'llm' } }] },
-    { type: 'STEP_STARTED', stepName: 'retrieval', message: '候補取得' },
-    { type: 'STEP_FINISHED', stepName: 'retrieval' },
+    { type: 'STEP_FINISHED', stepName: 'query_variants' },
+    { type: 'STEP_STARTED', stepName: 'keyword_plan', message: '検索キーワード生成' },
     { type: 'STATE_DELTA', delta: [{ op: 'replace', path: '/keywordPlan', value: { terms: ['天井', '照明', 'ダウンライト'], target: 'Oracle Text', max_terms: 20 } }] },
+    { type: 'STEP_FINISHED', stepName: 'keyword_plan' },
+    { type: 'STEP_STARTED', stepName: 'retrieval', message: '候補取得' },
+    { type: 'STATE_DELTA', delta: [{ op: 'replace', path: '/retrievalSummary', value: { channels: [{ channel: 'oracle_text', status: 'ok', count: 3, weight: 1 }] } }] },
+    { type: 'STEP_FINISHED', stepName: 'retrieval' },
+    { type: 'STEP_STARTED', stepName: 'candidate_merge', message: '候補統合' },
+    { type: 'STATE_DELTA', delta: [{ op: 'replace', path: '/candidateMerge', value: { method: 'weighted_rrf', source_lists: 1, candidate_count: 1, limit: 100 } }] },
+    { type: 'STEP_FINISHED', stepName: 'candidate_merge' },
+    { type: 'STEP_STARTED', stepName: 'rerank', message: '再ランキング' },
+    { type: 'STATE_DELTA', delta: [{ op: 'replace', path: '/rerankSummary', value: { enabled: true, skipped: false, candidate_count: 1, top_n: 30, degraded: true } }] },
+    { type: 'STEP_FINISHED', stepName: 'rerank' },
+    { type: 'STEP_STARTED', stepName: 'format_results', message: '結果整形' },
+    { type: 'STATE_DELTA', delta: [{ op: 'replace', path: '/formatSummary', value: { total_documents: 1, total_evidence: 0 } }] },
+    { type: 'STEP_FINISHED', stepName: 'format_results' },
     { type: 'STATE_DELTA', delta: [{ op: 'replace', path: '/result', value: result }] },
     { type: 'RUN_FINISHED', result }
   ].map(event => `data: ${JSON.stringify(event)}\n\n`).join('');
@@ -179,15 +195,20 @@ test('AG-UI検索イベントは進捗を表示して結果を描画する', asy
   assert.equal(requestBody.verify, false);
   assert.equal(document.getElementById('searchAgentProgress').hidden, false);
   assert.equal(document.getElementById('searchAgentProgress').open, false);
-  assert.match(document.getElementById('searchAgentSteps').textContent, /候補取得/);
-  const details = document.getElementById('searchAgentDetails').textContent;
-  assert.match(details, /検索バリエーション/);
-  assert.match(details, /検索キーワード/);
-  assert.match(details, /対象: Oracle Text/);
-  assert.match(details, /ダウンライト/);
-  assert.match(details, /rerank/);
-  assert.doesNotMatch(details, /AI整理キーワード\/検索語/);
-  assert.doesNotMatch(details, /検索語:/);
+  assert.ok(document.querySelector('#searchAgentSteps details > summary'));
+  const steps = document.getElementById('searchAgentSteps').textContent;
+  assert.match(steps, /検索バリエーション生成/);
+  assert.match(steps, /検索キーワード生成/);
+  assert.match(steps, /候補取得/);
+  assert.match(steps, /候補統合/);
+  assert.match(steps, /検索バリエーション/);
+  assert.match(steps, /検索キーワード/);
+  assert.match(steps, /対象: Oracle Text/);
+  assert.match(steps, /ダウンライト/);
+  assert.match(steps, /weighted_rrf/);
+  assert.match(document.getElementById('searchAgentDetails').textContent, /rerank/);
+  assert.doesNotMatch(steps, /AI整理キーワード\/検索語/);
+  assert.doesNotMatch(steps, /検索語:/);
   assert.match(document.getElementById('searchResultsSummary').textContent, /1ファイル/);
 });
 

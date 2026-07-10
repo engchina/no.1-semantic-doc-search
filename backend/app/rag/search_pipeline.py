@@ -354,6 +354,9 @@ class SearchPipeline:
         await step("query_plan", "検索意図を整理しています")
         profiles = profile_repository.enabled_profiles()
         plan = await _query_plan(query)
+        await finish_step("query_plan")
+
+        await step("query_variants", "検索バリエーションを生成しています")
         query_text = " ".join(plan.variants)
         query_plan = {
             "variants": plan.variants,
@@ -365,7 +368,21 @@ class SearchPipeline:
                 "type": "STATE_DELTA",
                 "delta": [{"op": "replace", "path": "/queryPlan", "value": query_plan}],
             })
-        await finish_step("query_plan")
+        await finish_step("query_variants")
+
+        await step("keyword_plan", "検索キーワードを生成しています")
+        keyword_terms = oracle_text_terms(query_text)
+        keyword_plan = {
+            "terms": keyword_terms,
+            "target": "Oracle Text",
+            "max_terms": oracle_text_max_terms(),
+        }
+        if progress:
+            await progress({
+                "type": "STATE_DELTA",
+                "delta": [{"op": "replace", "path": "/keywordPlan", "value": keyword_plan}],
+            })
+        await finish_step("keyword_plan")
 
         degraded: list[str] = []
         await step("embedding", "検索ベクトルを作成しています")
@@ -388,12 +405,6 @@ class SearchPipeline:
         rerank_settings = retrieval_service_settings.get_rerank()
         branch_k = max(rerank_settings.candidate_count, min(500, top_k * 5))
         tasks: list[tuple[str, float, Any]] = []
-        keyword_terms = oracle_text_terms(query_text)
-        keyword_plan = {
-            "terms": keyword_terms,
-            "target": "Oracle Text",
-            "max_terms": oracle_text_max_terms(),
-        }
 
         if query_text and weights.oracle_text > 0:
             tasks.append(
@@ -487,23 +498,57 @@ class SearchPipeline:
             *(task for _, _, task in tasks), return_exceptions=True
         )
         ranked_lists: list[tuple[list[RetrievalHit], float]] = []
+        channel_summaries: list[dict[str, object]] = []
         for (channel, weight, _), result in zip(tasks, raw_results):
             if isinstance(result, list):
                 ranked_lists.append((result, weight))
+                channel_summaries.append({
+                    "channel": channel,
+                    "status": "ok",
+                    "count": len(result),
+                    "weight": weight,
+                })
             else:
                 degraded.append(channel)
-        candidates = _weighted_rrf(ranked_lists)[: rerank_settings.candidate_count]
+                channel_summaries.append({
+                    "channel": channel,
+                    "status": "failed",
+                    "count": 0,
+                    "weight": weight,
+                })
+        retrieval_summary = {
+            "channels": channel_summaries,
+            "document_types": document_types,
+            "current_version_only": current_version_only,
+            "filename_filter": filename_filter,
+        }
         if progress:
             await progress({
                 "type": "STATE_DELTA",
-                "delta": [{"op": "replace", "path": "/keywordPlan", "value": keyword_plan}],
+                "delta": [{"op": "replace", "path": "/retrievalSummary", "value": retrieval_summary}],
             })
         await finish_step("retrieval")
+
+        await step("candidate_merge", "候補を統合しています")
+        candidates = _weighted_rrf(ranked_lists)[: rerank_settings.candidate_count]
+        candidate_merge = {
+            "method": "weighted_rrf",
+            "source_lists": len(ranked_lists),
+            "candidate_count": len(candidates),
+            "limit": rerank_settings.candidate_count,
+        }
+        if progress:
+            await progress({
+                "type": "STATE_DELTA",
+                "delta": [{"op": "replace", "path": "/candidateMerge", "value": candidate_merge}],
+            })
+        await finish_step("candidate_merge")
 
         await step("rerank", "候補を再ランキングしています")
         pre_rerank_document_ids = list(dict.fromkeys(item.hit.document_id for item in candidates))[
             : rerank_settings.candidate_count
         ]
+        pre_rerank_count = len(candidates)
         candidates = await _rerank_text(query, candidates, has_image=image is not None)
         if (
             query.strip()
@@ -512,6 +557,18 @@ class SearchPipeline:
             and not any(item.rerank_score is not None for item in candidates)
         ):
             degraded.append("rerank")
+        rerank_summary = {
+            "enabled": rerank_settings.enabled,
+            "skipped": bool(image is not None and not query.strip()),
+            "candidate_count": pre_rerank_count,
+            "top_n": rerank_settings.top_n,
+            "degraded": "rerank" in degraded,
+        }
+        if progress:
+            await progress({
+                "type": "STATE_DELTA",
+                "delta": [{"op": "replace", "path": "/rerankSummary", "value": rerank_summary}],
+            })
         await finish_step("rerank")
 
         vlm_settings = retrieval_service_settings.get_vlm()
@@ -576,6 +633,15 @@ class SearchPipeline:
                     evidence=evidence,
                 )
             )
+        format_summary = {
+            "total_documents": len(results),
+            "total_evidence": sum(len(result.evidence) for result in results),
+        }
+        if progress:
+            await progress({
+                "type": "STATE_DELTA",
+                "delta": [{"op": "replace", "path": "/formatSummary", "value": format_summary}],
+            })
         elapsed = time.perf_counter() - started
         diagnostics: dict[str, Any] = {
             "enabled_vlm_profiles": [profile.slot_no for profile in profiles],
@@ -586,6 +652,10 @@ class SearchPipeline:
             "keyword_terms": keyword_terms,
             "keyword_plan": keyword_plan,
             "oracle_text_max_terms": keyword_plan["max_terms"],
+            "retrieval_summary": retrieval_summary,
+            "candidate_merge": candidate_merge,
+            "rerank_summary": rerank_summary,
+            "format_summary": format_summary,
             "vlm_verify_requested": verify,
             "vlm_verify_enabled": vlm_settings.verify_enabled,
         }

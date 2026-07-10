@@ -179,7 +179,23 @@ def test_search_pipeline_skips_vlm_verify_by_default_and_reports_query_plan() ->
         "target": "Oracle Text",
         "max_terms": 20,
     }
+    step_starts = [
+        event["stepName"]
+        for event in events
+        if event.get("type") == "STEP_STARTED"
+    ]
+    assert step_starts[:7] == [
+        "query_plan",
+        "query_variants",
+        "keyword_plan",
+        "embedding",
+        "retrieval",
+        "candidate_merge",
+        "rerank",
+    ]
     assert result.diagnostics["oracle_text_max_terms"] == 20
+    assert result.diagnostics["candidate_merge"]["method"] == "weighted_rrf"
+    assert result.diagnostics["candidate_merge"]["candidate_count"] == 1
     assert any(
         event.get("type") == "STATE_DELTA"
         and event.get("delta") == [{

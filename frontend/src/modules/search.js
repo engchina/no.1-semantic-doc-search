@@ -32,8 +32,11 @@ const searchProgress = { startedAt: 0, state: {}, steps: new Map() };
 
 const stepLabels = {
   query_plan: '検索意図の整理',
+  query_variants: '検索バリエーション生成',
+  keyword_plan: '検索キーワード生成',
   embedding: 'ベクトル作成',
   retrieval: '候補取得',
+  candidate_merge: '候補統合',
   rerank: '再ランキング',
   verify: 'VLM確認',
   format_results: '結果整形'
@@ -144,39 +147,69 @@ function startSearchProgressTimer() {
   searchProgressTimer = setInterval(updateSearchElapsed, 1000);
 }
 
-function queryPlanDetails() {
+const chips = (values = []) => values.map(value => `
+  <span class="search-agent-chip">${escapeHtml(value)}</span>
+`).join('');
+
+function stepDetails(name) {
+  const diagnostics = searchProgress.state.result?.diagnostics || {};
   const queryPlan = searchProgress.state.queryPlan || searchProgress.state.result?.diagnostics?.query_plan;
   const keywordPlan = searchProgress.state.keywordPlan || searchProgress.state.result?.diagnostics?.keyword_plan;
-  const degraded = searchProgress.state.result?.diagnostics?.degraded || [];
-  const sections = [];
-  if (queryPlan) {
-    const variants = (queryPlan.variants || []).map(value => `
-      <span class="search-agent-chip">${escapeHtml(value)}</span>
-    `).join('');
+  const retrievalSummary = searchProgress.state.retrievalSummary || diagnostics.retrieval_summary;
+  const candidateMerge = searchProgress.state.candidateMerge || diagnostics.candidate_merge;
+  const rerankSummary = searchProgress.state.rerankSummary || diagnostics.rerank_summary;
+  const formatSummary = searchProgress.state.formatSummary || diagnostics.format_summary;
+  if (name === 'query_plan' && queryPlan?.intent) {
+    return `<div>検索意図: ${escapeHtml(queryPlan.intent)}</div>`;
+  }
+  if (name === 'query_variants' && queryPlan) {
     const sourceLabels = { deterministic: 'deterministic', llm: 'LLM', off: 'off' };
-    sections.push(`
-      <div class="search-agent-query-plan">
-        <strong>検索バリエーション</strong>
-        ${variants ? `<div class="search-agent-chip-list">${variants}</div>` : ''}
-        ${queryPlan.intent ? `<div>検索意図: ${escapeHtml(queryPlan.intent)}</div>` : ''}
-        ${queryPlan.query_expansion_source ? `<div>生成方式: ${escapeHtml(sourceLabels[queryPlan.query_expansion_source] || queryPlan.query_expansion_source)}</div>` : ''}
-      </div>
-    `);
+    return `
+      <strong>検索バリエーション</strong>
+      <div class="search-agent-chip-list">${chips(queryPlan.variants || [])}</div>
+      ${queryPlan.query_expansion_source ? `<div>生成方式: ${escapeHtml(sourceLabels[queryPlan.query_expansion_source] || queryPlan.query_expansion_source)}</div>` : ''}
+    `;
   }
-  if (keywordPlan?.terms?.length) {
-    const terms = keywordPlan.terms.map(value => `
-      <span class="search-agent-chip">${escapeHtml(value)}</span>
-    `).join('');
-    sections.push(`
-      <div class="search-agent-query-plan">
-        <strong>検索キーワード</strong>
-        <div class="search-agent-chip-list">${terms}</div>
-        <div>対象: ${escapeHtml(keywordPlan.target || 'Oracle Text')}</div>
-      </div>
-    `);
+  if (name === 'keyword_plan' && keywordPlan?.terms?.length) {
+    return `
+      <strong>検索キーワード</strong>
+      <div class="search-agent-chip-list">${chips(keywordPlan.terms)}</div>
+      <div>対象: ${escapeHtml(keywordPlan.target || 'Oracle Text')}</div>
+    `;
   }
-  if (degraded.length) sections.push(`<div>一部降格: ${escapeHtml(degraded.join(', '))}</div>`);
-  return sections.join('');
+  if (name === 'retrieval' && retrievalSummary?.channels?.length) {
+    return `
+      <strong>検索チャンネル</strong>
+      <div class="search-agent-step-grid">
+        ${retrievalSummary.channels.map(channel => `
+          <div>${escapeHtml(channel.channel)}</div>
+          <div>${channel.status === 'ok' ? '成功' : '失敗'} / ${escapeHtml(channel.count)}件</div>
+        `).join('')}
+      </div>
+      ${retrievalSummary.filename_filter ? `<div>ファイル名条件: ${escapeHtml(retrievalSummary.filename_filter)}</div>` : ''}
+    `;
+  }
+  if (name === 'candidate_merge' && candidateMerge) {
+    return `
+      <div>方式: ${escapeHtml(candidateMerge.method || 'weighted_rrf')}</div>
+      <div>入力リスト: ${escapeHtml(candidateMerge.source_lists)} / 統合後候補: ${escapeHtml(candidateMerge.candidate_count)}件</div>
+      <div>上限: ${escapeHtml(candidateMerge.limit)}件</div>
+    `;
+  }
+  if (name === 'rerank' && rerankSummary) {
+    return `
+      <div>状態: ${rerankSummary.skipped ? 'スキップ' : (rerankSummary.enabled ? '有効' : '無効')}</div>
+      <div>候補: ${escapeHtml(rerankSummary.candidate_count)}件 / 採用上限: ${escapeHtml(rerankSummary.top_n)}件</div>
+      ${rerankSummary.degraded ? '<div>一部降格: rerank</div>' : ''}
+    `;
+  }
+  if (name === 'format_results' && formatSummary) {
+    return `
+      <div>文書: ${escapeHtml(formatSummary.total_documents)}件</div>
+      <div>証拠: ${escapeHtml(formatSummary.total_evidence)}件</div>
+    `;
+  }
+  return '';
 }
 
 function renderSearchProgress(message = '') {
@@ -192,13 +225,19 @@ function renderSearchProgress(message = '') {
   if (steps) {
     steps.innerHTML = [...searchProgress.steps.entries()].map(([name, statusValue]) => `
       <li class="search-agent-step search-agent-step-${statusValue}">
-        <span>${escapeHtml(stepLabels[name] || name)}</span>
-        <span>${statusValue === 'done' ? '完了' : '処理中'}</span>
+        <details>
+          <summary>
+            <span>${escapeHtml(stepLabels[name] || name)}</span>
+            <span>${statusValue === 'done' ? '完了' : '処理中'}</span>
+          </summary>
+          <div class="search-agent-step-body">${stepDetails(name) || '詳細は処理後に表示されます'}</div>
+        </details>
       </li>
     `).join('');
   }
   if (details) {
-    details.innerHTML = queryPlanDetails();
+    const degraded = searchProgress.state.result?.diagnostics?.degraded || [];
+    details.innerHTML = degraded.length ? `<div>一部降格: ${escapeHtml(degraded.join(', '))}</div>` : '';
     details.hidden = !details.innerHTML;
   }
 }
