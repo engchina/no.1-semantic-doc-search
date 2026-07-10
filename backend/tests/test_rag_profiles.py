@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from pydantic import ValidationError
 
-from app.rag import search_api
+from app.rag import search_api, service_settings
 from app.rag.index_pipeline import (
     PageExtraction,
     SharedIndexPipeline,
@@ -297,6 +297,28 @@ def test_schema_separates_shared_evidence_and_vlm_facets() -> None:
 def test_ocr_defaults_remain_global() -> None:
     settings = OcrSettings()
     assert (settings.dots.dpi, settings.glm.dpi, settings.unlimited.dpi) == (200, 200, 300)
+
+
+def test_ocr_global_and_glm_enabled_flags_are_separate(monkeypatch, tmp_path) -> None:
+    for key in ("OCR_ENABLED", "DOTS_MOCR_ENABLED", "GLM_OCR_ENABLED", "UNLIMITED_OCR_ENABLED"):
+        monkeypatch.setenv(key, "")
+    monkeypatch.setattr(service_settings, "TARGET_ENV", tmp_path / ".env")
+    monkeypatch.setattr(service_settings, "CHALLENGE_ENV", tmp_path / "challenge.env")
+    engine = OcrEngineSettings(enabled=False, base_url="http://ocr.test", model="model")
+
+    saved = service_settings.RetrievalServiceSettingsStore().save_ocr(
+        OcrSettings(enabled=False, dots=engine, glm=engine.model_copy(update={"enabled": True}), unlimited=engine)
+    )
+
+    assert saved.enabled is False
+    assert saved.dots.enabled is False
+    assert saved.glm.enabled is True
+    assert saved.unlimited.enabled is False
+    text = (tmp_path / ".env").read_text()
+    assert "OCR_ENABLED='false'" in text
+    assert "GLM_OCR_ENABLED='true'" in text
+    assert "DOTS_MOCR_ENABLED='false'" in text
+    assert "UNLIMITED_OCR_ENABLED='false'" in text
 
 
 def test_ocr_connection_test_sends_a_decodable_document_image() -> None:

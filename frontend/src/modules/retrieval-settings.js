@@ -108,9 +108,9 @@ function renderGlobalPanels() {
         <section class="retrieval-card">
           <h3>MinerU</h3>${checkbox('mineru-enabled', 'すべての文書で使用する', mineru.enabled)}
           <div class="retrieval-grid retrieval-grid-3"><div class="retrieval-span-2"><label class="form-label" for="mineru-url">接続先URL</label><input id="mineru-url" class="form-input" value="${escapeHtml(mineru.base_url)}"></div><div><label class="form-label" for="mineru-timeout">タイムアウト（秒）</label><input id="mineru-timeout" type="number" class="form-input" value="${mineru.timeout_seconds}"></div></div>
-          <div class="retrieval-actions"><button class="apex-button px-4 py-2" data-action="save-mineru">保存</button><button class="apex-button-secondary px-4 py-2" data-action="test-mineru">接続テスト</button></div>
+          <div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-mineru">保存</button><button type="button" class="apex-button-secondary px-4 py-2" data-action="test-mineru">接続テスト</button></div>
         </section>
-        <section class="retrieval-card"><h3>OCR</h3>${checkbox('ocr-enabled', 'MinerUで内容を取得できないページで使用する', ocr.enabled)}<div class="retrieval-grid retrieval-grid-3">${engineCard('dots', 'Dots', ocr.dots)}${engineCard('glm', 'GLM', ocr.glm)}${engineCard('unlimited', 'Unlimited', ocr.unlimited)}</div><div class="retrieval-actions"><button class="apex-button px-4 py-2" data-action="save-ocr">OCR設定を保存</button></div></section>
+        <section class="retrieval-card"><h3>OCR</h3>${checkbox('ocr-enabled', 'MinerUで内容を取得できないページで使用する', ocr.enabled)}<div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-ocr">OCR設定を保存</button></div><div class="retrieval-grid retrieval-grid-3">${engineCard('dots', 'Dots', ocr.dots)}${engineCard('glm', 'GLM', ocr.glm)}${engineCard('unlimited', 'Unlimited', ocr.unlimited)}</div></section>
       </div>
     </details>
     <details class="retrieval-global-section">
@@ -121,7 +121,7 @@ function renderGlobalPanels() {
             ['oracle_text', 'キーワード検索'], ['text_vector', 'テキスト類似'], ['visual_vector', '画像類似'],
             ['vlm_text', 'VLM抽出キーワード'], ['vlm_vector', 'VLM抽出類似']
           ].map(([key, label]) => `<div><label class="form-label" for="weight-${key}">${label}</label><input id="weight-${key}" type="number" min="0" max="10" step="0.1" class="form-input" value="${weights[key]}"></div>`).join('')}</div>
-          <div class="retrieval-actions"><button class="apex-button px-4 py-2" data-action="save-weights">バランスを保存</button></div>
+          <div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-weights">バランスを保存</button></div>
         </section>
       </div>
     </details>
@@ -130,7 +130,7 @@ function renderGlobalPanels() {
       <div class="retrieval-global-content">
         <section class="retrieval-card">${checkbox('vlm-query-enabled', '問い合わせ整理を使用する', vlm.query_enabled)}<label class="form-label" for="vlm-query-prompt">問い合わせ整理の指示</label><textarea id="vlm-query-prompt" class="form-input retrieval-prompt-small">${escapeHtml(vlm.query_prompt)}</textarea></section>
         <section class="retrieval-card">${checkbox('vlm-verify-enabled', '画像確認を使用する', vlm.verify_enabled)}<label class="form-label" for="vlm-verify-prompt">画像確認の指示</label><textarea id="vlm-verify-prompt" class="form-input retrieval-prompt-small">${escapeHtml(vlm.verify_prompt)}</textarea></section>
-        <div class="retrieval-actions"><button class="apex-button px-4 py-2" data-action="save-vlm">VLM共通設定を保存</button></div>
+        <div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-vlm">VLM共通設定を保存</button></div>
       </div>
     </details>`;
 }
@@ -144,7 +144,7 @@ function renderRerankSettings() {
     <div class="retrieval-panel">${checkbox('rerank-enabled', '使用する', rerank.enabled)}
       <div class="retrieval-grid retrieval-grid-3"><div><label class="form-label" for="rerank-model">モデル</label><input id="rerank-model" class="form-input" value="${escapeHtml(rerank.model)}"></div><div><label class="form-label" for="rerank-candidates">候補数</label><input id="rerank-candidates" type="number" min="1" max="500" class="form-input" value="${rerank.candidate_count}"></div><div><label class="form-label" for="rerank-topn">採用件数</label><input id="rerank-topn" type="number" min="1" max="100" class="form-input" value="${rerank.top_n}"></div></div>
       <p class="retrieval-help">候補を100件ずつ再ランキングし、中間上位100件から最終${rerank.top_n}件の画像・ページ証拠を選び、文書単位にまとめます。画像だけの検索では呼び出しません。</p>
-      <div class="retrieval-actions"><button class="apex-button px-4 py-2" data-action="save-rerank">保存</button><button class="apex-button-secondary px-4 py-2" data-action="test-rerank">接続テスト</button></div>
+      <div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-rerank">保存</button><button type="button" class="apex-button-secondary px-4 py-2" data-action="test-rerank">接続テスト</button></div>
     </div>
   </section>`;
   bindEvents(root);

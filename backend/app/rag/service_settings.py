@@ -41,6 +41,7 @@ class RetrievalServiceSettingsStore:
             "OCR_API_HOST",
             "OCR_MODEL",
             "OCR_API_KEY",
+            "GLM_OCR_ENABLED",
             "GLM_OCR_DPI",
             "UNLIMITED_OCR_API_HOST",
             "UNLIMITED_OCR_MODEL",
@@ -79,8 +80,9 @@ class RetrievalServiceSettingsStore:
             api_key = values.get(f"{prefix}_API_KEY", "")
             if mask_secrets and api_key:
                 api_key = MASK
+            enabled_key = "GLM_OCR_ENABLED" if prefix == "OCR" else f"{prefix}_ENABLED"
             return OcrEngineSettings(
-                enabled=self._bool(values, f"{prefix}_ENABLED", enabled),
+                enabled=self._bool(values, enabled_key, enabled),
                 base_url=values.get(f"{prefix}_API_HOST", ""),
                 model=values.get(f"{prefix}_MODEL", ""),
                 api_key=api_key,
@@ -160,9 +162,10 @@ class RetrievalServiceSettingsStore:
             ("OCR", settings.glm),
             ("UNLIMITED_OCR", settings.unlimited),
         ):
+            enabled_key = "GLM_OCR_ENABLED" if prefix == "OCR" else f"{prefix}_ENABLED"
             values.update(
                 {
-                    f"{prefix}_ENABLED": engine.enabled,
+                    enabled_key: engine.enabled,
                     f"{prefix}_API_HOST": engine.base_url.rstrip("/"),
                     f"{prefix}_MODEL": engine.model,
                     f"{prefix}_API_KEY": engine.api_key,
