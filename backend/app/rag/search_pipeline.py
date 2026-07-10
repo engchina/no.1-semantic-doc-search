@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -18,24 +19,47 @@ from app.rag.models import (
     FieldFilter,
     SearchV2Response,
 )
-from app.rag.oracle_repository import RetrievalHit, rag_repository
+from app.rag.oracle_repository import (
+    RetrievalHit,
+    oracle_text_max_terms,
+    oracle_text_terms,
+    rag_repository,
+)
 from app.rag.profile_repository import profile_repository
 from app.rag.service_settings import retrieval_service_settings
 from app.services.oci_service import oci_service
 
 RERANK_BATCH_SIZE = 100
 RERANK_FINALIST_COUNT = 100
+WHITESPACE_PATTERN = re.compile(r"\s+")
+SYNONYM_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("請求書", "インボイス", "invoice", "bill"),
+    ("伝票", "document", "voucher"),
+    ("経費", "費用", "expense", "cost"),
+    ("申請", "申込", "request", "application"),
+    ("承認", "承認者", "approve", "approval"),
+    ("保管", "保存", "格納", "storage", "archive"),
+    ("原本", "原紙", "original"),
+    ("規程", "規則", "ポリシー", "policy"),
+    ("手順", "手順書", "マニュアル", "manual", "procedure"),
+    ("検索", "探索", "search", "retrieval"),
+    ("表", "表形式", "テーブル", "table"),
+    ("図", "図版", "画像", "figure", "image"),
+    ("支払", "支払い", "payment"),
+    ("期限", "期日", "due date", "deadline"),
+)
 
 
 @dataclass
 class QueryPlan:
     variants: list[str]
     intent: str = "general"
+    query_expansion_source: str = "off"
 
 
 class _QueryOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    query_variants: list[str] = Field(default_factory=list, max_length=3)
+    query_variants: list[str] = Field(default_factory=list, max_length=8)
     intent: str = Field(default="general", max_length=80)
 
 
@@ -59,18 +83,73 @@ class RankedHit:
     verification_status: str = "not_requested"
 
 
+def _normalize_query(query: str) -> str:
+    return WHITESPACE_PATTERN.sub(" ", query).strip()
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        normalized = _normalize_query(value)
+        key = normalized.casefold()
+        if normalized and key not in seen:
+            seen.add(key)
+            unique.append(normalized)
+    return unique
+
+
+def _matching_expansions(query: str) -> list[str]:
+    lowered = query.casefold()
+    expansions: list[str] = []
+    for group in SYNONYM_GROUPS:
+        if not any(term.casefold() in lowered for term in group):
+            continue
+        for term in group:
+            if term.casefold() not in lowered and term not in expansions:
+                expansions.append(term)
+    return expansions
+
+
+def _deterministic_query_variants(query: str, *, enabled: bool, max_variants: int) -> list[str]:
+    normalized = _normalize_query(query)
+    if not normalized:
+        return []
+    if not enabled or max_variants <= 1:
+        return [normalized]
+    expansions = _matching_expansions(normalized)
+    if not expansions:
+        return [normalized]
+    return _dedupe_strings([
+        normalized,
+        f"{normalized} {' '.join(expansions)}",
+        " ".join(expansions),
+    ])[:max_variants]
+
+
 async def _query_plan(query: str) -> QueryPlan:
-    fallback = QueryPlan(variants=[query] if query.strip() else [])
-    settings = retrieval_service_settings.get_vlm()
-    if not query.strip() or not settings.query_enabled:
+    expansion = retrieval_service_settings.get_query_expansion()
+    fallback_variants = _deterministic_query_variants(
+        query,
+        enabled=expansion.enabled,
+        max_variants=expansion.max_variants,
+    )
+    source = "deterministic" if query.strip() and expansion.enabled else "off"
+    fallback = QueryPlan(variants=fallback_variants, query_expansion_source=source)
+    if not fallback_variants or not expansion.llm_enabled:
         return fallback
-    prompt = f"{settings.query_prompt}\n\nUser query:\n{query}"
+    vlm_settings = retrieval_service_settings.get_vlm()
+    prompt = f"{vlm_settings.query_prompt}\n\nUser query:\n{query}"
     try:
         output = _QueryOutput.model_validate(await vlm_client.generate_json(prompt=prompt))
     except Exception:
         return fallback
-    variants = [query, *(value.strip() for value in output.query_variants if value.strip())]
-    return QueryPlan(variants=list(dict.fromkeys(variants))[:3], intent=output.intent)
+    variants = _dedupe_strings([query, *output.query_variants])[:expansion.max_variants]
+    return QueryPlan(
+        variants=variants or fallback_variants,
+        intent=output.intent,
+        query_expansion_source="llm" if variants else source,
+    )
 
 
 def _weighted_rrf(
@@ -279,7 +358,7 @@ class SearchPipeline:
         query_plan = {
             "variants": plan.variants,
             "intent": plan.intent,
-            "keyword_query": query_text,
+            "query_expansion_source": plan.query_expansion_source,
         }
         if progress:
             await progress({
@@ -309,6 +388,12 @@ class SearchPipeline:
         rerank_settings = retrieval_service_settings.get_rerank()
         branch_k = max(rerank_settings.candidate_count, min(500, top_k * 5))
         tasks: list[tuple[str, float, Any]] = []
+        keyword_terms = oracle_text_terms(query_text)
+        keyword_plan = {
+            "terms": keyword_terms,
+            "target": "Oracle Text",
+            "max_terms": oracle_text_max_terms(),
+        }
 
         if query_text and weights.oracle_text > 0:
             tasks.append(
@@ -408,6 +493,11 @@ class SearchPipeline:
             else:
                 degraded.append(channel)
         candidates = _weighted_rrf(ranked_lists)[: rerank_settings.candidate_count]
+        if progress:
+            await progress({
+                "type": "STATE_DELTA",
+                "delta": [{"op": "replace", "path": "/keywordPlan", "value": keyword_plan}],
+            })
         await finish_step("retrieval")
 
         await step("rerank", "候補を再ランキングしています")
@@ -493,6 +583,9 @@ class SearchPipeline:
             "pure_image_rerank_skipped": bool(image is not None and not query.strip()),
             "degraded": sorted(set(degraded)),
             "query_plan": query_plan,
+            "keyword_terms": keyword_terms,
+            "keyword_plan": keyword_plan,
+            "oracle_text_max_terms": keyword_plan["max_terms"],
             "vlm_verify_requested": verify,
             "vlm_verify_enabled": vlm_settings.verify_enabled,
         }

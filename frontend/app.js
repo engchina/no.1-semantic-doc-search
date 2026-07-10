@@ -503,7 +503,7 @@ function clearMultipleFileSelection() {
   document.getElementById('fileInputMultiple').value = '';
   document.getElementById('uploadMultipleBtn').disabled = true;
   document.getElementById('selectedFilesList').style.display = 'none';
-  document.getElementById('uploadProgress').style.display = 'none';
+  hideUploadProgressUI();
 }
 
 /**
@@ -578,7 +578,10 @@ async function uploadMultipleDocuments() {
  */
 function showUploadProgressUI(files) {
   const progressDiv = document.getElementById('uploadProgress');
-  progressDiv.style.display = 'block';
+  if (!progressDiv) return;
+  progressDiv.hidden = false;
+  progressDiv.open = true;
+  progressDiv.style.borderLeft = '4px solid #3b82f6';
   
   const filesArray = Array.from(files);
   const totalFiles = filesArray.length;
@@ -604,23 +607,11 @@ function showUploadProgressUI(files) {
   });
   
   progressDiv.innerHTML = `
-    <div class="bg-white border-2 border-blue-400 rounded-lg p-4" style="margin-bottom: 16px;">
-      <div class="mb-3 pb-3 border-b border-gray-200 flex items-center justify-between">
-        <div>
-          <div class="text-base font-bold text-gray-800 mb-1">オブジェクト・ストアにファイルをアップロード中</div>
-          <div class="text-xs text-gray-600">選択されたファイル: ${totalFiles}件</div>
-        </div>
-        <button 
-          id="closeUploadProgressBtn" 
-          onclick="closeUploadProgress()" 
-          class="text-gray-400 hover:text-gray-600 transition-colors" 
-          style="display: none; font-size: 24px; line-height: 1; padding: 4px;"
-          title="閉じる"
-        >
-          <i class="fas fa-times"></i>
-        </button>
-      </div>
-      
+    <summary>
+      <span><i class="fas fa-cloud-upload-alt"></i> オブジェクト・ストアにファイルをアップロード中</span>
+      <small>選択されたファイル: ${totalFiles}件</small>
+    </summary>
+    <div class="retrieval-global-content">
       <div id="upload-files-container" style="max-height: 400px; overflow-y: auto;">
         ${filesHtml}
       </div>
@@ -638,7 +629,8 @@ function showUploadProgressUI(files) {
 function hideUploadProgressUI() {
   const progressDiv = document.getElementById('uploadProgress');
   if (progressDiv) {
-    progressDiv.style.display = 'none';
+    progressDiv.hidden = true;
+    progressDiv.open = false;
   }
 }
 
@@ -735,11 +727,8 @@ async function processUploadStreamingResponse(response, totalFiles) {
             utilsShowToast(data.message, 'warning');
           }
           
-          // 閉じるボタンを表示
-          const closeBtn = document.getElementById('closeUploadProgressBtn');
-          if (closeBtn) {
-            closeBtn.style.display = 'block';
-          }
+          const progressDiv = document.getElementById('uploadProgress');
+          if (progressDiv) progressDiv.open = false;
           
           const uploadBtn = document.getElementById('uploadMultipleBtn');
           if (uploadBtn) {

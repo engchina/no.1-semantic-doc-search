@@ -388,7 +388,7 @@
       </div>
 
       <!-- アップロード進捗 -->
-      <div id="uploadProgress" style="margin-bottom: 20px; display: none;"></div>
+      <details id="uploadProgress" class="retrieval-global-section" hidden aria-live="polite" style="margin-bottom: 20px;"></details>
 
       <!-- 文書リスト -->
       <div class="apex-region">
@@ -410,7 +410,7 @@
         </div>
         <div style="padding: 24px;">
           <!-- 処理進捗表示 (削除・ベクトル化) - 一覧の下に表示 -->
-          <div id="processProgress" style="margin-top: 16px; display: none;"></div>
+          <details id="processProgress" class="retrieval-global-section" hidden aria-live="polite" style="margin: 16px 0 24px;"></details>
 
           <div id="documentsList"></div>          
         </div>

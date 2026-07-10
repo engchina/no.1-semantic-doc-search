@@ -39,6 +39,7 @@ from app.rag.oracle_repository import (
     DocumentUpsertResult,
     EvidenceRecord,
     RetrievalHit,
+    oracle_text_terms,
     rag_repository,
 )
 from app.rag.oracle_schema import schema_sql, system_table_names
@@ -48,6 +49,7 @@ from app.rag.search_pipeline import (
     RankedHit,
     SearchPipeline,
     _candidate_text,
+    _query_plan,
     _rerank_text,
     _weighted_rrf,
 )
@@ -169,8 +171,15 @@ def test_search_pipeline_skips_vlm_verify_by_default_and_reports_query_plan() ->
     assert result.diagnostics["query_plan"] == {
         "variants": ["ceiling light", "downlight"],
         "intent": "lighting",
-        "keyword_query": "ceiling light downlight",
+        "query_expansion_source": "llm",
     }
+    assert result.diagnostics["keyword_terms"] == ["ceiling", "light", "downlight"]
+    assert result.diagnostics["keyword_plan"] == {
+        "terms": ["ceiling", "light", "downlight"],
+        "target": "Oracle Text",
+        "max_terms": 20,
+    }
+    assert result.diagnostics["oracle_text_max_terms"] == 20
     assert any(
         event.get("type") == "STATE_DELTA"
         and event.get("delta") == [{
@@ -180,12 +189,97 @@ def test_search_pipeline_skips_vlm_verify_by_default_and_reports_query_plan() ->
         }]
         for event in events
     )
+    assert any(
+        event.get("type") == "STATE_DELTA"
+        and event.get("delta") == [{
+            "op": "replace",
+            "path": "/keywordPlan",
+            "value": result.diagnostics["keyword_plan"],
+        }]
+        for event in events
+    )
 
 
 def test_search_pipeline_runs_vlm_verify_only_when_requested() -> None:
     _, verify_candidates, _ = run_search_pipeline_for_verify(verify=True)
 
     verify_candidates.assert_awaited_once()
+
+
+def test_query_plan_uses_deterministic_expansion_by_default() -> None:
+    with (
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_query_expansion",
+            return_value=service_settings.QueryExpansionSettings(),
+        ),
+        patch("app.rag.search_pipeline.vlm_client.generate_json", new=AsyncMock()) as generate_json,
+    ):
+        plan = asyncio.run(_query_plan("請求書"))
+
+    generate_json.assert_not_awaited()
+    assert plan.query_expansion_source == "deterministic"
+    assert plan.variants == ["請求書", "請求書 インボイス invoice bill", "インボイス invoice bill"]
+
+
+def test_query_plan_uses_llm_only_when_enabled() -> None:
+    with (
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_query_expansion",
+            return_value=service_settings.QueryExpansionSettings(llm_enabled=True),
+        ),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_vlm",
+            return_value=GlobalVlmSettings(query_prompt="expand"),
+        ),
+        patch(
+            "app.rag.search_pipeline.vlm_client.generate_json",
+            new=AsyncMock(return_value={"query_variants": ["downlight"], "intent": "lighting"}),
+        ) as generate_json,
+    ):
+        plan = asyncio.run(_query_plan("ceiling light"))
+
+    generate_json.assert_awaited_once()
+    assert plan.query_expansion_source == "llm"
+    assert plan.intent == "lighting"
+    assert plan.variants == ["ceiling light", "downlight"]
+
+
+def test_query_plan_falls_back_to_deterministic_when_llm_fails() -> None:
+    with (
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_query_expansion",
+            return_value=service_settings.QueryExpansionSettings(llm_enabled=True),
+        ),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_vlm",
+            return_value=GlobalVlmSettings(query_prompt="expand"),
+        ),
+        patch(
+            "app.rag.search_pipeline.vlm_client.generate_json",
+            new=AsyncMock(side_effect=RuntimeError("llm failed")),
+        ),
+    ):
+        plan = asyncio.run(_query_plan("請求書"))
+
+    assert plan.query_expansion_source == "deterministic"
+    assert plan.variants == ["請求書", "請求書 インボイス invoice bill", "インボイス invoice bill"]
+
+
+def test_query_expansion_settings_read_env_values() -> None:
+    with patch.object(
+        service_settings.RetrievalServiceSettingsStore,
+        "_values",
+        return_value={
+            "RAG_QUERY_EXPANSION_ENABLED": "false",
+            "RAG_QUERY_EXPANSION_LLM_ENABLED": "true",
+            "RAG_QUERY_EXPANSION_MAX_VARIANTS": "99",
+        },
+    ):
+        settings = service_settings.RetrievalServiceSettingsStore().get_query_expansion()
+
+    assert settings.enabled is False
+    assert settings.llm_enabled is True
+    assert settings.max_variants == 8
 
 
 def run_search_pipeline_for_verify(
@@ -199,8 +293,9 @@ def run_search_pipeline_for_verify(
     with (
         patch(
             "app.rag.search_pipeline._query_plan",
-            new=AsyncMock(return_value=QueryPlan(["ceiling light", "downlight"], "lighting")),
+            new=AsyncMock(return_value=QueryPlan(["ceiling light", "downlight"], "lighting", "llm")),
         ),
+        patch.dict("os.environ", {"ORACLE_TEXT_MAX_TERMS": "20"}),
         patch("app.rag.search_pipeline.embedding_client.text", new=AsyncMock(return_value=[[0.1]])),
         patch("app.rag.search_pipeline.profile_repository.enabled_profiles", return_value=[]),
         patch(
@@ -236,6 +331,16 @@ def run_search_pipeline_for_verify(
             progress=progress,
         ))
     return result, verify_candidates, events
+
+
+def test_oracle_text_terms_default_and_env_limit(monkeypatch) -> None:
+    query = " ".join(f"term{index}" for index in range(25))
+
+    monkeypatch.delenv("ORACLE_TEXT_MAX_TERMS", raising=False)
+    assert len(oracle_text_terms(query)) == 20
+
+    monkeypatch.setenv("ORACLE_TEXT_MAX_TERMS", "3")
+    assert oracle_text_terms(query) == ["term0", "term1", "term2"]
 
 
 def test_profile_has_exactly_the_vlm_extraction_fields() -> None:

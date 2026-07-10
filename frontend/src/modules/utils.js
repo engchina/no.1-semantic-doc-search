@@ -40,7 +40,7 @@ export function formatDateTime(isoString) {
 export function showLoading(message = '処理中...') {
   // メインページ進捗UIが表示されている場合は、ローディングオーバーレイを表示しない
   const processProgressDiv = document.getElementById('processProgress');
-  if (processProgressDiv && processProgressDiv.style.display !== 'none') {
+  if (processProgressDiv && !processProgressDiv.hidden) {
     console.log('ℹ️ メインページ進捗UIが表示中のため、showLoadingをスキップ');
     return;
   }

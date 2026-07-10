@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from array import array
 from contextlib import contextmanager
@@ -17,6 +18,7 @@ ASCII_TOKEN_PATTERN = re.compile(r"[0-9A-Za-z_.-]+")
 KANJI_RUN_PATTERN = re.compile(r"[一-龯々]+")
 KATAKANA_RUN_PATTERN = re.compile(r"[ァ-ンー]+")
 HIRAGANA_RUN_PATTERN = re.compile(r"[ぁ-んー]+")
+ORACLE_TEXT_DEFAULT_MAX_TERMS = 20
 
 
 def _lob_text(value: object) -> str:
@@ -44,6 +46,41 @@ def _json_col(value: object, default: Any):
 
 def _vector(value: list[float] | None) -> array | None:
     return array("f", value) if value is not None else None
+
+
+def oracle_text_max_terms() -> int:
+    try:
+        return max(1, int(os.environ.get("ORACLE_TEXT_MAX_TERMS", ORACLE_TEXT_DEFAULT_MAX_TERMS)))
+    except ValueError:
+        return ORACLE_TEXT_DEFAULT_MAX_TERMS
+
+
+def oracle_text_terms(query: str, *, max_terms: int | None = None) -> list[str]:
+    limit = max_terms or oracle_text_max_terms()
+    terms: list[str] = []
+    for match in TOKEN_PATTERN.finditer(query):
+        raw = match.group(0).strip()
+        candidates: list[str] = []
+        if ASCII_TOKEN_PATTERN.fullmatch(raw):
+            candidates = [raw.casefold()]
+        else:
+            for pattern in (KANJI_RUN_PATTERN, KATAKANA_RUN_PATTERN, HIRAGANA_RUN_PATTERN):
+                for run in pattern.findall(raw.casefold()):
+                    if len(run) >= 2:
+                        candidates.append(run)
+                        if len(run) >= 3:
+                            candidates.extend((run[:2], run[-2:]))
+        for term in candidates:
+            if len(term) >= 2 and term not in terms:
+                terms.append(term)
+        if len(terms) >= limit:
+            break
+    return terms[:limit]
+
+
+def oracle_text_query(query: str) -> str | None:
+    terms = oracle_text_terms(query)
+    return " ACCUM ".join(f"{{{term}}}" for term in terms) if terms else None
 
 
 @dataclass
@@ -120,25 +157,7 @@ class OracleRagRepository:
 
     @staticmethod
     def _text_query(query: str) -> str | None:
-        terms: list[str] = []
-        for match in TOKEN_PATTERN.finditer(query):
-            raw = match.group(0).strip()
-            candidates: list[str] = []
-            if ASCII_TOKEN_PATTERN.fullmatch(raw):
-                candidates = [raw.casefold()]
-            else:
-                for pattern in (KANJI_RUN_PATTERN, KATAKANA_RUN_PATTERN, HIRAGANA_RUN_PATTERN):
-                    for run in pattern.findall(raw.casefold()):
-                        if len(run) >= 2:
-                            candidates.append(run)
-                            if len(run) >= 3:
-                                candidates.extend((run[:2], run[-2:]))
-            for term in candidates:
-                if len(term) >= 2 and term not in terms:
-                    terms.append(term)
-            if len(terms) >= 16:
-                break
-        return " ACCUM ".join(f"{{{term}}}" for term in terms[:16]) if terms else None
+        return oracle_text_query(query)
 
     @staticmethod
     def _access_sql(user_hash: str | None) -> tuple[str, dict[str, Any]]:

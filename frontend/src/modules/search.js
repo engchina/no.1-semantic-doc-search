@@ -43,6 +43,11 @@ const escapeHtml = (value) => String(value ?? '')
   .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
   .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 
+const displayFilename = (fileResult) => {
+  const fallback = fileResult.object_name?.split('/').pop() || '';
+  return (fileResult.original_filename || fallback).replace(/^\d{8}_\d{6}_[a-f0-9]{8}_/i, '');
+};
+
 export async function loadDynamicSearchFilters() {
   try {
     const data = await authApiCall('/ai/api/search/v2/filters');
@@ -141,18 +146,32 @@ function startSearchProgressTimer() {
 
 function queryPlanDetails() {
   const queryPlan = searchProgress.state.queryPlan || searchProgress.state.result?.diagnostics?.query_plan;
+  const keywordPlan = searchProgress.state.keywordPlan || searchProgress.state.result?.diagnostics?.keyword_plan;
   const degraded = searchProgress.state.result?.diagnostics?.degraded || [];
   const sections = [];
   if (queryPlan) {
     const variants = (queryPlan.variants || []).map(value => `
       <span class="search-agent-chip">${escapeHtml(value)}</span>
     `).join('');
+    const sourceLabels = { deterministic: 'deterministic', llm: 'LLM', off: 'off' };
     sections.push(`
       <div class="search-agent-query-plan">
-        <strong>AI整理キーワード/検索語</strong>
+        <strong>検索バリエーション</strong>
         ${variants ? `<div class="search-agent-chip-list">${variants}</div>` : ''}
-        ${queryPlan.keyword_query ? `<div>検索語: ${escapeHtml(queryPlan.keyword_query)}</div>` : ''}
-        ${queryPlan.intent ? `<div>意図: ${escapeHtml(queryPlan.intent)}</div>` : ''}
+        ${queryPlan.intent ? `<div>検索意図: ${escapeHtml(queryPlan.intent)}</div>` : ''}
+        ${queryPlan.query_expansion_source ? `<div>生成方式: ${escapeHtml(sourceLabels[queryPlan.query_expansion_source] || queryPlan.query_expansion_source)}</div>` : ''}
+      </div>
+    `);
+  }
+  if (keywordPlan?.terms?.length) {
+    const terms = keywordPlan.terms.map(value => `
+      <span class="search-agent-chip">${escapeHtml(value)}</span>
+    `).join('');
+    sections.push(`
+      <div class="search-agent-query-plan">
+        <strong>検索キーワード</strong>
+        <div class="search-agent-chip-list">${terms}</div>
+        <div>対象: ${escapeHtml(keywordPlan.target || 'Oracle Text')}</div>
       </div>
     `);
   }
@@ -682,7 +701,7 @@ export function displaySearchResults(data) {
   // ファイル単位で表示
   listDiv.innerHTML = data.results.map((fileResult, fileIndex) => {
     const distancePercent = (1 - fileResult.min_distance) * 100;
-    const originalFilename = fileResult.original_filename || fileResult.object_name.split('/').pop();
+    const originalFilename = displayFilename(fileResult);
     
     // ファイル情報カード
     const fileCardHtml = `
@@ -693,8 +712,7 @@ export function displaySearchResults(data) {
             <div class="search-result-header-left">
               <span class="badge search-result-badge-white">#${fileIndex + 1}</span>
               <div>
-                <div class="search-result-filename"><i class="fas fa-file"></i> ${originalFilename}</div>
-                <div class="search-result-path">${fileResult.object_name}</div>
+                <div class="search-result-filename"><i class="fas fa-file"></i> ${escapeHtml(originalFilename)}</div>
               </div>
             </div>
             <div class="search-result-stats">

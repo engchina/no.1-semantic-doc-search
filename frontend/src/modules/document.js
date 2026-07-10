@@ -1714,7 +1714,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
 function updateLoadingMessage(message, progress = null, jobId = null) {
   // メインページ進捗UIが表示されている場合は、ローディングオーバーレイを更新しない
   const processProgressDiv = document.getElementById('processProgress');
-  if (processProgressDiv && processProgressDiv.style.display !== 'none') {
+  if (processProgressDiv && !processProgressDiv.hidden) {
     console.log('ℹ️ メインページ進捗UIが表示中のため、updateLoadingMessageをスキップ');
     return;
   }
@@ -1813,9 +1813,11 @@ function showProcessProgressUI(objectNames, operationType) {
   
   processTargetFiles = objectNames;
   processOperationType = operationType;
-  progressDiv.style.display = 'block';
+  progressDiv.hidden = false;
+  progressDiv.open = true;
+  progressDiv.style.borderLeft = operationType === 'delete' ? '4px solid #ef4444' : '4px solid #2563eb';
   
-  console.log('✅ progressDiv display set to block');
+  console.log('✅ progressDiv opened');
   
   const totalFiles = objectNames.length;
   const operationLabel = operationType === 'delete' ? 'オブジェクトを削除中' : 'ファイルをベクトル化中';
@@ -1844,26 +1846,12 @@ function showProcessProgressUI(objectNames, operationType) {
     `;
   });
   
-  const borderColor = operationType === 'delete' ? 'border-red-400' : 'border-blue-600';
-  
   progressDiv.innerHTML = `
-    <div class="bg-white border-2 ${borderColor} rounded-lg p-4" style="margin-bottom: 16px;">
-      <div class="mb-3 pb-3 border-b border-gray-200 flex items-center justify-between">
-        <div>
-          <div class="text-base font-bold text-gray-800 mb-1">${operationIcon} ${operationLabel}</div>
-          <div class="text-xs text-gray-600">対象ファイル: ${totalFiles}件</div>
-        </div>
-        <button 
-          id="closeProcessProgressBtn" 
-          onclick="window.ociModule.closeProcessProgress()" 
-          class="text-gray-400 hover:text-gray-600 transition-colors" 
-          style="display: none; font-size: 24px; line-height: 1; padding: 4px;"
-          title="閉じる"
-        >
-          <i class="fas fa-times"></i>
-        </button>
-      </div>
-      
+    <summary>
+      <span>${operationIcon}${operationLabel}</span>
+      <small>対象ファイル: ${totalFiles}件</small>
+    </summary>
+    <div class="retrieval-global-content">
       <div id="process-files-container" style="max-height: 400px; overflow-y: auto;">
         ${filesHtml}
       </div>
@@ -1981,7 +1969,8 @@ function updateProcessProgressUI(params) {
 function hideProcessProgressUI() {
   const progressDiv = document.getElementById('processProgress');
   if (progressDiv) {
-    progressDiv.style.display = 'none';
+    progressDiv.hidden = true;
+    progressDiv.open = false;
   }
   processTargetFiles = [];
   processOperationType = null;
@@ -1995,14 +1984,12 @@ function hideProcessProgressUI() {
 }
 
 /**
- * 処理完了時に、進捗UIに「閉じる」ボタンを表示します。
+ * 処理完了時に、進捗UIを折りたたみます。
  * キャンセルボタンは非表示になります。
  */
 function showProcessProgressCloseButton() {
-  const closeBtn = document.getElementById('closeProcessProgressBtn');
-  if (closeBtn) {
-    closeBtn.style.display = 'block';
-  }
+  const progressDiv = document.getElementById('processProgress');
+  if (progressDiv) progressDiv.open = false;
   // キャンセルボタンを非表示
   const cancelContainer = document.getElementById('process-cancel-container');
   if (cancelContainer) {

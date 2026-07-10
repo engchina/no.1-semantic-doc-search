@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import dotenv_values, set_key
@@ -18,6 +19,13 @@ MASK = "[CONFIGURED]"
 ROOT = Path(__file__).parents[3]
 TARGET_ENV = ROOT / ".env"
 CHALLENGE_ENV = ROOT.parent / "no.1-ai-engineering-challenge-2026" / ".env"
+
+
+@dataclass(frozen=True)
+class QueryExpansionSettings:
+    enabled: bool = True
+    llm_enabled: bool = False
+    max_variants: int = 3
 
 
 class RetrievalServiceSettingsStore:
@@ -118,6 +126,15 @@ class RetrievalServiceSettingsStore:
             verify_enabled=self._bool(values, "VLM_VERIFY_ENABLED", defaults.verify_enabled),
             query_prompt=values.get("VLM_QUERY_PROMPT", defaults.query_prompt),
             verify_prompt=values.get("VLM_VERIFY_PROMPT", defaults.verify_prompt),
+        )
+
+    def get_query_expansion(self) -> QueryExpansionSettings:
+        values = self._values()
+        max_variants = max(1, min(self._int(values, "RAG_QUERY_EXPANSION_MAX_VARIANTS", 3), 8))
+        return QueryExpansionSettings(
+            enabled=self._bool(values, "RAG_QUERY_EXPANSION_ENABLED", True),
+            llm_enabled=self._bool(values, "RAG_QUERY_EXPANSION_LLM_ENABLED", False),
+            max_variants=max_variants,
         )
 
     def get_weights(self) -> RetrievalWeights:
