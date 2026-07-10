@@ -309,7 +309,17 @@ def schema_statements() -> list[str]:
 
 @lru_cache(maxsize=1)
 def schema_digest() -> str:
-    return hashlib.sha256("\n\n".join(schema_statements()).encode()).hexdigest()
+    seed_prefixes = (
+        "INSERT INTO SDS_VLM_PROFILES ",
+        "INSERT INTO SDS_VLM_PROFILE_REVISIONS ",
+        "UPDATE SDS_VLM_PROFILES SET CURRENT_REVISION_ID=",
+    )
+    structural = [
+        statement
+        for statement in schema_statements()
+        if not statement.startswith(seed_prefixes)
+    ]
+    return hashlib.sha256("\n\n".join(structural).encode()).hexdigest()
 
 
 def schema_sql() -> str:

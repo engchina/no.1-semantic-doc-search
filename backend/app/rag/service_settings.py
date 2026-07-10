@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+import json
 from pathlib import Path
 
 from dotenv import dotenv_values, set_key
@@ -11,6 +11,7 @@ from app.rag.models import (
     MinerUSettings,
     OcrEngineSettings,
     OcrSettings,
+    QueryExpansionSettings,
     RerankSettings,
     RetrievalWeights,
 )
@@ -19,13 +20,6 @@ MASK = "[CONFIGURED]"
 ROOT = Path(__file__).parents[3]
 TARGET_ENV = ROOT / ".env"
 CHALLENGE_ENV = ROOT.parent / "no.1-ai-engineering-challenge-2026" / ".env"
-
-
-@dataclass(frozen=True)
-class QueryExpansionSettings:
-    enabled: bool = True
-    llm_enabled: bool = False
-    max_variants: int = 3
 
 
 class RetrievalServiceSettingsStore:
@@ -131,10 +125,20 @@ class RetrievalServiceSettingsStore:
     def get_query_expansion(self) -> QueryExpansionSettings:
         values = self._values()
         max_variants = max(1, min(self._int(values, "RAG_QUERY_EXPANSION_MAX_VARIANTS", 3), 8))
+        synonym_groups = QueryExpansionSettings().synonym_groups
+        raw_synonym_groups = values.get("RAG_QUERY_EXPANSION_SYNONYM_GROUPS")
+        if raw_synonym_groups:
+            try:
+                parsed = json.loads(raw_synonym_groups)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                parsed = None
+            if isinstance(parsed, list):
+                synonym_groups = [group for group in parsed if isinstance(group, list)]
         return QueryExpansionSettings(
-            enabled=self._bool(values, "RAG_QUERY_EXPANSION_ENABLED", True),
+            enabled=self._bool(values, "RAG_QUERY_EXPANSION_ENABLED", False),
             llm_enabled=self._bool(values, "RAG_QUERY_EXPANSION_LLM_ENABLED", False),
             max_variants=max_variants,
+            synonym_groups=synonym_groups,
         )
 
     def get_weights(self) -> RetrievalWeights:
@@ -216,6 +220,19 @@ class RetrievalServiceSettingsStore:
             }
         )
         return self.get_vlm()
+
+    def save_query_expansion(self, settings: QueryExpansionSettings) -> QueryExpansionSettings:
+        self._save(
+            {
+                "RAG_QUERY_EXPANSION_ENABLED": settings.enabled,
+                "RAG_QUERY_EXPANSION_LLM_ENABLED": settings.llm_enabled,
+                "RAG_QUERY_EXPANSION_MAX_VARIANTS": settings.max_variants,
+                "RAG_QUERY_EXPANSION_SYNONYM_GROUPS": json.dumps(
+                    settings.synonym_groups, ensure_ascii=False
+                ),
+            }
+        )
+        return self.get_query_expansion()
 
     def save_weights(self, settings: RetrievalWeights) -> RetrievalWeights:
         self._save(

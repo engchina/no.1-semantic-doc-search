@@ -19,7 +19,7 @@ from xml.etree import ElementTree
 
 from docx import Document
 from PIL import Image
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from pptx import Presentation
 
 from app.rag.clients import embedding_client, mineru_client, ocr_client, vlm_client
@@ -32,13 +32,16 @@ from app.services.parallel_processor import _convert_file_to_images_worker
 
 logger = logging.getLogger(__name__)
 
-INDEX_OUTPUT_CONTRACT = """Return one JSON object with exactly this technical shape:
+INDEX_OUTPUT_CONTRACT = """出力形式:
+- 次の技術的な形に厳密に一致するJSONオブジェクトを1つだけ返す
+- 裏付けのない事実や不確かな事実は省略する
+- 他のキーは追加しない
+
 {
-  "summary": "concise source-grounded summary",
-  "keywords": ["searchable term"],
-  "facts": [{"text": "source-grounded fact", "source_locator": "page:N", "confidence": 0.0}]
-}
-Omit unsupported or uncertain facts. Do not add any other keys."""
+  "summary": "ソースに基づく短い要約",
+  "keywords": ["検索に使える語"],
+  "facts": [{"text": "ソースに基づく事実", "source_locator": "page:N", "confidence": 0.0}]
+}"""
 
 
 @dataclass
@@ -385,9 +388,9 @@ async def _build_profile_facets(
     facets: list[VlmFacetRecord] = []
     for item in _page_evidence(evidence):
         prompt = (
-            f"Administrator extraction instruction:\n{profile.extraction_prompt}\n\n"
-            f"Document context: {json.dumps({'object_name': object_name, 'page_number': item.page_number}, ensure_ascii=False)}\n"
-            f"Page text:\n{item.raw_text[:12000]}\n\nSource locator: {item.source_locator}\n\n"
+            f"管理者の抽出指示:\n{profile.extraction_prompt}\n\n"
+            f"文書コンテキスト: {json.dumps({'object_name': object_name, 'page_number': item.page_number}, ensure_ascii=False)}\n"
+            f"ページテキスト:\n{item.raw_text[:12000]}\n\n出典位置: {item.source_locator}\n\n"
             f"{INDEX_OUTPUT_CONTRACT}"
         )
         output = VlmExtractionOutput.model_validate(

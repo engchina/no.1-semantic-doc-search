@@ -7,8 +7,55 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-DEFAULT_EXTRACTION_PROMPT = (
-    "Extract the visual and textual information that will make this source easier to find."
+PROFILE_DOCUMENT_PAGE_PROMPT = (
+    "文書・資料・ページを後から特定しやすくするため、次の情報を抽出してください。\n"
+    "- 資料種別\n"
+    "- 主題\n"
+    "- 項目名、章、セクション\n"
+    "- 数値、条件、比較対象\n"
+    "- ページ特定に有効なキーワード\n"
+    "- 検索に使える短い要約、キーワード、根拠付き事実\n"
+    "- 元の内容にない推測は加えない"
+)
+PROFILE_SPEC_DATA_PROMPT = (
+    "仕様・条件・データ確認に使える情報として、次の情報を抽出してください。\n"
+    "- 対象項目\n"
+    "- 機能、性能\n"
+    "- 数値、単位、制限\n"
+    "- 対応範囲\n"
+    "- 比較条件\n"
+    "- 判断に必要な根拠情報\n"
+    "- 検索に使える短い要約、キーワード、根拠付き事実\n"
+    "- 元の内容にない推測は加えない"
+)
+PROFILE_VISUAL_PROMPT = (
+    "画像やビジュアル資料を探しやすくするため、次の情報を抽出してください。\n"
+    "- 主対象\n"
+    "- 色、形、素材\n"
+    "- 数量、配置、位置関係\n"
+    "- 背景や周辺要素\n"
+    "- 見え方、角度、構図\n"
+    "- 検索に有効なキーワード\n"
+    "- 検索に使える短い要約、キーワード、根拠付き事実\n"
+    "- 元の内容にない推測は加えない"
+)
+DEFAULT_EXTRACTION_PROMPT = PROFILE_VISUAL_PROMPT
+
+DEFAULT_QUERY_SYNONYM_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("請求書", "インボイス"),
+    ("伝票", "文書"),
+    ("経費", "費用"),
+    ("申請", "申込"),
+    ("承認", "承認者"),
+    ("保管", "保存", "格納"),
+    ("原本", "原紙"),
+    ("規程", "規則", "ポリシー"),
+    ("手順", "手順書", "マニュアル"),
+    ("検索", "探索"),
+    ("表", "表形式", "テーブル"),
+    ("図", "図版", "画像"),
+    ("支払", "支払い"),
+    ("期限", "期日"),
 )
 
 
@@ -44,17 +91,17 @@ def initial_profiles() -> list[ProfileConfig]:
             slot_no=1,
             name="Profile 1",
             enabled=True,
-            extraction_prompt=DEFAULT_EXTRACTION_PROMPT,
+            extraction_prompt=PROFILE_DOCUMENT_PAGE_PROMPT,
         ),
         ProfileConfig(
             slot_no=2,
             name="Profile 2",
-            extraction_prompt=DEFAULT_EXTRACTION_PROMPT,
+            extraction_prompt=PROFILE_SPEC_DATA_PROMPT,
         ),
         ProfileConfig(
             slot_no=3,
             name="Profile 3",
-            extraction_prompt=DEFAULT_EXTRACTION_PROMPT,
+            extraction_prompt=PROFILE_VISUAL_PROMPT,
         ),
     ]
 
@@ -155,20 +202,67 @@ class GlobalVlmSettings(BaseModel):
     verify_enabled: bool = True
     query_prompt: str = Field(
         default=(
-            "Generate up to three concise search variants that preserve the user's meaning. "
-            "Return JSON with query_variants and intent."
+            "ユーザーの問い合わせを検索しやすく整理してください。\n"
+            "- 元の目的を保つ\n"
+            "- 重要条件を抽出する\n"
+            "- 視覚情報、文書情報、仕様情報を考慮する\n"
+            "- 表記ゆれを考慮する\n"
+            "- 短い検索バリエーションを最大3件作成する\n"
+            "- intentは日本語の短い検索意図名で返す\n"
+            "- 必ずJSONで返す\n"
+            "- 使用するキーはquery_variantsとintentのみ"
         ),
         min_length=1,
         max_length=40_000,
     )
     verify_prompt: str = Field(
         default=(
-            "Verify whether the candidate image satisfies the user's request. "
-            "Return JSON with verified, confidence, evidence, and failed_constraints."
+            "候補画像がユーザー条件に合っているか確認してください。\n"
+            "- 主対象を確認する\n"
+            "- 重要な視覚特徴を確認する\n"
+            "- 数量、配置、位置関係を確認する\n"
+            "- 背景や周辺要素を確認する\n"
+            "- ユーザーが重視している条件を確認する\n"
+            "- 一致ならverifiedをtrueにする\n"
+            "- 一部一致または不一致ならverifiedをfalseにする\n"
+            "- 必ずJSONで返す\n"
+            "- 使用するキーはverified、confidence、evidence、failed_constraintsのみ"
         ),
         min_length=1,
         max_length=40_000,
     )
+
+
+class QueryExpansionSettings(BaseModel):
+    enabled: bool = False
+    llm_enabled: bool = False
+    max_variants: int = Field(default=3, ge=1, le=8)
+    synonym_groups: list[list[str]] = Field(
+        default_factory=lambda: [list(group) for group in DEFAULT_QUERY_SYNONYM_GROUPS],
+        max_length=200,
+    )
+
+    @field_validator("synonym_groups")
+    @classmethod
+    def normalize_synonyms(cls, groups: list[list[str]]) -> list[list[str]]:
+        normalized_groups: list[list[str]] = []
+        seen_groups: set[tuple[str, ...]] = set()
+        for group in groups:
+            normalized: list[str] = []
+            seen_terms: set[str] = set()
+            for term in group:
+                value = " ".join(str(term).split())
+                key = value.casefold()
+                if value and key not in seen_terms:
+                    normalized.append(value)
+                    seen_terms.add(key)
+            if len(normalized) < 2:
+                continue
+            group_key = tuple(term.casefold() for term in normalized)
+            if group_key not in seen_groups:
+                normalized_groups.append(normalized)
+                seen_groups.add(group_key)
+        return normalized_groups
 
 
 class RetrievalWeights(BaseModel):
@@ -186,6 +280,7 @@ class RetrievalSettingsResponse(BaseModel):
     ocr: OcrSettings
     rerank: RerankSettings
     vlm: GlobalVlmSettings
+    query_expansion: QueryExpansionSettings
     weights: RetrievalWeights
     vlm_model: str = ""
 

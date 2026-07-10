@@ -32,22 +32,6 @@ from app.services.oci_service import oci_service
 RERANK_BATCH_SIZE = 100
 RERANK_FINALIST_COUNT = 100
 WHITESPACE_PATTERN = re.compile(r"\s+")
-SYNONYM_GROUPS: tuple[tuple[str, ...], ...] = (
-    ("請求書", "インボイス", "invoice", "bill"),
-    ("伝票", "document", "voucher"),
-    ("経費", "費用", "expense", "cost"),
-    ("申請", "申込", "request", "application"),
-    ("承認", "承認者", "approve", "approval"),
-    ("保管", "保存", "格納", "storage", "archive"),
-    ("原本", "原紙", "original"),
-    ("規程", "規則", "ポリシー", "policy"),
-    ("手順", "手順書", "マニュアル", "manual", "procedure"),
-    ("検索", "探索", "search", "retrieval"),
-    ("表", "表形式", "テーブル", "table"),
-    ("図", "図版", "画像", "figure", "image"),
-    ("支払", "支払い", "payment"),
-    ("期限", "期日", "due date", "deadline"),
-)
 
 
 @dataclass
@@ -99,10 +83,10 @@ def _dedupe_strings(values: list[str]) -> list[str]:
     return unique
 
 
-def _matching_expansions(query: str) -> list[str]:
+def _matching_expansions(query: str, synonym_groups: list[list[str]]) -> list[str]:
     lowered = query.casefold()
     expansions: list[str] = []
-    for group in SYNONYM_GROUPS:
+    for group in synonym_groups:
         if not any(term.casefold() in lowered for term in group):
             continue
         for term in group:
@@ -111,13 +95,15 @@ def _matching_expansions(query: str) -> list[str]:
     return expansions
 
 
-def _deterministic_query_variants(query: str, *, enabled: bool, max_variants: int) -> list[str]:
+def _deterministic_query_variants(
+    query: str, *, enabled: bool, max_variants: int, synonym_groups: list[list[str]]
+) -> list[str]:
     normalized = _normalize_query(query)
     if not normalized:
         return []
     if not enabled or max_variants <= 1:
         return [normalized]
-    expansions = _matching_expansions(normalized)
+    expansions = _matching_expansions(normalized, synonym_groups)
     if not expansions:
         return [normalized]
     return _dedupe_strings([
@@ -133,22 +119,31 @@ async def _query_plan(query: str) -> QueryPlan:
         query,
         enabled=expansion.enabled,
         max_variants=expansion.max_variants,
+        synonym_groups=expansion.synonym_groups,
     )
     source = "deterministic" if query.strip() and expansion.enabled else "off"
     fallback = QueryPlan(variants=fallback_variants, query_expansion_source=source)
-    if not fallback_variants or not expansion.llm_enabled:
+    if not fallback_variants:
         return fallback
     vlm_settings = retrieval_service_settings.get_vlm()
-    prompt = f"{vlm_settings.query_prompt}\n\nUser query:\n{query}"
+    use_llm_variants = expansion.enabled and expansion.llm_enabled
+    use_llm_intent = vlm_settings.query_enabled
+    if not use_llm_variants and not use_llm_intent:
+        return fallback
+    prompt = f"{vlm_settings.query_prompt}\n\nユーザーの問い合わせ:\n{query}"
     try:
         output = _QueryOutput.model_validate(await vlm_client.generate_json(prompt=prompt))
     except Exception:
         return fallback
-    variants = _dedupe_strings([query, *output.query_variants])[:expansion.max_variants]
+    variants = (
+        _dedupe_strings([query, *output.query_variants])[:expansion.max_variants]
+        if use_llm_variants
+        else fallback_variants
+    )
     return QueryPlan(
         variants=variants or fallback_variants,
-        intent=output.intent,
-        query_expansion_source="llm" if variants else source,
+        intent=(output.intent or fallback.intent) if use_llm_intent else fallback.intent,
+        query_expansion_source="llm" if use_llm_variants and variants else source,
     )
 
 
@@ -299,12 +294,12 @@ async def _verify_candidates(
                 raise RuntimeError("candidate image is unavailable")
             prompt = (
                 f"{settings.verify_prompt}\n\n"
-                f"User query: {query}\n"
-                f"Candidate context: {_candidate_text(item)}"
+                f"ユーザーの問い合わせ: {query}\n"
+                f"候補コンテキスト: {_candidate_text(item)}"
             )
             images = [(image, "image/png")]
             if query_image is not None:
-                prompt += "\nImage 1 is the query reference. Image 2 is the candidate."
+                prompt += "\n画像1は問い合わせの参照画像です。画像2は候補画像です。"
                 images = [(query_image, query_image_media_type), (image, "image/png")]
             result = _VerifyOutput.model_validate(
                 await vlm_client.generate_json(prompt=prompt, images=images)
@@ -357,9 +352,10 @@ class SearchPipeline:
         await finish_step("query_plan")
 
         await step("query_variants", "検索バリエーションを生成しています")
-        query_text = " ".join(plan.variants)
+        query_variants = plan.variants or _dedupe_strings([query])
+        query_text = " ".join(query_variants)
         query_plan = {
-            "variants": plan.variants,
+            "variants": query_variants,
             "intent": plan.intent,
             "query_expansion_source": plan.query_expansion_source,
         }
@@ -386,10 +382,11 @@ class SearchPipeline:
 
         degraded: list[str] = []
         await step("embedding", "検索ベクトルを作成しています")
-        query_embedding: list[float] | None = None
-        if query.strip():
+        variant_embeddings: list[tuple[str, list[float]]] = []
+        if query_variants:
             try:
-                query_embedding = (await embedding_client.text([query]))[0]
+                embeddings = await embedding_client.text(query_variants)
+                variant_embeddings = list(zip(query_variants, embeddings))
             except Exception:
                 degraded.append("text_embedding")
         image_embedding: list[float] | None = None
@@ -406,49 +403,55 @@ class SearchPipeline:
         branch_k = max(rerank_settings.candidate_count, min(500, top_k * 5))
         tasks: list[tuple[str, float, Any]] = []
 
-        if query_text and weights.oracle_text > 0:
-            tasks.append(
-                (
-                    "oracle_text",
-                    weights.oracle_text,
-                    asyncio.to_thread(
-                        rag_repository.keyword_search,
-                        query=query_text,
-                        top_k=branch_k,
-                        user_hash=user_hash,
-                        current_version_only=current_version_only,
-                        document_types=document_types,
-                        filename_filter=filename_filter,
-                    ),
+        def route_name(name: str, index: int, total: int) -> str:
+            return name if total == 1 else f"{name}_{index}"
+
+        if query_variants and weights.oracle_text > 0:
+            weight = weights.oracle_text / len(query_variants)
+            for index, variant in enumerate(query_variants, start=1):
+                tasks.append(
+                    (
+                        route_name("oracle_text", index, len(query_variants)),
+                        weight,
+                        asyncio.to_thread(
+                            rag_repository.keyword_search,
+                            query=variant,
+                            top_k=branch_k,
+                            user_hash=user_hash,
+                            current_version_only=current_version_only,
+                            document_types=document_types,
+                            filename_filter=filename_filter,
+                        ),
+                    )
                 )
-            )
-        if query_embedding is not None and weights.text_vector > 0:
-            tasks.append(
-                (
-                    "text_vector",
-                    weights.text_vector,
-                    asyncio.to_thread(
-                        rag_repository.vector_search,
-                        embedding=query_embedding,
-                        column="text_embedding",
-                        channel="text_vector",
-                        top_k=branch_k,
-                        user_hash=user_hash,
-                        current_version_only=current_version_only,
-                        document_types=document_types,
-                        filename_filter=filename_filter,
-                    ),
+        if variant_embeddings and weights.text_vector > 0:
+            weight = weights.text_vector / len(variant_embeddings)
+            for index, (_, embedding) in enumerate(variant_embeddings, start=1):
+                tasks.append(
+                    (
+                        route_name("text_vector", index, len(variant_embeddings)),
+                        weight,
+                        asyncio.to_thread(
+                            rag_repository.vector_search,
+                            embedding=embedding,
+                            column="text_embedding",
+                            channel="text_vector",
+                            top_k=branch_k,
+                            user_hash=user_hash,
+                            current_version_only=current_version_only,
+                            document_types=document_types,
+                            filename_filter=filename_filter,
+                        ),
+                    )
                 )
-            )
-        visual_query = image_embedding or query_embedding
-        if visual_query is not None and weights.visual_vector > 0:
+        if image_embedding is not None and weights.visual_vector > 0:
             tasks.append(
                 (
                     "visual_vector",
                     weights.visual_vector,
                     asyncio.to_thread(
                         rag_repository.vector_search,
-                        embedding=visual_query,
+                        embedding=image_embedding,
                         column="visual_embedding",
                         channel="visual_vector",
                         top_k=branch_k,
@@ -459,41 +462,66 @@ class SearchPipeline:
                     ),
                 )
             )
+        elif image is None and variant_embeddings and weights.visual_vector > 0:
+            weight = weights.visual_vector / len(variant_embeddings)
+            for index, (_, embedding) in enumerate(variant_embeddings, start=1):
+                tasks.append(
+                    (
+                        route_name("visual_vector", index, len(variant_embeddings)),
+                        weight,
+                        asyncio.to_thread(
+                            rag_repository.vector_search,
+                            embedding=embedding,
+                            column="visual_embedding",
+                            channel="visual_vector",
+                            top_k=branch_k,
+                            user_hash=user_hash,
+                            current_version_only=current_version_only,
+                            document_types=document_types,
+                            filename_filter=filename_filter,
+                        ),
+                    )
+                )
+        vlm_profile_count = max(1, len(profiles))
         for profile in profiles:
-            if query_text and weights.vlm_text > 0:
-                tasks.append(
-                    (
-                        f"vlm_profile_{profile.slot_no}_text",
-                        weights.vlm_text,
-                        asyncio.to_thread(
-                            rag_repository.facet_keyword_search,
-                            profile=profile,
-                            query=query_text,
-                            top_k=branch_k,
-                            user_hash=user_hash,
-                            current_version_only=current_version_only,
-                            document_types=document_types,
-                            filename_filter=filename_filter,
-                        ),
+            if query_variants and weights.vlm_text > 0:
+                weight = weights.vlm_text / (vlm_profile_count * len(query_variants))
+                for index, variant in enumerate(query_variants, start=1):
+                    tasks.append(
+                        (
+                            route_name(f"vlm_profile_{profile.slot_no}_text", index, len(query_variants)),
+                            weight,
+                            asyncio.to_thread(
+                                rag_repository.facet_keyword_search,
+                                profile=profile,
+                                query=variant,
+                                top_k=branch_k,
+                                user_hash=user_hash,
+                                current_version_only=current_version_only,
+                                document_types=document_types,
+                                filename_filter=filename_filter,
+                            ),
+                        )
                     )
-                )
-            if query_embedding is not None and weights.vlm_vector > 0:
-                tasks.append(
-                    (
-                        f"vlm_profile_{profile.slot_no}_vector",
-                        weights.vlm_vector,
-                        asyncio.to_thread(
-                            rag_repository.facet_vector_search,
-                            profile=profile,
-                            embedding=query_embedding,
-                            top_k=branch_k,
-                            user_hash=user_hash,
-                            current_version_only=current_version_only,
-                            document_types=document_types,
-                            filename_filter=filename_filter,
-                        ),
+            if variant_embeddings and weights.vlm_vector > 0:
+                weight = weights.vlm_vector / (vlm_profile_count * len(variant_embeddings))
+                for index, (_, embedding) in enumerate(variant_embeddings, start=1):
+                    tasks.append(
+                        (
+                            route_name(f"vlm_profile_{profile.slot_no}_vector", index, len(variant_embeddings)),
+                            weight,
+                            asyncio.to_thread(
+                                rag_repository.facet_vector_search,
+                                profile=profile,
+                                embedding=embedding,
+                                top_k=branch_k,
+                                user_hash=user_hash,
+                                current_version_only=current_version_only,
+                                document_types=document_types,
+                                filename_filter=filename_filter,
+                            ),
+                        )
                     )
-                )
         raw_results = await asyncio.gather(
             *(task for _, _, task in tasks), return_exceptions=True
         )

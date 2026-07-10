@@ -16,6 +16,7 @@ from app.rag.models import (
     MinerUSettings,
     OcrSettings,
     ProfileConfig,
+    QueryExpansionSettings,
     RerankSettings,
     RetrievalSettingsResponse,
     RetrievalWeights,
@@ -60,6 +61,7 @@ def get_retrieval_settings() -> RetrievalSettingsResponse:
         ocr=retrieval_service_settings.get_ocr(),
         rerank=retrieval_service_settings.get_rerank(),
         vlm=retrieval_service_settings.get_vlm(),
+        query_expansion=retrieval_service_settings.get_query_expansion(),
         weights=retrieval_service_settings.get_weights(),
         vlm_model=enterprise.model or "",
     )
@@ -157,8 +159,8 @@ async def test_profile(slot_no: int, request: PromptTestRequest) -> dict[str, ob
     except ValueError as error:
         raise HTTPException(status_code=422, detail="image_base64 is invalid") from error
     prompt = (
-        f"Administrator extraction instruction:\n{prompt_text}\n\n"
-        f"Page text:\n{request.page_text}\n\nSource locator: page:1\n\n"
+        f"管理者の抽出指示:\n{prompt_text}\n\n"
+        f"ページテキスト:\n{request.page_text}\n\n出典位置: page:1\n\n"
         f"{INDEX_OUTPUT_CONTRACT}"
     )
     try:
@@ -297,6 +299,18 @@ async def get_vlm_settings() -> GlobalVlmSettings:
 @router.put("/vlm", response_model=GlobalVlmSettings)
 async def save_vlm_settings(settings: GlobalVlmSettings) -> GlobalVlmSettings:
     return retrieval_service_settings.save_vlm(settings)
+
+
+@router.get("/query-expansion", response_model=QueryExpansionSettings)
+async def get_query_expansion_settings() -> QueryExpansionSettings:
+    return retrieval_service_settings.get_query_expansion()
+
+
+@router.put("/query-expansion", response_model=QueryExpansionSettings)
+async def save_query_expansion_settings(
+    settings: QueryExpansionSettings,
+) -> QueryExpansionSettings:
+    return retrieval_service_settings.save_query_expansion(settings)
 
 
 @router.get("/weights", response_model=RetrievalWeights)

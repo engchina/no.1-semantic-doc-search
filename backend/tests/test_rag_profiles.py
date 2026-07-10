@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from io import BytesIO
 from types import SimpleNamespace
@@ -27,6 +28,9 @@ from app.rag.models import (
     OcrSettings,
     OcrEngineSettings,
     MinerUSettings,
+    PROFILE_DOCUMENT_PAGE_PROMPT,
+    PROFILE_SPEC_DATA_PROMPT,
+    PROFILE_VISUAL_PROMPT,
     ProfileConfig,
     RerankSettings,
     GlobalVlmSettings,
@@ -42,7 +46,7 @@ from app.rag.oracle_repository import (
     oracle_text_terms,
     rag_repository,
 )
-from app.rag.oracle_schema import schema_sql, system_table_names
+from app.rag.oracle_schema import schema_digest, schema_sql, schema_statements, system_table_names
 from app.rag.profile_validation import profile_hash, validate_profile
 from app.rag.search_pipeline import (
     QueryPlan,
@@ -222,11 +226,35 @@ def test_search_pipeline_runs_vlm_verify_only_when_requested() -> None:
     verify_candidates.assert_awaited_once()
 
 
-def test_query_plan_uses_deterministic_expansion_by_default() -> None:
+def test_query_plan_uses_original_query_when_expansion_and_query_llm_are_off() -> None:
     with (
         patch(
             "app.rag.search_pipeline.retrieval_service_settings.get_query_expansion",
             return_value=service_settings.QueryExpansionSettings(),
+        ),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_vlm",
+            return_value=GlobalVlmSettings(query_enabled=False),
+        ),
+        patch("app.rag.search_pipeline.vlm_client.generate_json", new=AsyncMock()) as generate_json,
+    ):
+        plan = asyncio.run(_query_plan("請求書"))
+
+    generate_json.assert_not_awaited()
+    assert plan.query_expansion_source == "off"
+    assert plan.intent == "general"
+    assert plan.variants == ["請求書"]
+
+
+def test_query_plan_uses_rule_based_expansion_without_query_llm() -> None:
+    with (
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_query_expansion",
+            return_value=service_settings.QueryExpansionSettings(enabled=True),
+        ),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_vlm",
+            return_value=GlobalVlmSettings(query_enabled=False),
         ),
         patch("app.rag.search_pipeline.vlm_client.generate_json", new=AsyncMock()) as generate_json,
     ):
@@ -234,29 +262,92 @@ def test_query_plan_uses_deterministic_expansion_by_default() -> None:
 
     generate_json.assert_not_awaited()
     assert plan.query_expansion_source == "deterministic"
-    assert plan.variants == ["請求書", "請求書 インボイス invoice bill", "インボイス invoice bill"]
+    assert plan.intent == "general"
+    assert plan.variants == ["請求書", "請求書 インボイス", "インボイス"]
+    assert "invoice" not in " ".join(plan.variants)
 
 
-def test_query_plan_uses_llm_only_when_enabled() -> None:
+def test_query_plan_uses_llm_variants_without_llm_intent_when_query_llm_is_off() -> None:
     with (
         patch(
             "app.rag.search_pipeline.retrieval_service_settings.get_query_expansion",
-            return_value=service_settings.QueryExpansionSettings(llm_enabled=True),
+            return_value=service_settings.QueryExpansionSettings(enabled=True, llm_enabled=True),
         ),
         patch(
             "app.rag.search_pipeline.retrieval_service_settings.get_vlm",
-            return_value=GlobalVlmSettings(query_prompt="expand"),
+            return_value=GlobalVlmSettings(query_enabled=False, query_prompt="expand"),
         ),
         patch(
             "app.rag.search_pipeline.vlm_client.generate_json",
-            new=AsyncMock(return_value={"query_variants": ["downlight"], "intent": "lighting"}),
+            new=AsyncMock(return_value={"query_variants": ["downlight"], "intent": "照明検索"}),
         ) as generate_json,
     ):
         plan = asyncio.run(_query_plan("ceiling light"))
 
     generate_json.assert_awaited_once()
     assert plan.query_expansion_source == "llm"
-    assert plan.intent == "lighting"
+    assert plan.intent == "general"
+    assert plan.variants == ["ceiling light", "downlight"]
+
+
+@pytest.mark.parametrize(
+    ("expansion", "expected_source", "expected_variants"),
+    [
+        (service_settings.QueryExpansionSettings(enabled=False), "off", ["請求書"]),
+        (
+            service_settings.QueryExpansionSettings(enabled=True, llm_enabled=False),
+            "deterministic",
+            ["請求書", "請求書 インボイス", "インボイス"],
+        ),
+    ],
+)
+def test_query_plan_uses_llm_intent_without_llm_variants_when_query_llm_is_on(
+    expansion: service_settings.QueryExpansionSettings,
+    expected_source: str,
+    expected_variants: list[str],
+) -> None:
+    with (
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_query_expansion",
+            return_value=expansion,
+        ),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_vlm",
+            return_value=GlobalVlmSettings(query_enabled=True, query_prompt="intent"),
+        ),
+        patch(
+            "app.rag.search_pipeline.vlm_client.generate_json",
+            new=AsyncMock(return_value={"query_variants": ["invoice"], "intent": "請求書検索"}),
+        ) as generate_json,
+    ):
+        plan = asyncio.run(_query_plan("請求書"))
+
+    generate_json.assert_awaited_once()
+    assert plan.query_expansion_source == expected_source
+    assert plan.intent == "請求書検索"
+    assert plan.variants == expected_variants
+
+
+def test_query_plan_uses_one_llm_call_for_variants_and_intent() -> None:
+    with (
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_query_expansion",
+            return_value=service_settings.QueryExpansionSettings(enabled=True, llm_enabled=True),
+        ),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_vlm",
+            return_value=GlobalVlmSettings(query_enabled=True, query_prompt="expand"),
+        ),
+        patch(
+            "app.rag.search_pipeline.vlm_client.generate_json",
+            new=AsyncMock(return_value={"query_variants": ["downlight"], "intent": "照明検索"}),
+        ) as generate_json,
+    ):
+        plan = asyncio.run(_query_plan("ceiling light"))
+
+    generate_json.assert_awaited_once()
+    assert plan.query_expansion_source == "llm"
+    assert plan.intent == "照明検索"
     assert plan.variants == ["ceiling light", "downlight"]
 
 
@@ -264,7 +355,7 @@ def test_query_plan_falls_back_to_deterministic_when_llm_fails() -> None:
     with (
         patch(
             "app.rag.search_pipeline.retrieval_service_settings.get_query_expansion",
-            return_value=service_settings.QueryExpansionSettings(llm_enabled=True),
+            return_value=service_settings.QueryExpansionSettings(enabled=True, llm_enabled=True),
         ),
         patch(
             "app.rag.search_pipeline.retrieval_service_settings.get_vlm",
@@ -278,7 +369,8 @@ def test_query_plan_falls_back_to_deterministic_when_llm_fails() -> None:
         plan = asyncio.run(_query_plan("請求書"))
 
     assert plan.query_expansion_source == "deterministic"
-    assert plan.variants == ["請求書", "請求書 インボイス invoice bill", "インボイス invoice bill"]
+    assert plan.intent == "general"
+    assert plan.variants == ["請求書", "請求書 インボイス", "インボイス"]
 
 
 def test_query_expansion_settings_read_env_values() -> None:
@@ -289,6 +381,7 @@ def test_query_expansion_settings_read_env_values() -> None:
             "RAG_QUERY_EXPANSION_ENABLED": "false",
             "RAG_QUERY_EXPANSION_LLM_ENABLED": "true",
             "RAG_QUERY_EXPANSION_MAX_VARIANTS": "99",
+            "RAG_QUERY_EXPANSION_SYNONYM_GROUPS": '[["浴室換気乾燥機","浴乾"],["200V"]]',
         },
     ):
         settings = service_settings.RetrievalServiceSettingsStore().get_query_expansion()
@@ -296,6 +389,7 @@ def test_query_expansion_settings_read_env_values() -> None:
     assert settings.enabled is False
     assert settings.llm_enabled is True
     assert settings.max_variants == 8
+    assert settings.synonym_groups == [["浴室換気乾燥機", "浴乾"]]
 
 
 def run_search_pipeline_for_verify(
@@ -349,6 +443,150 @@ def run_search_pipeline_for_verify(
     return result, verify_candidates, events
 
 
+def test_search_pipeline_runs_each_variant_as_own_route() -> None:
+    events: list[dict[str, Any]] = []
+
+    async def progress(event: dict[str, Any]) -> None:
+        events.append(event)
+
+    text = AsyncMock(return_value=[[0.1], [0.2]])
+    keyword_search = MagicMock(return_value=[])
+    vector_search = MagicMock(return_value=[])
+    variants = ["浴室換気乾燥機", "浴乾"]
+    with (
+        patch(
+            "app.rag.search_pipeline._query_plan",
+            new=AsyncMock(return_value=QueryPlan(variants, "product", "llm")),
+        ),
+        patch("app.rag.search_pipeline.embedding_client.text", new=text),
+        patch("app.rag.search_pipeline.profile_repository.enabled_profiles", return_value=[]),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_weights",
+            return_value=RetrievalWeights(
+                oracle_text=1,
+                text_vector=1,
+                visual_vector=1,
+                vlm_text=0,
+                vlm_vector=0,
+            ),
+        ),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_rerank",
+            return_value=RerankSettings(enabled=False, candidate_count=10, top_n=5),
+        ),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_vlm",
+            return_value=GlobalVlmSettings(verify_enabled=False),
+        ),
+        patch("app.rag.search_pipeline.rag_repository.keyword_search", keyword_search),
+        patch("app.rag.search_pipeline.rag_repository.vector_search", vector_search),
+        patch("app.rag.search_pipeline.rag_repository.record_search_audit"),
+    ):
+        asyncio.run(SearchPipeline().search(
+            query="浴室換気乾燥機",
+            top_k=1,
+            field_filters=[],
+            document_types=[],
+            current_version_only=True,
+            user_hash=None,
+            progress=progress,
+        ))
+
+    text.assert_awaited_once_with(variants)
+    assert [call.kwargs["query"] for call in keyword_search.call_args_list] == variants
+    assert keyword_search.call_count == 2
+    assert vector_search.call_count == 4
+    retrieval = next(
+        op["value"]
+        for event in events
+        for op in event.get("delta", [])
+        if op.get("path") == "/retrievalSummary"
+    )
+    channels = retrieval["channels"]
+    assert [item["weight"] for item in channels if item["channel"].startswith("oracle_text")] == [0.5, 0.5]
+    assert [item["weight"] for item in channels if item["channel"].startswith("text_vector")] == [0.5, 0.5]
+    assert [item["weight"] for item in channels if item["channel"].startswith("visual_vector")] == [0.5, 0.5]
+
+
+def test_vlm_route_weight_is_split_across_enabled_profiles() -> None:
+    def run(profile_count: int) -> tuple[list[dict[str, Any]], int, int]:
+        events: list[dict[str, Any]] = []
+
+        async def progress(event: dict[str, Any]) -> None:
+            events.append(event)
+
+        profiles = [
+            ProfileConfig(
+                slot_no=slot,
+                name=f"Profile {slot}",
+                enabled=True,
+                extraction_prompt="Extract facts",
+                current_revision_id=f"r{slot}",
+            )
+            for slot in range(1, profile_count + 1)
+        ]
+        facet_keyword_search = MagicMock(return_value=[])
+        facet_vector_search = MagicMock(return_value=[])
+        with (
+            patch(
+                "app.rag.search_pipeline._query_plan",
+                new=AsyncMock(return_value=QueryPlan(["lighting"], "product", "deterministic")),
+            ),
+            patch("app.rag.search_pipeline.embedding_client.text", new=AsyncMock(return_value=[[0.1]])),
+            patch("app.rag.search_pipeline.profile_repository.enabled_profiles", return_value=profiles),
+            patch(
+                "app.rag.search_pipeline.retrieval_service_settings.get_weights",
+                return_value=RetrievalWeights(
+                    oracle_text=0,
+                    text_vector=0,
+                    visual_vector=0,
+                    vlm_text=1,
+                    vlm_vector=1,
+                ),
+            ),
+            patch(
+                "app.rag.search_pipeline.retrieval_service_settings.get_rerank",
+                return_value=RerankSettings(enabled=False, candidate_count=10, top_n=5),
+            ),
+            patch(
+                "app.rag.search_pipeline.retrieval_service_settings.get_vlm",
+                return_value=GlobalVlmSettings(verify_enabled=False),
+            ),
+            patch("app.rag.search_pipeline.rag_repository.facet_keyword_search", facet_keyword_search),
+            patch("app.rag.search_pipeline.rag_repository.facet_vector_search", facet_vector_search),
+            patch("app.rag.search_pipeline.rag_repository.record_search_audit"),
+        ):
+            asyncio.run(SearchPipeline().search(
+                query="lighting",
+                top_k=1,
+                field_filters=[],
+                document_types=[],
+                current_version_only=True,
+                user_hash=None,
+                progress=progress,
+            ))
+
+        retrieval = next(
+            op["value"]
+            for event in events
+            for op in event.get("delta", [])
+            if op.get("path") == "/retrievalSummary"
+        )
+        return retrieval["channels"], facet_keyword_search.call_count, facet_vector_search.call_count
+
+    channels, text_count, vector_count = run(2)
+    assert text_count == 2
+    assert vector_count == 2
+    assert [item["weight"] for item in channels if item["channel"].endswith("_text")] == [0.5, 0.5]
+    assert [item["weight"] for item in channels if item["channel"].endswith("_vector")] == [0.5, 0.5]
+
+    channels, text_count, vector_count = run(1)
+    assert text_count == 1
+    assert vector_count == 1
+    assert [item["weight"] for item in channels if item["channel"].endswith("_text")] == [1]
+    assert [item["weight"] for item in channels if item["channel"].endswith("_vector")] == [1]
+
+
 def test_oracle_text_terms_default_and_env_limit(monkeypatch) -> None:
     query = " ".join(f"term{index}" for index in range(25))
 
@@ -373,6 +611,30 @@ def test_profile_has_exactly_the_vlm_extraction_fields() -> None:
         )
     with pytest.raises(ValidationError):
         ProfileConfig(slot_no=4, name="Profile", extraction_prompt="Extract facts")
+
+
+def test_default_profile_prompts_are_generic_japanese_by_slot() -> None:
+    prompts = [profile.extraction_prompt for profile in initial_profiles()]
+    assert prompts == [
+        PROFILE_DOCUMENT_PAGE_PROMPT,
+        PROFILE_SPEC_DATA_PROMPT,
+        PROFILE_VISUAL_PROMPT,
+    ]
+    for prompt in prompts:
+        assert "抽出" in prompt
+        assert "\n- " in prompt
+        assert not any(term in prompt for term in ("施工", "建築", "住宅", "顧客", "プラン"))
+
+
+def test_global_vlm_prompts_keep_json_contract_keys() -> None:
+    settings = GlobalVlmSettings()
+    assert "\n- " in settings.query_prompt
+    assert "\n- " in settings.verify_prompt
+    assert "query_variants" in settings.query_prompt
+    assert "intent" in settings.query_prompt
+    assert "intentは日本語の短い検索意図名" in settings.query_prompt
+    for key in ("verified", "confidence", "evidence", "failed_constraints"):
+        assert key in settings.verify_prompt
 
 
 def test_prompt_is_an_instruction_not_a_template() -> None:
@@ -413,6 +675,21 @@ def test_schema_separates_shared_evidence_and_vlm_facets() -> None:
     assert "SDS_FIELD_DEFINITIONS" not in ddl
     assert "SDS_PROFILE_DOCUMENT_RUNS" not in ddl
     assert all(name.startswith("SDS_") for name in system_table_names())
+
+
+def test_schema_digest_ignores_initial_profile_seed_text() -> None:
+    seed_prefixes = (
+        "INSERT INTO SDS_VLM_PROFILES ",
+        "INSERT INTO SDS_VLM_PROFILE_REVISIONS ",
+        "UPDATE SDS_VLM_PROFILES SET CURRENT_REVISION_ID=",
+    )
+    structural = [
+        statement
+        for statement in schema_statements()
+        if not statement.startswith(seed_prefixes)
+    ]
+    assert schema_digest() == hashlib.sha256("\n\n".join(structural).encode()).hexdigest()
+    assert len(structural) < len(schema_statements())
 
 
 def test_ocr_defaults_remain_global() -> None:

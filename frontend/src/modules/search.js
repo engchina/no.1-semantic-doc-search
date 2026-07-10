@@ -160,10 +160,11 @@ function stepDetails(name) {
   const rerankSummary = searchProgress.state.rerankSummary || diagnostics.rerank_summary;
   const formatSummary = searchProgress.state.formatSummary || diagnostics.format_summary;
   if (name === 'query_plan' && queryPlan?.intent) {
-    return `<div>検索意図: ${escapeHtml(queryPlan.intent)}</div>`;
+    const intentLabels = { general: '一般検索' };
+    return `<div>検索意図: ${escapeHtml(intentLabels[queryPlan.intent] || queryPlan.intent)}</div>`;
   }
   if (name === 'query_variants' && queryPlan) {
-    const sourceLabels = { deterministic: 'deterministic', llm: 'LLM', off: 'off' };
+    const sourceLabels = { deterministic: 'ルールベース', llm: 'LLM', off: '原文のみ' };
     return `
       <strong>検索バリエーション</strong>
       <div class="search-agent-chip-list">${chips(queryPlan.variants || [])}</div>

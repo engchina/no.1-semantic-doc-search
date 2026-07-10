@@ -24,7 +24,7 @@ import warnings
 from pathlib import Path
 from typing import Any, Dict
 
-import PyPDF2
+from pypdf import PdfReader
 from PIL import Image
 from pptx import Presentation
 
@@ -59,7 +59,7 @@ class DocumentProcessor:
         chunks = []
         
         with open(file_path, 'rb') as file:
-            reader = PyPDF2.PdfReader(file)
+            reader = PdfReader(file)
             page_count = len(reader.pages)
             
             for page_num, page in enumerate(reader.pages, start=1):
@@ -156,10 +156,10 @@ class DocumentProcessor:
                 
                 logger.info(f"LibreOffice変換成功: {filename} -> {pdf_path.name}")
                 
-                # PyPDF2でPDFからテキスト抽出
+                # pypdfでPDFからテキスト抽出
                 chunks = []
                 with open(pdf_path, 'rb') as pdf_file:
-                    reader = PyPDF2.PdfReader(pdf_file)
+                    reader = PdfReader(pdf_file)
                     total_pages = len(reader.pages)
                     
                     for page_num, page in enumerate(reader.pages, start=1):
@@ -186,7 +186,7 @@ class DocumentProcessor:
                     "page_count": total_pages,
                     "metadata": {
                         "format": f"{doc_type} ({doc_format})",
-                        "extraction_method": "LibreOffice + PyPDF2",
+                        "extraction_method": "LibreOffice + pypdf",
                         "conversion_quality": "high",
                         "total_pages": total_pages,
                         "extracted_chunks": len(chunks)

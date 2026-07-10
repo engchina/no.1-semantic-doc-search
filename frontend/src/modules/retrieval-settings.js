@@ -32,6 +32,25 @@ function checkbox(id, label, checked) {
   return `<label class="retrieval-check" for="${id}"><input id="${id}" type="checkbox" ${checked ? 'checked' : ''}><span>${escapeHtml(label)}</span></label>`;
 }
 
+function radio(name, id, label, value, checked) {
+  return `<label class="retrieval-check" for="${id}"><input id="${id}" name="${name}" type="radio" value="${escapeHtml(value)}" ${checked ? 'checked' : ''}><span>${escapeHtml(label)}</span></label>`;
+}
+
+function synonymGroupsToText(groups = []) {
+  return groups.map(group => group.join(', ')).join('\n');
+}
+
+function queryExpansionMode(value) {
+  if (!value?.enabled) return 'off';
+  return value.llm_enabled ? 'llm' : 'rule';
+}
+
+function synonymTextToGroups(text = '') {
+  return text.split(/\r?\n/)
+    .map(line => line.split(/[、,]/).map(term => term.trim()).filter(Boolean))
+    .filter(group => group.length > 1);
+}
+
 function currentProfile() {
   return settings.profiles.find(profile => profile.slot_no === activeSlot);
 }
@@ -101,6 +120,8 @@ function engineCard(key, title, value) {
 function renderGlobalPanels() {
   const root = document.getElementById('retrievalGlobalPanels');
   const { mineru, ocr, vlm, weights } = settings;
+  const queryExpansion = settings.query_expansion || { enabled: false, llm_enabled: false, max_variants: 3, synonym_groups: [] };
+  const mode = queryExpansionMode(queryExpansion);
   root.innerHTML = `
     <details class="retrieval-global-section">
       <summary><span><i class="fas fa-file-alt"></i> 共通の文書解析</span><small>MinerU・OCR</small></summary>
@@ -116,12 +137,27 @@ function renderGlobalPanels() {
     <details class="retrieval-global-section">
       <summary><span><i class="fas fa-search"></i> 共通の検索</span><small>Oracle Text・ベクトル</small></summary>
       <div class="retrieval-global-content">
-        <section class="retrieval-card"><h3>詳細な召回バランス</h3><p class="retrieval-help">通常は変更不要です。すべて同じ値なら各ルートを等しく扱います。</p>
+        <section class="retrieval-card"><h3>検索バリエーション</h3>
+          <div class="retrieval-actions">
+            ${radio('query-expansion-mode', 'query-expansion-mode-off', '原文のみ', 'off', mode === 'off')}
+            ${radio('query-expansion-mode', 'query-expansion-mode-rule', 'ルールベース', 'rule', mode === 'rule')}
+            ${radio('query-expansion-mode', 'query-expansion-mode-llm', 'LLM', 'llm', mode === 'llm')}
+          </div>
+          <div class="retrieval-grid retrieval-grid-3">
+            <div><label class="form-label" for="query-expansion-max">最大バリエーション数</label><input id="query-expansion-max" type="number" min="1" max="8" class="form-input" value="${queryExpansion.max_variants}"></div>
+          </div>
+          <label class="form-label" for="query-expansion-synonyms">ルールベース同義語</label>
+          <textarea id="query-expansion-synonyms" class="form-input retrieval-prompt-small">${escapeHtml(synonymGroupsToText(queryExpansion.synonym_groups))}</textarea>
+          <p class="retrieval-help">1行に1グループ、カンマ区切りで入力します。例: 浴室換気乾燥機, 浴乾, 換気乾燥機</p>
+          <div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-query-expansion">保存</button></div>
+        </section>
+        <section class="retrieval-card"><h3>検索ルートの重み</h3><p class="retrieval-help">相対倍率です。合計1不要、0で無効。VLM抽出は有効Profile数で配分します。通常は変更不要です。</p>
           <div class="retrieval-weight-grid">${[
-            ['oracle_text', 'キーワード検索'], ['text_vector', 'テキスト類似'], ['visual_vector', '画像類似'],
-            ['vlm_text', 'VLM抽出キーワード'], ['vlm_vector', 'VLM抽出類似']
+            ['oracle_text', 'キーワード検索'], ['text_vector', 'テキスト類似'],
+            ['vlm_text', 'VLM抽出キーワード'], ['vlm_vector', 'VLM抽出類似'],
+            ['visual_vector', '画像類似']
           ].map(([key, label]) => `<div><label class="form-label" for="weight-${key}">${label}</label><input id="weight-${key}" type="number" min="0" max="10" step="0.1" class="form-input" value="${weights[key]}"></div>`).join('')}</div>
-          <div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-weights">バランスを保存</button></div>
+          <div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-weights">重みを保存</button></div>
         </section>
       </div>
     </details>
@@ -279,9 +315,12 @@ function bindEvents(root) {
         await api('/rerank/test', { method: 'POST', timeout: 120000 }); utilsShowToast('再ランキング接続に成功しました', 'success');
       } else if (action === 'save-vlm') {
         settings.vlm = await api('/vlm', { method: 'PUT', body: JSON.stringify({ query_enabled: document.getElementById('vlm-query-enabled').checked, verify_enabled: document.getElementById('vlm-verify-enabled').checked, query_prompt: document.getElementById('vlm-query-prompt').value.trim(), verify_prompt: document.getElementById('vlm-verify-prompt').value.trim() }) }); utilsShowToast('VLM共通設定を保存しました', 'success');
+      } else if (action === 'save-query-expansion') {
+        const mode = document.querySelector('input[name="query-expansion-mode"]:checked')?.value || 'rule';
+        settings.query_expansion = await api('/query-expansion', { method: 'PUT', body: JSON.stringify({ enabled: mode !== 'off', llm_enabled: mode === 'llm', max_variants: Number(document.getElementById('query-expansion-max').value), synonym_groups: synonymTextToGroups(document.getElementById('query-expansion-synonyms').value) }) }); utilsShowToast('検索バリエーション設定を保存しました', 'success');
       } else if (action === 'save-weights') {
-        const keys = ['oracle_text', 'text_vector', 'visual_vector', 'vlm_text', 'vlm_vector'];
-        settings.weights = await api('/weights', { method: 'PUT', body: JSON.stringify(Object.fromEntries(keys.map(key => [key, Number(document.getElementById(`weight-${key}`).value)]))) }); utilsShowToast('召回バランスを保存しました', 'success');
+        const keys = ['oracle_text', 'text_vector', 'vlm_text', 'vlm_vector', 'visual_vector'];
+        settings.weights = await api('/weights', { method: 'PUT', body: JSON.stringify(Object.fromEntries(keys.map(key => [key, Number(document.getElementById(`weight-${key}`).value)]))) }); utilsShowToast('検索ルートの重みを保存しました', 'success');
       }
     } catch (error) {
       inlineError(button, error.message);
