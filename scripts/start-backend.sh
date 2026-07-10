@@ -11,9 +11,12 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../" && pwd)"
 cd "$ROOT_DIR"
 
-# .envファイルから環境変数を読み込み
+# .envはpython-dotenvがアプリ側で読み込む。
+# シェルはexec前に必要なORACLE_CLIENT_LIB_DIRのみ抽出する。
+# ponytail: 全体sourceは.envの引用符/空白入り値で壊れるため、必要な1変数だけ読む
 if [ -f "$ROOT_DIR/.env" ]; then
-  export $(grep -v '^#' "$ROOT_DIR/.env" | xargs)
+  ORACLE_CLIENT_LIB_DIR="${ORACLE_CLIENT_LIB_DIR:-$(grep -E '^ORACLE_CLIENT_LIB_DIR=' "$ROOT_DIR/.env" | tail -n1 | cut -d= -f2-)}"
+  export ORACLE_CLIENT_LIB_DIR
 fi
 
 # Oracle Client環境変数を設定

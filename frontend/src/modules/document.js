@@ -1228,6 +1228,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
+  const streamStartedAt = Date.now();
   
   // ジョブIDをヘッダーから取得
   const jobId = response.headers.get('X-Job-ID');
@@ -1291,8 +1292,39 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               break;
                         
             case 'heartbeat':
-              // ハートビートは接続維持のため、UIは更新せず接続続行を示す
-              console.log('ハートビート受信:', data.timestamp);
+              {
+                const elapsedSeconds = Number.isFinite(Number(data.elapsed_seconds))
+                  ? Number(data.elapsed_seconds)
+                  : Math.round((Date.now() - streamStartedAt) / 1000);
+                const elapsedLabel = `${Math.max(0, Math.round(elapsedSeconds))}秒経過`;
+                const heartbeatFileIndex = data.file_index || currentFileIndex;
+                const heartbeatTotalFiles = data.total_files || totalFiles;
+                const heartbeatJobId = data.job_id || jobId;
+                const actionLabel = operationType === 'vectorize'
+                  ? '索引処理中'
+                  : operationType === 'delete'
+                    ? '削除中'
+                    : 'ページ画像化中';
+                if (useProgressUI) {
+                  const update = {
+                    overallStatus: heartbeatFileIndex > 0
+                      ? `処理中: ${heartbeatFileIndex}/${heartbeatTotalFiles}件 (${elapsedLabel})`
+                      : `${actionLabel}... ${elapsedLabel}`,
+                    jobId: heartbeatJobId
+                  };
+                  if (heartbeatFileIndex > 0) {
+                    update.fileIndex = heartbeatFileIndex;
+                    update.status = `${actionLabel}... ${elapsedLabel}`;
+                  }
+                  updateProcessProgressUI(update);
+                } else {
+                  const progressText = document.querySelector('#loadingOverlay .loading-progress-percent')?.textContent || '';
+                  const progressMatch = progressText.match(/(\d+)%/);
+                  const currentProgress = progressMatch ? Number(progressMatch[1]) / 100 : null;
+                  const fileLine = data.file_name ? `\n${data.file_name}` : '';
+                  updateLoadingMessage(`${actionLabel}... ${elapsedLabel}${fileLine}`, currentProgress, heartbeatJobId);
+                }
+              }
               break;
                         
             case 'file_start':
@@ -1437,15 +1469,18 @@ async function processStreamingResponse(response, totalFiles, operationType) {
               // ベクトル化処理開始
               currentFileIndex = data.file_index || currentFileIndex;
               totalPages = data.total_pages;
+              const vectorizeStatus = data.total_pages
+                ? `ベクトル化開始 (${data.total_pages}ページ)`
+                : 'インデックス作成開始';
               if (useProgressUI) {
                 updateProcessProgressUI({
                   fileIndex: currentFileIndex,
-                  status: `ベクトル化開始 (${data.total_pages}ページ)`,
+                  status: vectorizeStatus,
                   progress: getMonotonicProgress(currentFileIndex, 55),
                   jobId
                 });
               } else {
-                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: ベクトル化開始 (${data.total_pages}ページ)`, totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0, jobId);
+                updateLoadingMessage(`ファイル ${currentFileIndex}/${totalFiles}\n${data.file_name}\nステータス: ${vectorizeStatus}`, totalFiles > 0 ? (currentFileIndex - 1) / totalFiles : 0, jobId);
               }
               break;
                         
@@ -1477,7 +1512,7 @@ async function processStreamingResponse(response, totalFiles, operationType) {
                 const rawProgress = totalPages > 0 ? Math.round((currentPageIndex / totalPages) * 44) + 55 : 55;
                 const pageProgressPercent = getMonotonicProgress(fileIdx, rawProgress);
                 let pageStatusMsg = operationType === 'vectorize' 
-                  ? `ページ ${currentPageIndex}/${totalPages} をベクトル化中`
+                  ? `索引処理 ${currentPageIndex}/${totalPages} を実行中`
                   : `ページ ${currentPageIndex}/${totalPages} を処理中`;
                 updateProcessProgressUI({
                   fileIndex: fileIdx,
@@ -1803,7 +1838,7 @@ function showProcessProgressUI(objectNames, operationType) {
             </div>
             <span id="process-progress-percent-${index}" class="text-xs font-semibold text-gray-600" style="min-width: 40px;">0%</span>
           </div>
-          <div id="process-status-${index}" class="text-xs text-gray-500 mt-1">待機中...</div>
+          <div id="process-status-${index}" class="text-xs text-gray-500 mt-1" aria-live="polite">待機中...</div>
         </div>
       </div>
     `;
@@ -1834,7 +1869,7 @@ function showProcessProgressUI(objectNames, operationType) {
       </div>
       
       <div class="mt-3 pt-3 border-t border-gray-200">
-        <div id="process-overall-status" class="text-sm font-semibold text-gray-700">準備中...</div>
+        <div id="process-overall-status" class="text-sm font-semibold text-gray-700" aria-live="polite">準備中...</div>
       </div>
       
       <div id="process-cancel-container" class="mt-3 hidden">
@@ -1899,7 +1934,8 @@ function updateProcessProgressUI(params) {
     // 色の変更
     if (fileDiv) {
       if (isSuccess) {
-        fileDiv.classList.remove('bg-gray-50', 'border-gray-200', 'bg-red-50', 'border-red-200');
+        fileDiv.classList.remove('bg-gray-50', 'border-gray-200', 'bg-red-50', 'border-red-200', 'progress-active');
+        fileDiv.setAttribute('aria-busy', 'false');
         fileDiv.classList.add('bg-green-50', 'border-green-200');
         if (progressBar) {
           progressBar.classList.remove('bg-blue-500', 'bg-red-500');
@@ -1910,7 +1946,8 @@ function updateProcessProgressUI(params) {
           statusDiv.classList.add('text-green-600');
         }
       } else if (isError) {
-        fileDiv.classList.remove('bg-gray-50', 'border-gray-200', 'bg-green-50', 'border-green-200');
+        fileDiv.classList.remove('bg-gray-50', 'border-gray-200', 'bg-green-50', 'border-green-200', 'progress-active');
+        fileDiv.setAttribute('aria-busy', 'false');
         fileDiv.classList.add('bg-red-50', 'border-red-200');
         if (progressBar) {
           progressBar.classList.remove('bg-blue-500', 'bg-green-500');
@@ -1920,6 +1957,9 @@ function updateProcessProgressUI(params) {
           statusDiv.classList.remove('text-gray-500', 'text-green-600');
           statusDiv.classList.add('text-red-600');
         }
+      } else if (status || progress !== undefined) {
+        fileDiv.classList.add('progress-active');
+        fileDiv.setAttribute('aria-busy', 'true');
       }
     }
   }
@@ -2044,15 +2084,13 @@ export default {
 export async function refreshDbTables() {
   try {
     utilsShowLoading('統計情報を再取得中...');
-    
-    // 先に統計情報を更新
+
     const statsResult = await authApiCall('/ai/api/database/tables/refresh-statistics', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 180000
     });
-    
+
     // ページを1にリセット
     appState.set('dbTablesPage', 1);
     
@@ -2060,13 +2098,11 @@ export async function refreshDbTables() {
     utilsShowLoading('テーブル一覧を再取得中...');
     await loadDbTables();
     utilsHideLoading();
-    
-    // オーバーレイが非表示になった後にトーストを表示
-    if (!statsResult.success) {
-      utilsShowToast(`統計情報再取得エラー: ${statsResult.message}`, 'error');
-    } else {
-      utilsShowToast(statsResult.message, 'success');
-    }
+
+    utilsShowToast(
+      statsResult.message,
+      statsResult.success ? 'success' : 'error'
+    );
   } catch (error) {
     utilsHideLoading();
     utilsShowToast(`再取得エラー: ${error.message}`, 'error');

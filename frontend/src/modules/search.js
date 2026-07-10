@@ -16,12 +16,375 @@
  * - エラーハンドリングとユーザー通知
  */
 
-import { apiCall as authApiCall } from './auth.js';
+import { apiCall as authApiCall, fetchWithAuth as authFetchWithAuth } from './auth.js';
 import { showLoading as utilsShowLoading, hideLoading as utilsHideLoading, showToast as utilsShowToast, showImageModal as utilsShowImageModal } from './utils.js';
 
 // 検索画像の状態管理
 let selectedSearchImage = null;
 let currentSearchType = 'text'; // 'text' or 'image'
+let dynamicFieldDefinitions = [];
+let dynamicFiltersLoaded = false;
+let v2RetrievalActive = false;
+let currentSearchController = null;
+let searchCancelled = false;
+let searchProgressTimer = null;
+const searchProgress = { startedAt: 0, state: {}, steps: new Map() };
+
+const stepLabels = {
+  query_plan: '検索意図の整理',
+  embedding: 'ベクトル作成',
+  retrieval: '候補取得',
+  rerank: '再ランキング',
+  verify: 'VLM確認',
+  format_results: '結果整形'
+};
+
+const escapeHtml = (value) => String(value ?? '')
+  .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+
+export async function loadDynamicSearchFilters() {
+  try {
+    const data = await authApiCall('/ai/api/search/v2/filters');
+    v2RetrievalActive = Boolean(data.v2_retrieval_active);
+    dynamicFieldDefinitions = data.fields || [];
+    dynamicFiltersLoaded = true;
+    const wrapper = document.getElementById('dynamicSearchFilters');
+    const container = document.getElementById('dynamicSearchFilterFields');
+    if (!wrapper || !container) return;
+    wrapper.hidden = !(v2RetrievalActive && dynamicFieldDefinitions.length);
+    const operatorLabels = { eq: '一致', contains: '含む', gte: '以上', lte: '以下', between: '範囲' };
+    container.innerHTML = dynamicFieldDefinitions.map((field, index) => {
+      const type = field.value_type === 'number' ? 'number' : (field.value_type === 'date' ? 'date' : 'text');
+      const valueId = `dynamic-filter-value-${index}`;
+      const valueControl = field.value_type === 'boolean'
+        ? `<select id="${valueId}" class="form-input" data-filter-value ${field.conflicted ? 'disabled' : ''}><option value="">指定なし</option><option value="true">はい</option><option value="false">いいえ</option></select>`
+        : `<input id="${valueId}" class="form-input" data-filter-value type="${type}" ${field.conflicted ? 'disabled' : ''}>`;
+      return `<div class="dynamic-search-filter" data-filter-key="${escapeHtml(field.key)}" data-value-type="${escapeHtml(field.value_type)}" data-conflicted="${field.conflicted ? 'true' : 'false'}">
+        <label class="form-label" for="${valueId}">${escapeHtml(field.label)} <small>${escapeHtml(field.key)}</small></label>
+        <div class="dynamic-search-filter-controls">
+          <select class="form-input" data-filter-operator aria-label="${escapeHtml(field.label)}の比較方法" ${field.conflicted ? 'disabled' : ''} onchange="window.searchModule.toggleFilterBetween(this)">${(field.allowed_operators || []).map(operator => `<option value="${operator}">${operatorLabels[operator] || escapeHtml(operator)}</option>`).join('')}</select>
+          ${valueControl}
+          <input class="form-input" data-filter-value-second type="${type}" hidden placeholder="上限値" aria-label="${escapeHtml(field.label)}の上限値">
+        </div>
+        ${field.conflicted ? '<div class="dynamic-search-filter-error" role="alert">有効なプロファイル間で型または演算子が一致していません。</div>' : ''}
+      </div>`;
+    }).join('');
+    const imageQuery = document.getElementById('imageSearchQuery');
+    if (imageQuery) {
+      imageQuery.disabled = !v2RetrievalActive;
+      imageQuery.placeholder = v2RetrievalActive
+        ? '画像と組み合わせる条件を入力'
+        : '検索索引の初期化後に利用できます';
+      if (!v2RetrievalActive) imageQuery.value = '';
+    }
+    updateMinScoreState();
+  } catch (error) {
+    v2RetrievalActive = false;
+    const wrapper = document.getElementById('dynamicSearchFilters');
+    const imageQuery = document.getElementById('imageSearchQuery');
+    if (wrapper) wrapper.hidden = true;
+    if (imageQuery) imageQuery.disabled = true;
+    updateMinScoreState();
+    console.warn('Dynamic search filters are unavailable:', error);
+  }
+}
+
+function updateMinScoreState() {
+  const input = document.getElementById('minScore');
+  const label = document.getElementById('minScoreLabel');
+  if (input) input.disabled = v2RetrievalActive;
+  if (label) label.textContent = v2RetrievalActive ? '最小スコア（新しい検索では非適用）' : '最小スコア';
+}
+
+function isSearchButtonBusy(button) {
+  return button?.dataset.searchBusy === 'true';
+}
+
+function setSearchButtonBusy(button, busy, label, cancellable = true) {
+  if (!button) return;
+  if (busy) {
+    if (!button.dataset.originalHtml) button.dataset.originalHtml = button.innerHTML;
+    button.dataset.searchBusy = 'true';
+    button.disabled = !cancellable;
+    button.setAttribute('aria-busy', 'true');
+    button.innerHTML = cancellable
+      ? '<i class="fas fa-times" aria-hidden="true"></i> キャンセル'
+      : `<span class="spinner spinner-sm" aria-hidden="true"></span> ${label}`;
+    return;
+  }
+  button.disabled = false;
+  button.removeAttribute('aria-busy');
+  delete button.dataset.searchBusy;
+  if (button.dataset.originalHtml) button.innerHTML = button.dataset.originalHtml;
+  delete button.dataset.originalHtml;
+}
+
+function updateSearchElapsed() {
+  const elapsed = document.getElementById('searchAgentElapsed');
+  if (elapsed && searchProgress.startedAt) {
+    elapsed.textContent = `${((Date.now() - searchProgress.startedAt) / 1000).toFixed(1)}秒`;
+  }
+}
+
+function stopSearchProgressTimer() {
+  if (searchProgressTimer) clearInterval(searchProgressTimer);
+  searchProgressTimer = null;
+  updateSearchElapsed();
+}
+
+function startSearchProgressTimer() {
+  stopSearchProgressTimer();
+  updateSearchElapsed();
+  searchProgressTimer = setInterval(updateSearchElapsed, 1000);
+}
+
+function queryPlanDetails() {
+  const queryPlan = searchProgress.state.queryPlan || searchProgress.state.result?.diagnostics?.query_plan;
+  const degraded = searchProgress.state.result?.diagnostics?.degraded || [];
+  const sections = [];
+  if (queryPlan) {
+    const variants = (queryPlan.variants || []).map(value => `
+      <span class="search-agent-chip">${escapeHtml(value)}</span>
+    `).join('');
+    sections.push(`
+      <div class="search-agent-query-plan">
+        <strong>AI整理キーワード/検索語</strong>
+        ${variants ? `<div class="search-agent-chip-list">${variants}</div>` : ''}
+        ${queryPlan.keyword_query ? `<div>検索語: ${escapeHtml(queryPlan.keyword_query)}</div>` : ''}
+        ${queryPlan.intent ? `<div>意図: ${escapeHtml(queryPlan.intent)}</div>` : ''}
+      </div>
+    `);
+  }
+  if (degraded.length) sections.push(`<div>一部降格: ${escapeHtml(degraded.join(', '))}</div>`);
+  return sections.join('');
+}
+
+function renderSearchProgress(message = '') {
+  const root = document.getElementById('searchAgentProgress');
+  if (!root) return;
+  root.hidden = false;
+  const status = document.getElementById('searchAgentStatus');
+  const elapsed = document.getElementById('searchAgentElapsed');
+  const steps = document.getElementById('searchAgentSteps');
+  const details = document.getElementById('searchAgentDetails');
+  if (status) status.textContent = message || searchProgress.state.message || '検索中...';
+  updateSearchElapsed();
+  if (steps) {
+    steps.innerHTML = [...searchProgress.steps.entries()].map(([name, statusValue]) => `
+      <li class="search-agent-step search-agent-step-${statusValue}">
+        <span>${escapeHtml(stepLabels[name] || name)}</span>
+        <span>${statusValue === 'done' ? '完了' : '処理中'}</span>
+      </li>
+    `).join('');
+  }
+  if (details) {
+    details.innerHTML = queryPlanDetails();
+    details.hidden = !details.innerHTML;
+  }
+}
+
+function resetSearchProgress(message = '検索を開始しました') {
+  searchProgress.startedAt = Date.now();
+  searchProgress.state = { message };
+  searchProgress.steps = new Map();
+  const root = document.getElementById('searchAgentProgress');
+  if (root) root.open = true;
+  renderSearchProgress(message);
+  startSearchProgressTimer();
+}
+
+function finishSearchProgress(message) {
+  if (message) searchProgress.state.message = message;
+  stopSearchProgressTimer();
+  renderSearchProgress(message);
+  const root = document.getElementById('searchAgentProgress');
+  if (root) root.open = false;
+}
+
+function applyStateDelta(delta = []) {
+  delta.forEach(operation => {
+    if (operation.op !== 'replace' || !operation.path?.startsWith('/')) return;
+    searchProgress.state[operation.path.slice(1)] = operation.value;
+  });
+}
+
+function handleSearchEvent(event) {
+  if (event.type === 'RUN_STARTED') resetSearchProgress();
+  if (event.type === 'STATE_SNAPSHOT') searchProgress.state = event.snapshot || {};
+  if (event.type === 'STEP_STARTED') searchProgress.steps.set(event.stepName, 'running');
+  if (event.type === 'STEP_FINISHED') searchProgress.steps.set(event.stepName, 'done');
+  if (event.type === 'STATE_DELTA') applyStateDelta(event.delta);
+  if (event.type === 'RUN_FINISHED') {
+    const result = event.result || searchProgress.state.result;
+    if (result) searchProgress.state.result = result;
+    finishSearchProgress('検索が完了しました');
+    return result;
+  }
+  if (event.type === 'RUN_ERROR') {
+    finishSearchProgress(event.message || '検索に失敗しました');
+    throw new Error(event.message || '検索に失敗しました');
+  }
+  renderSearchProgress(event.message);
+  return null;
+}
+
+function parseSseBlock(block) {
+  const data = block.split(/\r?\n/)
+    .filter(line => line.startsWith('data:'))
+    .map(line => line.slice(5).trimStart())
+    .join('\n');
+  return data ? JSON.parse(data) : null;
+}
+
+async function readSearchEventStream(response) {
+  let finalResult = null;
+  let buffer = '';
+  const consume = text => {
+    buffer += text;
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() || '';
+    blocks.forEach(block => {
+      const event = parseSseBlock(block);
+      if (!event) return;
+      finalResult = handleSearchEvent(event) || finalResult;
+    });
+  };
+
+  if (!response.body?.getReader) {
+    consume(await response.text());
+  } else {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      consume(decoder.decode(value, { stream: true }));
+    }
+    consume(decoder.decode());
+  }
+  if (buffer.trim()) {
+    const event = parseSseBlock(buffer);
+    if (event) finalResult = handleSearchEvent(event) || finalResult;
+  }
+  if (!finalResult) throw new Error('検索結果が返されませんでした');
+  return finalResult;
+}
+
+async function streamSearch(endpoint, options) {
+  searchCancelled = false;
+  currentSearchController = new AbortController();
+  resetSearchProgress();
+  try {
+    const response = await authFetchWithAuth(endpoint, {
+      ...options,
+      signal: currentSearchController.signal
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || '検索に失敗しました');
+    }
+    return await readSearchEventStream(response);
+  } catch (error) {
+    if (searchCancelled) {
+      finishSearchProgress('検索をキャンセルしました');
+      throw new Error('検索をキャンセルしました');
+    }
+    finishSearchProgress(error.message || '検索に失敗しました');
+    throw error;
+  } finally {
+    currentSearchController = null;
+  }
+}
+
+export function cancelCurrentSearch() {
+  searchCancelled = true;
+  currentSearchController?.abort();
+  if (currentSearchController) finishSearchProgress('検索をキャンセルしました');
+}
+
+export function invalidateDynamicSearchFilters() {
+  dynamicFiltersLoaded = false;
+}
+
+export function toggleFilterBetween(select) {
+  const row = select.closest('[data-filter-key]');
+  const second = row?.querySelector('[data-filter-value-second]');
+  if (second) second.hidden = select.value !== 'between';
+}
+
+function collectDynamicFilters() {
+  return [...document.querySelectorAll('[data-filter-key]')].flatMap(row => {
+    if (row.dataset.conflicted === 'true') return [];
+    const operator = row.querySelector('[data-filter-operator]').value;
+    const first = row.querySelector('[data-filter-value]').value;
+    if (first === '') return [];
+    const second = row.querySelector('[data-filter-value-second]').value;
+    if (operator === 'between' && second === '') {
+      throw new Error(`${row.dataset.filterKey}: 範囲指定には下限値と上限値が必要です`);
+    }
+    const convert = value => {
+      if (row.dataset.valueType !== 'number') return value;
+      const number = Number(value);
+      if (!Number.isFinite(number)) throw new Error(`${row.dataset.filterKey}: 数値を入力してください`);
+      return number;
+    };
+    return [{
+      field_key: row.dataset.filterKey,
+      operator,
+      value: operator === 'between' ? [convert(first), convert(second)] : convert(first)
+    }];
+  });
+}
+
+function objectUrl(bucket, objectName) {
+  const encoded = String(objectName).split('/').map(encodeURIComponent).join('/');
+  return `/ai/api/object/${encodeURIComponent(bucket)}/${encoded}`;
+}
+
+function adaptV2Response(data) {
+  const source = data.results || [];
+  const maxScore = Math.max(...source.map(item => item.score || 0), 1e-9);
+  const results = source.map(document => {
+    const seen = new Set();
+    const matched_images = (document.evidence || []).flatMap(evidence => {
+      if (!evidence.asset_url || seen.has(evidence.asset_url)) return [];
+      seen.add(evidence.asset_url);
+      const score = evidence.rerank_score ?? evidence.score ?? 0;
+      return [{
+        embed_id: evidence.evidence_id,
+        bucket: document.bucket,
+        object_name: evidence.asset_url,
+        page_number: evidence.page_number,
+        vector_distance: Math.max(0, 1 - Math.min(1, score / maxScore)),
+        url: objectUrl(document.bucket, evidence.asset_url),
+        retrieval_channels: evidence.retrieval_channels,
+        verification_status: evidence.verification_status,
+        caption: evidence.caption,
+        text_excerpt: evidence.text_excerpt
+      }];
+    });
+    return {
+      file_id: document.document_id,
+      bucket: document.bucket,
+      object_name: document.object_name,
+      original_filename: document.file_name,
+      min_distance: Math.max(0, 1 - Math.min(1, (document.score || 0) / maxScore)),
+      matched_images,
+      url: objectUrl(document.bucket, document.object_name),
+      profile_slots: document.profile_slots
+    };
+  });
+  return {
+    success: data.success,
+    query: data.query,
+    results,
+    total_files: results.length,
+    total_images: results.reduce((count, item) => count + item.matched_images.length, 0),
+    processing_time: data.processing_time || 0,
+    trace_id: data.trace_id
+  };
+}
 
 /**
  * 検索タイプを切り替え
@@ -51,6 +414,10 @@ export function switchSearchType(type) {
     
     textPanel.style.display = 'block';
     imagePanel.style.display = 'none';
+    textTab.setAttribute('aria-selected', 'true');
+    imageTab.setAttribute('aria-selected', 'false');
+    textTab.tabIndex = 0;
+    imageTab.tabIndex = -1;
   } else {
     // 画像検索タブをアクティブに
     imageTab.style.borderBottomColor = '#1a365d';
@@ -60,6 +427,10 @@ export function switchSearchType(type) {
     
     imagePanel.style.display = 'block';
     textPanel.style.display = 'none';
+    imageTab.setAttribute('aria-selected', 'true');
+    textTab.setAttribute('aria-selected', 'false');
+    imageTab.tabIndex = 0;
+    textTab.tabIndex = -1;
   }
 }
 
@@ -79,8 +450,8 @@ export function handleSearchImageSelect(event) {
   }
   
   // ファイルタイプチェック
-  if (!file.type.match(/^image\/(png|jpeg|jpg)$/)) {
-    utilsShowToast('PNG, JPG, JPEG形式の画像のみ対応しています', 'warning');
+  if (!file.type.match(/^image\/(png|jpeg|jpg|webp)$/)) {
+    utilsShowToast('PNG, JPG, JPEG, WebP形式の画像のみ対応しています', 'warning');
     return;
   }
   
@@ -123,6 +494,11 @@ export function clearSearchImage() {
  * 画像検索を実行
  */
 export async function performImageSearch() {
+  const submitButton = document.getElementById('imageSearchSubmitBtn');
+  if (isSearchButtonBusy(submitButton)) {
+    cancelCurrentSearch();
+    return;
+  }
   if (!selectedSearchImage) {
     utilsShowToast('検索する画像を選択してください', 'warning');
     return;
@@ -131,34 +507,57 @@ export async function performImageSearch() {
   // 共通のフィルター値を使用
   const filenameFilter = document.getElementById('filenameFilter').value.trim();
   const topK = parseInt(document.getElementById('topK').value) || 10;
-  const minScore = parseFloat(document.getElementById('minScore').value) || 0.7;
+  const imageQuery = document.getElementById('imageSearchQuery')?.value.trim() || '';
+  const verify = Boolean(document.getElementById('searchVlmVerify')?.checked);
+  let usesEventStream = false;
+  searchCancelled = false;
   
   try {
-    utilsShowLoading('画像検索中...');
+    setSearchButtonBusy(submitButton, true, '検索中...');
+    if (!dynamicFiltersLoaded) await loadDynamicSearchFilters();
+    usesEventStream = v2RetrievalActive;
+    setSearchButtonBusy(submitButton, true, '検索中...', usesEventStream);
+    if (searchCancelled) throw new Error('検索をキャンセルしました');
     
     // FormDataを作成
     const formData = new FormData();
     formData.append('image', selectedSearchImage);
     formData.append('top_k', topK.toString());
-    formData.append('min_score', minScore.toString());
-    if (filenameFilter) {
-      formData.append('filename_filter', filenameFilter);
+    if (filenameFilter) formData.append('filename_filter', filenameFilter);
+    let endpoint = '/ai/api/search/image';
+    if (v2RetrievalActive) {
+      endpoint = '/ai/api/search/v2/image/events';
+      formData.append('query', imageQuery);
+      formData.append('field_filters', JSON.stringify(collectDynamicFilters()));
+      formData.append('document_types', '[]');
+      formData.append('verify', verify ? 'true' : 'false');
+    } else {
+      utilsShowLoading('画像検索中...（最大70秒かかる場合があります）');
+      formData.append('min_score', document.getElementById('minScore').value || '0.7');
     }
-    
-    const data = await authApiCall('/ai/api/search/image', {
+
+    const data = usesEventStream ? await streamSearch(endpoint, {
       method: 'POST',
       body: formData
+    }) : await authApiCall(endpoint, {
+      method: 'POST',
+      body: formData,
+      timeout: 70000
     });
-    
-    utilsHideLoading();
-    displaySearchResults(data);
+
+    displaySearchResults(v2RetrievalActive ? adaptV2Response(data) : data);
     
     // 検索完了メッセージを表示
     utilsShowToast('画像検索が完了しました', 'success');
     
   } catch (error) {
-    utilsHideLoading();
-    utilsShowToast(`画像検索に失敗しました: ${error.message}`, 'error');
+    const message = error.message.includes('タイムアウト')
+      ? '画像検索がタイムアウトしました。条件を見直して再度お試しください'
+      : `画像検索に失敗しました: ${error.message}。再度お試しください`;
+    utilsShowToast(message, 'error');
+  } finally {
+    if (!usesEventStream) utilsHideLoading();
+    setSearchButtonBusy(submitButton, false);
   }
 }
 
@@ -198,10 +597,17 @@ function getAuthenticatedImageUrl(urlOrBucket, objectName) {
  * 検索を実行
  */
 export async function performSearch() {
+  const submitButton = document.getElementById('textSearchSubmitBtn');
+  if (isSearchButtonBusy(submitButton)) {
+    cancelCurrentSearch();
+    return;
+  }
   const query = document.getElementById('searchQuery').value.trim();
   const filenameFilter = document.getElementById('filenameFilter').value.trim();
   const topK = parseInt(document.getElementById('topK').value) || 10;
-  const minScore = parseFloat(document.getElementById('minScore').value) || 0.7;
+  const verify = Boolean(document.getElementById('searchVlmVerify')?.checked);
+  let usesEventStream = false;
+  searchCancelled = false;
   
   if (!query) {
     utilsShowToast('検索クエリを入力してください', 'warning');
@@ -209,28 +615,42 @@ export async function performSearch() {
   }
   
   try {
-    utilsShowLoading('検索中...');
+    setSearchButtonBusy(submitButton, true, '検索中...');
+    if (!dynamicFiltersLoaded) await loadDynamicSearchFilters();
+    usesEventStream = v2RetrievalActive;
+    setSearchButtonBusy(submitButton, true, '検索中...', usesEventStream);
+    if (searchCancelled) throw new Error('検索をキャンセルしました');
     
-    const requestBody = { query, top_k: topK, min_score: minScore };
-    if (filenameFilter) {
-      requestBody.filename_filter = filenameFilter;
-    }
-    
-    const data = await authApiCall('/ai/api/search', {
+    const requestBody = v2RetrievalActive
+      ? { query, top_k: topK, filename_filter: filenameFilter || null, field_filters: [], document_types: [], current_version_only: true, verify }
+      : { query, top_k: topK, min_score: Number(document.getElementById('minScore').value) || 0.7, filename_filter: filenameFilter || null };
+    const endpoint = v2RetrievalActive ? '/ai/api/search/v2/events' : '/ai/api/search';
+    if (!usesEventStream) utilsShowLoading('検索中...（最大70秒かかる場合があります）');
+
+    const data = usesEventStream ? await streamSearch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody)
+    }) : await authApiCall(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+      timeout: 70000
     });
-    
-    utilsHideLoading();
-    displaySearchResults(data);
+
+    displaySearchResults(v2RetrievalActive ? adaptV2Response(data) : data);
     
     // 検索完了メッセージを表示
     utilsShowToast('検索が完了しました', 'success');
     
   } catch (error) {
-    utilsHideLoading();
-    utilsShowToast(`検索に失敗しました: ${error.message}`, 'error');
+    const message = error.message.includes('タイムアウト')
+      ? '検索がタイムアウトしました。条件を見直して再度お試しください'
+      : `検索に失敗しました: ${error.message}。再度お試しください`;
+    utilsShowToast(message, 'error');
+  } finally {
+    if (!usesEventStream) utilsHideLoading();
+    setSearchButtonBusy(submitButton, false);
   }
 }
 
@@ -307,8 +727,9 @@ export function displaySearchResults(data) {
               const imageUrl = img.url ? getAuthenticatedImageUrl(img.url) : getAuthenticatedImageUrl(img.bucket, img.object_name);
               
               return `
-                <div 
-                  class="image-card"
+                <button
+                  type="button"
+                  class="image-card search-result-image-card"
                   style="
                     border: 2px solid #e2e8f0; 
                     border-radius: 8px; 
@@ -324,9 +745,11 @@ export function displaySearchResults(data) {
                 >
                   <!-- サムネイル画像 -->
                   <div class="search-result-image-aspect">
-                    <img 
+                    <img
                       src="${imageUrl}" 
                       alt="ページ ${img.page_number}"
+                      loading="lazy"
+                      decoding="async"
                       style="
                         position: absolute;
                         top: 0;
@@ -362,8 +785,11 @@ export function displaySearchResults(data) {
                     <div class="search-result-image-similarity">
                       距離: ${img.vector_distance.toFixed(4)}
                     </div>
+                    ${img.retrieval_channels?.length ? `<div class="text-xs text-gray-500">${escapeHtml(img.retrieval_channels.join(' · '))}</div>` : ''}
+                    ${img.verification_status && img.verification_status !== 'not_requested' ? `<div class="text-xs text-gray-500">VLM: ${escapeHtml(img.verification_status)}</div>` : ''}
+                    ${img.caption ? `<div class="text-xs text-gray-600" style="margin-top:6px;line-height:1.5">${escapeHtml(img.caption.slice(0, 180))}</div>` : ''}
                   </div>
-                </div>
+                </button>
               `;
             }).join('')}
           </div>
@@ -441,14 +867,20 @@ export async function downloadFile(bucket, encodedObjectName) {
  * 検索結果をクリア
  */
 export function clearSearchResults() {
+  cancelCurrentSearch();
   // テキスト検索のクリア
   document.getElementById('searchQuery').value = '';
   
   // 画像検索のクリア
   clearSearchImage();
+  const imageQuery = document.getElementById('imageSearchQuery');
+  if (imageQuery) imageQuery.value = '';
   
   // 検索結果を非表示
   document.getElementById('searchResults').style.display = 'none';
+  const progress = document.getElementById('searchAgentProgress');
+  if (progress) progress.hidden = true;
+  stopSearchProgressTimer();
 }
 
 // windowオブジェクトに登録（HTMLから呼び出せるように）
@@ -461,7 +893,10 @@ window.searchModule = {
   clearSearchResults,
   switchSearchType,
   handleSearchImageSelect,
-  clearSearchImage
+  clearSearchImage,
+  cancelCurrentSearch,
+  loadDynamicSearchFilters,
+  toggleFilterBetween
 };
 
 // デフォルトエクスポート
@@ -474,7 +909,10 @@ export default {
   clearSearchResults,
   switchSearchType,
   handleSearchImageSelect,
-  clearSearchImage
+  clearSearchImage,
+  cancelCurrentSearch,
+  loadDynamicSearchFilters,
+  toggleFilterBetween
 }
 
 /**

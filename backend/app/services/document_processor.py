@@ -6,7 +6,7 @@
     テキストチャンク抽出機能は使用されていません。
     
     実際の処理フロー:
-    ドキュメント → 画像変換 → OCI Embedding API → DB保存（IMG_EMBEDDINGS）
+    ドキュメント → 画像変換 → OCI Embedding API → DB保存（SDS_IMAGE_EMBEDDINGS）
     
     画像ベースの処理は parallel_processor.py と image_vectorizer.py で実装されています。
 

@@ -1,5 +1,8 @@
 # No.1 Semantic Document Search
 
+Profile-based multimodal retrieval setup and operations are documented in
+[docs/retrieval_profiles.md](docs/retrieval_profiles.md).
+
 ## Deploy
 
 - v1.13.0: 大阪リージョンのみをサポートしています。（デフォルト：大阪リージョン）

@@ -28,16 +28,17 @@
     </nav>
 
     <!-- タブナビゲーション -->
-    <div class="apex-tabs" style="flex-shrink: 0; margin: 0;">
-      <div class="apex-tab active" onclick="switchTab('search', event)"><i class="fas fa-search"></i> 検索</div>
-      <div class="apex-tab" onclick="switchTab('documents', event)"><i class="fas fa-folder-open"></i> 文書管理</div>
-      <div class="apex-tab" onclick="switchTab('admin', event)"><i class="fas fa-cog"></i> 設定</div>
+    <div id="mainTabs" class="apex-tabs" role="tablist" aria-label="メインナビゲーション" style="flex-shrink: 0; margin: 0;">
+      <button id="main-tab-search" type="button" class="apex-tab active" role="tab" aria-selected="true" aria-controls="tab-search" onclick="switchTab('search', event)"><i class="fas fa-search"></i> 検索</button>
+      <button id="main-tab-documents" type="button" class="apex-tab" role="tab" aria-selected="false" aria-controls="tab-documents" tabindex="-1" onclick="switchTab('documents', event)"><i class="fas fa-folder-open"></i> 文書管理</button>
+      <button id="main-tab-admin" type="button" class="apex-tab" role="tab" aria-selected="false" aria-controls="tab-retrieval" tabindex="-1" onclick="switchTab('admin', event)"><i class="fas fa-cog"></i> 設定</button>
     </div>
 
     <!-- 設定サブタブ（管理タブがアクティブな時のみ表示） -->
-    <div id="adminSubTabs" class="apex-tabs" style="flex-shrink: 0; margin: 0; display: none; background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 0;">
-      <div class="apex-tab active" onclick="switchAdminSubTab('database', event)" style="font-size: 14px; padding: 12px 20px; flex: 1; text-align: center;"><i class="fas fa-database"></i> DB管理</div>
-      <div class="apex-tab" onclick="switchAdminSubTab('settings', event)" style="font-size: 14px; padding: 12px 20px; flex: 1; text-align: center;"><i class="fas fa-cog"></i> OCI設定</div>
+    <div id="adminSubTabs" class="apex-tabs" role="tablist" aria-label="設定メニュー" style="flex-shrink: 0; margin: 0; display: none; background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 0;">
+      <button id="admin-tab-database" type="button" class="apex-tab admin-subtab active" role="tab" aria-selected="true" aria-controls="tab-database" onclick="switchAdminSubTab('database', event)"><i class="fas fa-database"></i> DB管理</button>
+      <button id="admin-tab-retrieval" type="button" class="apex-tab admin-subtab" role="tab" aria-selected="false" aria-controls="tab-retrieval" tabindex="-1" onclick="switchAdminSubTab('retrieval', event)"><i class="fas fa-sliders-h"></i> 検索・索引設定</button>
+      <button id="admin-tab-settings" type="button" class="apex-tab admin-subtab" role="tab" aria-selected="false" aria-controls="tab-settings" tabindex="-1" onclick="switchAdminSubTab('settings', event)"><i class="fas fa-cog"></i> OCI設定</button>
     </div>
 
     <!-- AI Assistant 浮動ボタン -->
@@ -135,33 +136,37 @@
     <div class="tab-scroll-container" style="flex: 1; overflow-y: auto; background: #f5f7fa; padding: 24px;">
 
       <!-- 検索タブ -->
-      <div id="tab-search" class="tab-content">
+      <div id="tab-search" class="tab-content" role="tabpanel" aria-labelledby="main-tab-search">
       <div class="apex-region" style="margin-bottom: 20px;">
         <div class="apex-region-header">
           <span><i class="fas fa-search"></i> セマンティック検索</span>
         </div>
         <div style="padding: 24px;">
           <!-- 共通フィルター（ファイル名・取得件数・最小スコア） -->
-          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; padding: 16px; background: #f8fafc; border-radius: 8px;">
+          <div class="search-filter-grid">
             <div>
-              <label class="form-label">取得件数</label>
+              <label class="form-label" for="topK">取得件数</label>
               <input type="number" id="topK" class="form-input" value="10" min="1" max="50" />
             </div>
             <div>
-              <label class="form-label">最小スコア</label>
+              <label id="minScoreLabel" class="form-label" for="minScore">最小スコア</label>
               <input type="number" id="minScore" class="form-input" value="0.7" min="0" max="1" step="0.05" />
             </div>
             <div>
-              <label class="form-label">ファイル名（任意）</label>
+              <label class="form-label" for="filenameFilter">ファイル名（任意）</label>
               <input type="text" id="filenameFilter" class="form-input" placeholder="例: AI" />
             </div>
           </div>
 
           <!-- 検索タイプタブ -->
-          <div style="display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0;">
+          <div id="searchTypeTabs" role="tablist" aria-label="検索方法" style="display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0;">
             <button 
               id="searchTypeTextTab"
               class="search-type-tab active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="textSearchPanel"
               onclick="window.searchModule.switchSearchType('text')"
               style="padding: 12px 24px; font-weight: 600; font-size: 14px; border: none; background: none; cursor: pointer; border-bottom: 3px solid #1a365d; color: #1a365d; transition: all 0.3s;"
             >
@@ -170,6 +175,11 @@
             <button 
               id="searchTypeImageTab"
               class="search-type-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="imageSearchPanel"
+              tabindex="-1"
               onclick="window.searchModule.switchSearchType('image')"
               style="padding: 12px 24px; font-weight: 600; font-size: 14px; border: none; background: none; cursor: pointer; border-bottom: 3px solid transparent; color: #64748b; transition: all 0.3s;"
             >
@@ -177,10 +187,18 @@
             </button>
           </div>
 
+          <div class="search-verify-option">
+            <label for="searchVlmVerify">
+              <input id="searchVlmVerify" type="checkbox">
+              <span>VLM精密確認（時間がかかります）</span>
+            </label>
+            <small>候補画像をVLMで再確認します。精度重視のときだけ有効にしてください。</small>
+          </div>
+
           <!-- テキスト検索パネル -->
-          <div id="textSearchPanel" style="display: block;">
+          <div id="textSearchPanel" role="tabpanel" aria-labelledby="searchTypeTextTab" style="display: block;">
             <div style="margin-bottom: 20px;">
-              <label class="form-label">検索クエリ</label>
+              <label class="form-label" for="searchQuery">検索クエリ</label>
               <textarea 
                 id="searchQuery" 
                 class="form-input" 
@@ -191,7 +209,7 @@
             </div>
 
             <div style="display: flex; gap: 12px;">
-              <button class="apex-button px-4 py-2" onclick="window.searchModule.performSearch()">
+              <button id="textSearchSubmitBtn" type="button" class="apex-button px-4 py-2" onclick="window.searchModule.performSearch()">
                 <i class="fas fa-search"></i> 検索実行
               </button>
               <button class="apex-button-secondary px-4 py-2" onclick="window.searchModule.clearSearchResults()">
@@ -201,14 +219,21 @@
           </div>
 
           <!-- 画像検索パネル -->
-          <div id="imageSearchPanel" style="display: none;">
+          <div id="imageSearchPanel" role="tabpanel" aria-labelledby="searchTypeImageTab" style="display: none;">
+            <div style="margin-bottom: 16px;">
+              <label class="form-label" for="imageSearchQuery">画像に追加する検索テキスト（任意）</label>
+              <input id="imageSearchQuery" class="form-input" placeholder="画像と組み合わせる条件を入力" />
+            </div>
             <div style="margin-bottom: 20px;">
-              <label class="form-label">検索画像</label>
+              <label class="form-label" for="searchImageInput">検索画像</label>
               
               <!-- ファイル選択エリア -->
               <div 
                 id="imageSearchDropZone"
+                role="button"
+                tabindex="0"
                 onclick="document.getElementById('searchImageInput').click()"
+                onkeydown="if(event.key==='Enter' || event.key===' ') { event.preventDefault(); document.getElementById('searchImageInput').click(); }"
                 style="
                   border: 2px dashed #cbd5e1;
                   border-radius: 8px;
@@ -240,8 +265,8 @@
                   <div style="font-size: 15px; font-weight: 600; color: #475569; margin-bottom: 6px;">
                     画像ファイルを選択またはドロップ
                   </div>
-                  <div style="font-size: 12px; color: #94a3b8;">
-                    PNG, JPG, JPEG (最大10MB)
+                  <div style="font-size: 12px; color: #64748b;">
+                    PNG, JPG, JPEG, WebP (最大10MB)
                   </div>
                 </div>
               </div>
@@ -277,14 +302,14 @@
               <input 
                 type="file" 
                 id="searchImageInput" 
-                accept="image/png,image/jpeg,image/jpg"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
                 style="display: none;"
                 onchange="window.searchModule.handleSearchImageSelect(event)"
               />
             </div>
 
             <div style="display: flex; gap: 12px;">
-              <button class="apex-button px-4 py-2" onclick="window.searchModule.performImageSearch()">
+              <button id="imageSearchSubmitBtn" type="button" class="apex-button px-4 py-2" onclick="window.searchModule.performImageSearch()">
                 <i class="fas fa-search"></i> 画像検索実行
               </button>
               <button class="apex-button-secondary px-4 py-2" onclick="window.searchModule.clearSearchResults()">
@@ -294,6 +319,17 @@
           </div>
         </div>
       </div>
+
+      <details id="searchAgentProgress" class="search-agent-progress retrieval-global-section" hidden aria-live="polite" style="margin-bottom: 20px;">
+        <summary>
+          <span><i class="fas fa-route"></i> <span id="searchAgentStatus">検索を開始しています...</span></span>
+          <small id="searchAgentElapsed"></small>
+        </summary>
+        <div class="retrieval-global-content">
+          <ol id="searchAgentSteps" class="search-agent-steps"></ol>
+          <div id="searchAgentDetails" class="search-agent-details" hidden></div>
+        </div>
+      </details>
 
       <!-- 検索結果 -->
       <div id="searchResults" class="apex-region" style="display: none;">
@@ -308,7 +344,7 @@
       </div>
 
       <!-- 文書管理タブ -->
-      <div id="tab-documents" class="tab-content" style="display: none;">
+      <div id="tab-documents" class="tab-content" role="tabpanel" aria-labelledby="main-tab-documents" style="display: none;">
       <!-- アップロード -->
       <div class="apex-region" style="margin-bottom: 20px;">
         <div class="apex-region-header">
@@ -345,14 +381,14 @@
             </div>
           </div>
           
-          <!-- アップロード進捗 -->
-          <div id="uploadProgress" style="margin-bottom: 16px; display: none;"></div>
-          
           <button class="apex-button px-4 py-2" onclick="uploadMultipleDocuments()" id="uploadMultipleBtn" disabled>
             <i class="fas fa-cloud-upload-alt"></i> アップロード開始
           </button>
         </div>
       </div>
+
+      <!-- アップロード進捗 -->
+      <div id="uploadProgress" style="margin-bottom: 20px; display: none;"></div>
 
       <!-- 文書リスト -->
       <div class="apex-region">
@@ -381,8 +417,18 @@
         </div>
       </div>
 
+      <!-- 検索・索引設定タブ -->
+      <div id="tab-retrieval" class="tab-content" role="tabpanel" aria-labelledby="admin-tab-retrieval" style="display: none;">
+        <div id="retrievalSettingsRoot" class="retrieval-settings-root">
+          <div class="apex-region">
+            <div class="apex-region-header"><span><i class="fas fa-sliders-h"></i> 検索・索引設定</span></div>
+            <div style="padding: 24px; color: #64748b;">設定を読み込んでいます...</div>
+          </div>
+        </div>
+      </div>
+
       <!-- OCI設定タブ -->
-      <div id="tab-settings" class="tab-content" style="display: none;">
+      <div id="tab-settings" class="tab-content" role="tabpanel" aria-labelledby="admin-tab-settings" style="display: none;">
       
       <!-- OCI APIキー設定 -->
       <div class="apex-region bg-gray-50/50" style="margin-bottom: 20px;">
@@ -559,10 +605,13 @@
           </div>
         </div>
       </div>
+
+      <div id="rerankSettingsRoot" class="retrieval-settings-root" style="margin-top: 20px;"></div>
+
       </div>
 
       <!-- DB管理タブ -->
-      <div id="tab-database" class="tab-content" style="display: none;">
+      <div id="tab-database" class="tab-content" role="tabpanel" aria-labelledby="admin-tab-database" style="display: none;">
       
       <!-- Autonomous AI Database 起動/停止 -->
       <div class="apex-region" style="margin-bottom: 20px;">
@@ -738,6 +787,34 @@
         </div>
       </div>
 
+      <!-- システムテーブル初期化 -->
+      <div class="apex-region" style="margin-bottom: 20px;">
+        <div class="apex-region-header">
+          <span><i class="fas fa-layer-group"></i> システムテーブル初期化</span>
+          <span id="systemTablesStatusBadge" class="px-2 py-1 text-xs font-semibold rounded-md" style="background: #e2e8f0; color: #64748b;">状態未取得</span>
+        </div>
+        <div style="padding: 8px 24px 0 24px;">
+          <div class="flex items-center gap-2 text-xs" style="color: #64748b;">
+            <span>検索・索引・文書管理に必要なシステムテーブルを作成します。初回利用時に実行してください。</span>
+          </div>
+        </div>
+        <div style="padding: 20px 24px 24px;">
+          <div id="systemTablesSummary" aria-live="polite" style="font-size: 14px; color: #475569; margin-bottom: 16px;">状態を確認しています...</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+            <button id="initializeSystemTablesBtn" type="button" class="apex-button px-4 py-2" onclick="initializeSystemTables(false, event.currentTarget)">
+              <i class="fas fa-magic"></i> 初期化
+            </button>
+            <button id="recreateSystemTablesBtn" type="button" class="apex-button-secondary retrieval-warning-action px-4 py-2" onclick="initializeSystemTables(true, event.currentTarget)">
+              <i class="fas fa-redo-alt"></i> すべて再作成
+            </button>
+            <button type="button" class="apex-button-secondary px-4 py-2" onclick="refreshSystemTableStatus()">
+              <i class="fas fa-sync-alt"></i> 状態を再取得
+            </button>
+          </div>
+          <p style="margin: 12px 0 0; color: #92400e; font-size: 12px; line-height: 1.6;">「すべて再作成」は既存のシステムテーブルと保存データを削除してから作り直します。</p>
+        </div>
+      </div>
+
       <!-- テーブル一覧 -->
       <div class="apex-region" style="margin-bottom: 20px;">
         <div class="apex-region-header">
@@ -751,7 +828,7 @@
         </div>
         <div style="padding: 8px 24px 0 24px;">
           <div class="flex items-center gap-2 text-xs" style="color: #94a3b8;">
-            <span>接続されたスキーマ内のテーブル一覧を表示します。各テーブルの行数や作成日時を確認できます。</span>
+            <span>このシステムが使用するテーブルのみ表示します。各テーブルの行数や作成日時を確認できます。</span>
           </div>
         </div>
         <div style="padding: 24px;">

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:ui": "node tests/ui-regression.test.js"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.23",

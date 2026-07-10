@@ -2,6 +2,7 @@
 セマンティック文書検索システム - メインAPIアプリケーション
 """
 import asyncio
+import hashlib
 import io
 import json
 import logging
@@ -21,7 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request, Query, BackgroundTasks, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pdf2image import convert_from_path
@@ -81,6 +82,14 @@ from app.services.ai_copilot import get_copilot_service
 from app.services.image_vectorizer import image_vectorizer
 from app.services.parallel_processor import parallel_processor, JobManager
 from app.utils.auth_util import do_auth, get_username_from_connection_string
+from app.utils.sse import heartbeats_until_done
+from app.rag.settings_api import router as retrieval_settings_router
+from app.rag.search_api import router as retrieval_search_router
+from app.rag.index_pipeline import index_pipeline
+from app.rag.profile_repository import profile_repository
+from app.rag.search_pipeline import principal_hash, search_pipeline
+from app.rag.oracle_repository import rag_repository
+from app.rag.oracle_schema import provision_system_tables, system_table_status
 
 # ========================================
 # アプリケーションライフサイクル
@@ -111,6 +120,8 @@ app = FastAPI(
     description="OCI Object Storageベースのセマンティック文書検索システム",
     lifespan=lifespan
 )
+app.include_router(retrieval_settings_router)
+app.include_router(retrieval_search_router)
 
 # CORS設定
 app.add_middleware(
@@ -261,6 +272,7 @@ async def auth_middleware(request: Request, call_next):
         
     # デバッグモードは認証スキップ
     if debug_mode:
+        request.state.auth_username = "debug-user"
         return await call_next(request)
     
     # 認証情報を取得
@@ -275,6 +287,7 @@ async def auth_middleware(request: Request, call_next):
             api_key = auth_header.split(" ")[1]
             if api_key in EXTERNAL_API_KEYS:
                 logger.info(f"外部APIキー認証成功: path={path}")
+                request.state.auth_username = f"service:{hashlib.sha256(api_key.encode()).hexdigest()}"
                 return await call_next(request)
             else:
                 logger.warning(f"無効なAPIキー: path={path}")
@@ -288,6 +301,7 @@ async def auth_middleware(request: Request, call_next):
     api_key_query = request.query_params.get("api_key")
     if api_key_query and api_key_query in EXTERNAL_API_KEYS:
         logger.info(f"外部APIキー認証成功（クエリパラメータ）: path={path}")
+        request.state.auth_username = f"service:{hashlib.sha256(api_key_query.encode()).hexdigest()}"
         return await call_next(request)
     
     # 一時トークン検証（検索結果URL用、短寿命）
@@ -411,6 +425,7 @@ async def get_enterprise_ai_settings():
 
 @app.post("/oci/enterprise-ai/settings")
 async def save_enterprise_ai_settings(settings: EnterpriseAISettings):
+    previous_settings = oci_service.get_enterprise_ai_settings()
     if settings.api_key == "[CONFIGURED]":
         settings.api_key = oci_service.get_enterprise_ai_settings().api_key
     if not all((settings.base_url.strip(), settings.api_key.strip(), settings.model.strip())):
@@ -418,6 +433,15 @@ async def save_enterprise_ai_settings(settings: EnterpriseAISettings):
     if not settings.base_url.startswith("https://"):
         raise HTTPException(status_code=400, detail="Base URLはhttps://で始まる必要があります")
     oci_service.save_enterprise_ai_settings(settings)
+    if (
+        profile_repository.schema_ready()
+        and (
+            previous_settings.base_url != settings.base_url
+            or previous_settings.project != settings.project
+            or previous_settings.model != settings.model
+        )
+    ):
+        profile_repository.mark_service_reindex_required("vlm")
     return {"success": True, "message": "OCI Enterprise AI設定を保存しました"}
 
 @app.post("/oci/enterprise-ai/test")
@@ -675,7 +699,7 @@ async def list_oci_objects(
         total_pages = (total + page_size - 1) // page_size if total > 0 else 1
         
         # 最適化: 正規表現パターンを事前コンパイル（3桁または6桁に対応）
-        page_image_pattern = re.compile(r'/page_(\d{3}|\d{6})\.png$')
+        page_image_pattern = re.compile(r'/page_(\d{3}|\d{6})(?:_[a-f0-9]{32})?\.png$')
         
         # 最適化: O(1)高速検索用のマップを構築
         page_images_map = {}  # {file_base_name: True}
@@ -1146,6 +1170,7 @@ async def upload_multiple_documents(files: List[UploadFile] = File(...)):
     - ファイル名衝突回避(UUID)
     - リアルタイム進捗通知
     """
+    job_id = str(uuid.uuid4())
     
     async def generate_upload_events():
         try:
@@ -1187,7 +1212,7 @@ async def upload_multiple_documents(files: List[UploadFile] = File(...)):
             failed_count = 0
             
             # 開始イベント送信
-            start_event = {"type": "start", "total_files": len(files)}
+            start_event = {"type": "start", "job_id": job_id, "total_files": len(files)}
             yield f"data: {json.dumps(start_event, ensure_ascii=False)}\n\n"
             
             # 各ファイルを処理
@@ -1317,14 +1342,33 @@ async def upload_multiple_documents(files: List[UploadFile] = File(...)):
                     # ファイルを先頭にリセット
                     file.file.seek(0)
                     
-                    # OCIに直接アップロード
-                    upload_success = oci_service.upload_file(
-                        file_content=file.file,
-                        object_name=oci_object_name,
-                        content_type=content_type or f"application/{file_ext}",
-                        original_filename=file.filename,
-                        file_size=file_size
+                    upload_started_at = time.time()
+                    upload_task = asyncio.create_task(
+                        asyncio.to_thread(
+                            oci_service.upload_file,
+                            file_content=file.file,
+                            object_name=oci_object_name,
+                            content_type=content_type or f"application/{file_ext}",
+                            original_filename=file.filename,
+                            file_size=file_size
+                        )
                     )
+                    async for heartbeat_event in heartbeats_until_done(
+                        upload_task,
+                        lambda: {
+                            "type": "heartbeat",
+                            "job_id": job_id,
+                            "file_index": idx,
+                            "total_files": len(files),
+                            "file_name": file.filename,
+                            "file_size": file_size,
+                            "elapsed_seconds": int(time.time() - upload_started_at),
+                            "status": "uploading",
+                        },
+                    ):
+                        yield f"data: {json.dumps(heartbeat_event, ensure_ascii=False)}\n\n"
+
+                    upload_success = await upload_task
                     
                     if not upload_success:
                         error_msg = "Object Storageアップロード失敗"
@@ -1419,7 +1463,8 @@ async def upload_multiple_documents(files: List[UploadFile] = File(...)):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
+            "X-Accel-Buffering": "no",
+            "X-Job-ID": job_id
         }
     )
 
@@ -1524,6 +1569,16 @@ async def delete_document(document_id: str):
                 logger.error(f"[DEBUG] FILE_INFOレコード削除エラー: {e}", exc_info=True)
         else:
             logger.info(f"[DEBUG] FILE_IDが存在しないため、データベース削除をスキップ")
+
+        if bucket_name and profile_repository.schema_ready():
+            try:
+                await asyncio.to_thread(
+                    rag_repository.delete_document_by_object,
+                    bucket=bucket_name,
+                    object_name=object_name,
+                )
+            except Exception as e:
+                logger.error(f"RAG文書レコード削除エラー: {e}", exc_info=True)
         
         # ステップ3-5: Object Storageからファイルと画像を削除
         # oci_service.delete_objects()は既に以下の順序で削除を実行:
@@ -1589,8 +1644,84 @@ async def delete_document(document_id: str):
 # セマンティック検索
 # ========================================
 
+async def _legacy_search_from_profiles(
+    *,
+    request: Request,
+    query_text: str,
+    top_k: int,
+    filename_filter: str | None = None,
+    image: bytes | None = None,
+    image_media_type: str = "image/png",
+) -> SearchResponse:
+    """Adapt v2 profile retrieval to the stable legacy file/image response shape."""
+    from app.models.search import FileSearchResult, ImageSearchResult
+    from urllib.parse import quote
+
+    result = await search_pipeline.search(
+        query=query_text,
+        top_k=top_k,
+        field_filters=[],
+        document_types=[],
+        current_version_only=True,
+        user_hash=principal_hash(getattr(request.state, "auth_username", None)),
+        filename_filter=filename_filter,
+        image=image,
+        image_media_type=image_media_type,
+    )
+    documents = result.results
+    scheme = request.headers.get("X-Forwarded-Proto", request.url.scheme)
+    host = request.headers.get("X-Forwarded-Host", request.headers.get("Host", request.url.netloc))
+    base_url = f"{scheme}://{host}"
+    token = generate_temp_token(source="legacy_profile_search")
+
+    def object_url(bucket: str, object_name: str) -> str:
+        return f"{base_url}/object/{quote(bucket, safe='')}/{quote(object_name, safe='/')}?t={token}"
+
+    max_score = max((item.score for item in documents), default=1.0) or 1.0
+    files: list[FileSearchResult] = []
+    total_images = 0
+    for document in documents:
+        images: list[ImageSearchResult] = []
+        seen_assets: set[str] = set()
+        for evidence in document.evidence:
+            if not evidence.asset_url or evidence.asset_url in seen_assets:
+                continue
+            seen_assets.add(evidence.asset_url)
+            evidence_score = evidence.rerank_score if evidence.rerank_score is not None else evidence.score
+            images.append(
+                ImageSearchResult(
+                    embed_id=evidence.evidence_id,
+                    bucket=document.bucket,
+                    object_name=evidence.asset_url,
+                    page_number=evidence.page_number,
+                    vector_distance=max(0.0, 1.0 - min(1.0, evidence_score / max_score)),
+                    content_type="image/png",
+                    url=object_url(document.bucket, evidence.asset_url),
+                )
+            )
+        total_images += len(images)
+        files.append(
+            FileSearchResult(
+                file_id=document.document_id,
+                bucket=document.bucket,
+                object_name=document.object_name,
+                original_filename=document.file_name,
+                min_distance=max(0.0, 1.0 - min(1.0, document.score / max_score)),
+                matched_images=images,
+                url=object_url(document.bucket, document.object_name),
+            )
+        )
+    return SearchResponse(
+        success=True,
+        query=query_text,
+        results=files,
+        total_files=len(files),
+        total_images=total_images,
+        processing_time=result.processing_time,
+    )
+
 @app.post("/search", response_model=SearchResponse)
-async def search_documents(query: SearchQuery, request: Request):
+async def search_documents(query: SearchQuery, request: Request, response: Response):
     """
     セマンティック検索を実行(Oracle Database 26aiのベクトル検索を使用)
     
@@ -1598,6 +1729,17 @@ async def search_documents(query: SearchQuery, request: Request):
     URLには認証情報(APIキーまたはセッショントークン)が付与される
     """
     try:
+        if profile_repository.schema_ready():
+            response.headers["Deprecation"] = "true"
+            response.headers["X-Min-Score-Deprecated"] = "true"
+            response.headers["Sunset"] = "Wed, 09 Jul 2027 00:00:00 GMT"
+            response.headers["Link"] = '</search/v2>; rel="successor-version"'
+            return await _legacy_search_from_profiles(
+                request=request,
+                query_text=query.query,
+                top_k=query.top_k or 10,
+                filename_filter=query.filename_filter,
+            )
         start_time = time.time()
         
         logger.info(f"検索開始: query='{query.query}', top_k={query.top_k}, min_score={query.min_score}, filename_filter='{query.filename_filter}'")
@@ -1753,11 +1895,12 @@ async def search_documents(query: SearchQuery, request: Request):
 
 @app.post("/search/image", response_model=SearchResponse)
 async def search_documents_by_image(
+    request: Request,
+    response: Response,
     image: UploadFile = File(...),
     top_k: int = Form(10),
     min_score: float = Form(0.7),
     filename_filter: str = Form(None),
-    request: Request = None
 ):
     """
     画像によるセマンティック検索を実行
@@ -1773,6 +1916,24 @@ async def search_documents_by_image(
         SearchResponse: 検索結果（ファイル単位で集約）
     """
     try:
+        if profile_repository.schema_ready():
+            content = await image.read()
+            if not content or len(content) > 10 * 1024 * 1024:
+                raise HTTPException(status_code=400, detail="画像は1 byte以上10 MiB以下で指定してください")
+            if image.content_type not in {"image/png", "image/jpeg", "image/webp"}:
+                raise HTTPException(status_code=400, detail="PNG、JPEG、WebP画像を指定してください")
+            response.headers["Deprecation"] = "true"
+            response.headers["X-Min-Score-Deprecated"] = "true"
+            response.headers["Sunset"] = "Wed, 09 Jul 2027 00:00:00 GMT"
+            response.headers["Link"] = '</search/v2/image>; rel="successor-version"'
+            return await _legacy_search_from_profiles(
+                request=request,
+                query_text="",
+                top_k=top_k,
+                filename_filter=filename_filter,
+                image=content,
+                image_media_type=image.content_type,
+            )
         start_time = time.time()
         
         # ファイル拡張子とMIMEタイプの検証
@@ -2311,6 +2472,64 @@ async def get_database_tables(
             total=0
         )
 
+
+@app.get("/database/system-tables/status")
+async def get_system_tables_status():
+    """システム必須テーブルの初期化状態を取得"""
+    try:
+        return {"success": True, **await asyncio.to_thread(system_table_status)}
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=503, detail="データベース接続を設定してください"
+        ) from error
+    except Exception as error:
+        logger.error(f"システムテーブル状態取得エラー: {error}")
+        raise HTTPException(
+            status_code=500, detail="システムテーブル状態の取得に失敗しました"
+        ) from error
+
+
+@app.post("/database/system-tables/initialize")
+async def initialize_system_tables(
+    recreate: bool = False, confirmation: str | None = None
+):
+    """システム必須テーブルを初期化、または明示確認後に再作成"""
+    if recreate and confirmation != "RECREATE":
+        raise HTTPException(status_code=422, detail="再作成の確認が必要です")
+    try:
+        result = await asyncio.to_thread(
+            provision_system_tables, recreate=recreate
+        )
+        return {
+            "success": True,
+            "message": (
+                "システムテーブルを再作成しました"
+                if recreate
+                else "システムテーブルを初期化しました"
+            ),
+            **result,
+        }
+    except ValueError as error:
+        raise HTTPException(
+            status_code=409,
+            detail="一部または旧バージョンのテーブルがあります。再作成を実行してください",
+        ) from error
+    except RuntimeError as error:
+        status_code = 503 if "not configured" in str(error) else 500
+        raise HTTPException(
+            status_code=status_code,
+            detail=(
+                "データベース接続を設定してください"
+                if status_code == 503
+                else "システムテーブルの初期化に失敗しました"
+            ),
+        ) from error
+    except Exception as error:
+        logger.error(f"システムテーブル初期化エラー: {error}")
+        raise HTTPException(
+            status_code=500, detail="システムテーブルの初期化に失敗しました"
+        ) from error
+
 @app.post("/database/tables/refresh-statistics")
 async def refresh_table_statistics():
     """テーブルの統計情報を更新"""
@@ -2821,17 +3040,25 @@ class ChatMessage(BaseModel):
 async def copilot_chat_http(request: ChatMessage):
     """AI Assistant チャット（HTTP ストリーミング）"""
     copilot = get_copilot_service()
+    run_id = uuid.uuid4().hex
+    message_id = uuid.uuid4().hex
     
     async def generate():
-        async for chunk in copilot.chat_stream(
-            request.message,
-            request.context,
-            request.history,
-            request.images
-        ):
-            # SSE形式でストリーミング
-            yield f"data: {json.dumps({'content': chunk})}\n\n"
-        yield "data: {\"done\": true}\n\n"
+        try:
+            yield f"data: {json.dumps({'type': 'RUN_STARTED', 'runId': run_id}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'TEXT_MESSAGE_START', 'runId': run_id, 'messageId': message_id, 'role': 'assistant'}, ensure_ascii=False)}\n\n"
+            async for chunk in copilot.chat_stream(
+                request.message,
+                request.context,
+                request.history,
+                request.images
+            ):
+                yield f"data: {json.dumps({'type': 'TEXT_MESSAGE_CONTENT', 'runId': run_id, 'messageId': message_id, 'delta': chunk, 'content': chunk}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'TEXT_MESSAGE_END', 'runId': run_id, 'messageId': message_id}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'RUN_FINISHED', 'runId': run_id, 'done': True}, ensure_ascii=False)}\n\n"
+        except Exception as error:
+            yield f"data: {json.dumps({'type': 'RUN_ERROR', 'runId': run_id, 'message': str(error), 'content': f'エラー: {error}'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'RUN_FINISHED', 'runId': run_id, 'done': True}, ensure_ascii=False)}\n\n"
     
     return StreamingResponse(
         generate(),
@@ -2930,26 +3157,118 @@ async def vectorize_documents(request: VectorizeRequest):
     if not object_names:
         raise HTTPException(status_code=400, detail="ベクトル化するファイルが指定されていません")
     
+    if not profile_repository.schema_ready():
+        raise HTTPException(
+            status_code=503,
+            detail="SDS schema is not provisioned. Apply the versioned SDS schema first.",
+        )
+
     job_id = str(uuid.uuid4())
-    logger.info(f"画像ベクトル化開始（並列）: {len(object_names)}件, job_id={job_id}")
+    logger.info(f"共有インデックス作成開始: {len(object_names)}件, job_id={job_id}")
     
     async def generate_progress():
         """進捗状況をSSE形式でストリーミング"""
         event_count = 0
+        success_count = 0
+        failed_count = 0
         try:
-            logger.info(f"ベクトル化SSEストリーム開始: job_id={job_id}")
-            async for event in parallel_processor.process_vectorization(
-                object_names=object_names,
-                oci_service=oci_service,
-                image_vectorizer=image_vectorizer,
-                job_id=job_id
-            ):
-                event_count += 1
-                # 心拍以外のイベントのみログ出力
-                if event.get('type') != 'heartbeat':
-                    logger.debug(f"SSEイベント送信 #{event_count}: type={event.get('type')}, job_id={job_id}")
+            start_event = {
+                "type": "start",
+                "job_id": job_id,
+                "total_files": len(object_names),
+                "total_workers": 1,
+            }
+            yield f"data: {json.dumps(start_event, ensure_ascii=False)}\n\n"
+            for index, object_name in enumerate(object_names, start=1):
+                event = {
+                    "type": "file_start",
+                    "job_id": job_id,
+                    "file_index": index,
+                    "file_name": object_name,
+                    "total_files": len(object_names),
+                }
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            logger.info(f"ベクトル化SSEストリーム完了: job_id={job_id}, total_events={event_count}")
+                yield f"data: {json.dumps({'type': 'vectorize_start', 'file_index': index, 'file_name': object_name, 'total_files': len(object_names)}, ensure_ascii=False)}\n\n"
+                try:
+                    progress_queue: asyncio.Queue = asyncio.Queue()
+                    index_started_at = time.time()
+                    index_task = asyncio.create_task(index_pipeline.index_object(
+                        object_name,
+                        progress=lambda done, total: progress_queue.put_nowait((done, total)),
+                    ))
+                    while True:
+                        try:
+                            done, total = await asyncio.wait_for(progress_queue.get(), timeout=2.0)
+                            yield f"data: {json.dumps({'type': 'page_progress', 'file_index': index, 'file_name': object_name, 'total_files': len(object_names), 'page_index': done, 'total_pages': total}, ensure_ascii=False)}\n\n"
+                        except asyncio.TimeoutError:
+                            if index_task.done() and progress_queue.empty():
+                                break
+                            heartbeat_event = {
+                                "type": "heartbeat",
+                                "job_id": job_id,
+                                "file_index": index,
+                                "file_name": object_name,
+                                "total_files": len(object_names),
+                                "elapsed_seconds": int(time.time() - index_started_at),
+                                "status": "indexing",
+                            }
+                            yield f"data: {json.dumps(heartbeat_event, ensure_ascii=False)}\n\n"
+                        if index_task.done() and progress_queue.empty():
+                            break
+                    outcome = await index_task
+                    yield f"data: {json.dumps({'type': 'pages_count', 'file_index': index, 'total_pages': outcome.page_count}, ensure_ascii=False)}\n\n"
+                    completed_profiles = set(outcome.indexed_profiles) | set(outcome.reused_profiles)
+                    fully_indexed = (
+                        not outcome.failed_profiles
+                        and set(outcome.matched_profiles) <= completed_profiles
+                    )
+                    event = {
+                        "type": "file_complete" if fully_indexed else "file_error",
+                        "file_index": index,
+                        "file_name": object_name,
+                        "total_files": len(object_names),
+                        "matched_profiles": outcome.matched_profiles,
+                        "indexed_profiles": outcome.indexed_profiles,
+                        "reused_profiles": outcome.reused_profiles,
+                        "failed_profiles": outcome.failed_profiles,
+                        "degraded_services": outcome.degraded_services,
+                    }
+                    if fully_indexed:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                        if outcome.failed_profiles:
+                            slots = ", ".join(str(slot) for slot in sorted(outcome.failed_profiles))
+                            event["error"] = f"VLM抽出プロファイル {slots} の反映に失敗しました"
+                        else:
+                            event["error"] = "共有インデックスの作成が完了しませんでした"
+                except Exception as file_error:
+                    failed_count += 1
+                    logger.exception("インデックス作成エラー: %s", object_name)
+                    event = {
+                        "type": "file_error",
+                        "file_index": index,
+                        "file_name": object_name,
+                        "total_files": len(object_names),
+                        "error": str(file_error),
+                    }
+                event_count += 1
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            complete_event = {
+                "type": "complete",
+                "success": failed_count == 0,
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "total_files": len(object_names),
+                "job_id": job_id,
+                "message": (
+                    "インデックス作成が完了しました"
+                    if failed_count == 0
+                    else "インデックス作成が完了しました（失敗あり）"
+                ),
+            }
+            yield f"data: {json.dumps(complete_event, ensure_ascii=False)}\n\n"
+            logger.info(f"インデックス作成SSE完了: job_id={job_id}, total_events={event_count}")
         except Exception as e:
             logger.error(f"ベクトル化エラー: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"

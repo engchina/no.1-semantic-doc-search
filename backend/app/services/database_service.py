@@ -1156,23 +1156,30 @@ class DatabaseService:
             return None
     
     def refresh_table_statistics(self) -> Dict[str, Any]:
-        """全テーブルの統計情報を更新（接続プール経由）"""
+        """システムテーブルの統計情報を更新（接続プール経由）"""
         try:
             if not ORACLEDB_AVAILABLE:
                 return {"success": False, "message": "Oracle DBが利用できません", "updated_count": 0}
             
             if not self._ensure_pool_initialized():
                 return {"success": False, "message": "データベース接続に失敗しました", "updated_count": 0}
+
+            from app.rag.oracle_schema import system_table_names
+
+            table_binds = {
+                f"table_{index}": name
+                for index, name in enumerate(system_table_names())
+            }
+            table_placeholders = ", ".join(f":{name}" for name in table_binds)
             
             with self.pool_manager.acquire_connection() as connection:
                 cursor = connection.cursor()
                 
-                # '$'を含まないテーブル一覧を取得
-                cursor.execute("""
-                    SELECT table_name 
-                    FROM user_tables 
-                    WHERE table_name NOT LIKE '%$%'
-                """)
+                cursor.execute(
+                    f"SELECT table_name FROM user_tables "
+                    f"WHERE table_name IN ({table_placeholders})",
+                    table_binds,
+                )
                 tables = cursor.fetchall()
                 
                 updated_count = 0
@@ -1223,20 +1230,31 @@ class DatabaseService:
             }
     
     def get_tables(self, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
-        """テーブル一覧を取得（ページング対応、接続プール経由）"""
+        """システムテーブル一覧を取得（ページング対応、接続プール経由）"""
         try:
             if not ORACLEDB_AVAILABLE:
                 return {"tables": [], "total": 0}
             
             if not self._ensure_pool_initialized():
                 return {"tables": [], "total": 0}
+
+            from app.rag.oracle_schema import system_table_names
+
+            table_binds = {
+                f"table_{index}": name
+                for index, name in enumerate(system_table_names())
+            }
+            table_placeholders = ", ".join(f":{name}" for name in table_binds)
             
             with self.pool_manager.acquire_connection() as connection:
                 cursor = connection.cursor()
                 
-                # 総件数を取得（'$'を含むテーブルを除外）
-                count_query = "SELECT COUNT(*) FROM user_tables WHERE table_name NOT LIKE '%$%'"
-                cursor.execute(count_query)
+                # 総件数を取得（このシステムが利用するテーブルのみ）
+                count_query = (
+                    "SELECT COUNT(*) FROM user_tables "
+                    f"WHERE table_name IN ({table_placeholders})"
+                )
+                cursor.execute(count_query, table_binds)
                 total = cursor.fetchone()[0]
                 
                 # ページング用の範囲計算
@@ -1244,7 +1262,6 @@ class DatabaseService:
                 end_row = page * page_size
                 
                 # 最適化：先にページングを完了し、その後JOINを実行
-                # '$'を含むテーブルを除外
                 query = """
                     SELECT 
                         p.table_name,
@@ -1261,16 +1278,19 @@ class DatabaseService:
                                 last_analyzed,
                                 ROW_NUMBER() OVER (ORDER BY table_name) rn
                             FROM user_tables
-                            WHERE table_name NOT LIKE '%$%'
+                            WHERE table_name IN ({table_placeholders})
                         )
                         WHERE rn BETWEEN :start_row AND :end_row
                     ) p
                     LEFT JOIN user_objects o ON p.table_name = o.object_name AND o.object_type = 'TABLE'
                     LEFT JOIN user_tab_comments c ON p.table_name = c.table_name
                     ORDER BY p.rn
-                """
+                """.format(table_placeholders=table_placeholders)
                 
-                cursor.execute(query, {"start_row": start_row, "end_row": end_row})
+                cursor.execute(
+                    query,
+                    {**table_binds, "start_row": start_row, "end_row": end_row},
+                )
                 rows = cursor.fetchall()
                 
                 tables = []
@@ -1450,7 +1470,7 @@ class DatabaseService:
             return {"success": False, "deleted_count": 0, "message": str(e), "errors": errors}
     
     def delete_file_info_records(self, file_ids: list) -> Dict[str, Any]:
-        """FILE_INFOテーブルのレコードを一括削除（接続プール経由、関連するIMG_EMBEDDINGSも自動削除）"""
+        """SDS_FILESテーブルのレコードを一括削除（接続プール経由、関連するSDS_IMAGE_EMBEDDINGSも自動削除）"""
         deleted_count = 0
         errors = []
         
@@ -1483,23 +1503,23 @@ class DatabaseService:
                         file_id_int = int(file_id)
                         
                         # 削除前にレコードの存在を確認
-                        cursor.execute('SELECT FILE_ID, BUCKET, OBJECT_NAME FROM FILE_INFO WHERE FILE_ID = :file_id', {'file_id': file_id_int})
+                        cursor.execute('SELECT FILE_ID, BUCKET, OBJECT_NAME FROM SDS_FILES WHERE FILE_ID = :file_id', {'file_id': file_id_int})
                         existing_record = cursor.fetchone()
                         if existing_record:
                             logger.info(f"削除対象レコード発見: FILE_ID={existing_record[0]}")
                         else:
                             logger.warning(f"削除対象レコードが見つかりません: FILE_ID={file_id_int}")
                         
-                        # DELETE文を実行（CASCADE制約によりIMG_EMBEDDINGSも自動削除）
-                        cursor.execute('DELETE FROM FILE_INFO WHERE FILE_ID = :file_id', {'file_id': file_id_int})
+                        # DELETE文を実行（CASCADE制約によりSDS_IMAGE_EMBEDDINGSも自動削除）
+                        cursor.execute('DELETE FROM SDS_FILES WHERE FILE_ID = :file_id', {'file_id': file_id_int})
                         
                         row_count = cursor.rowcount
                         if row_count > 0:
                             deleted_count += 1
-                            logger.info(f"FILE_INFOレコード削除成功: FILE_ID={file_id_int}")
+                            logger.info(f"SDS_FILESレコード削除成功: FILE_ID={file_id_int}")
                         else:
                             errors.append(f"FILE_ID={file_id_int}: レコードが見つかりません")
-                            logger.warning(f"FILE_INFOレコードが見つかりません: FILE_ID={file_id_int}")
+                            logger.warning(f"SDS_FILESレコードが見つかりません: FILE_ID={file_id_int}")
                         
                     except ValueError as ve:
                         error_msg = f"無効なFILE_ID: {file_id}"
@@ -1508,7 +1528,7 @@ class DatabaseService:
                     except Exception as e:
                         error_msg = f"FILE_ID={file_id}: {str(e)}"
                         errors.append(error_msg)
-                        logger.error(f"FILE_INFOレコード削除エラー: {error_msg}", exc_info=True)
+                        logger.error(f"SDS_FILESレコード削除エラー: {error_msg}", exc_info=True)
                 
                 # コミット
                 logger.info(f"COMMIT実行中... deleted_count={deleted_count}")
@@ -1526,7 +1546,7 @@ class DatabaseService:
             return result
         
         except Exception as e:
-            logger.error(f"FILE_INFOレコード一括削除エラー: {e}", exc_info=True)
+            logger.error(f"SDS_FILESレコード一括削除エラー: {e}", exc_info=True)
             return {"success": False, "deleted_count": 0, "message": str(e), "errors": errors}
     
     def delete_table_data(self, table_name: str, primary_keys: list) -> Dict[str, Any]:

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict
 
@@ -13,10 +13,10 @@ class ImageSearchResult(BaseModel):
     """画像検索結果(個別のページ画像)"""
     model_config = ConfigDict(from_attributes=True)
     
-    embed_id: int
+    embed_id: Union[int, str]
     bucket: str
     object_name: str
-    page_number: int
+    page_number: Optional[int]
     vector_distance: float
     content_type: Optional[str] = None
     file_size: Optional[int] = None
@@ -26,7 +26,7 @@ class FileSearchResult(BaseModel):
     """ファイル検索結果(ファイル単位)"""
     model_config = ConfigDict(from_attributes=True)
     
-    file_id: int
+    file_id: Union[int, str]
     bucket: str
     object_name: str
     original_filename: Optional[str] = None

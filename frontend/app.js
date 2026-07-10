@@ -16,6 +16,8 @@ import {
 import {
   loadOciSettings,
 } from './src/modules/oci.js';
+import { loadRerankSettings, loadRetrievalSettings } from './src/modules/retrieval-settings.js';
+import { loadDynamicSearchFilters } from './src/modules/search.js';
 import { UPLOAD_CONFIG } from './src/config.js';
 // DB関連機能はdocument.jsモジュールに移動済み
 import { 
@@ -36,6 +38,9 @@ import {
   testDbConnection,
   loadDbInfo,
   loadDbTables,
+  loadSystemTableStatus,
+  refreshSystemTableStatus,
+  initializeSystemTables,
   toggleTablePreview,
   loadTableData,
   escapeHtml,
@@ -125,10 +130,15 @@ async function switchTab(tabName, event) {
   if (mainTabsContainer) {
     mainTabsContainer.querySelectorAll('.apex-tab').forEach(tab => {
       tab.classList.remove('active');
+      tab.setAttribute('aria-selected', 'false');
+      tab.tabIndex = -1;
     });
   }
-  if (event && event.target) {
-    event.target.classList.add('active');
+  const selectedTab = event?.currentTarget || event?.target?.closest('[role="tab"]');
+  if (selectedTab) {
+    selectedTab.classList.add('active');
+    selectedTab.setAttribute('aria-selected', 'true');
+    selectedTab.tabIndex = 0;
   }
   
   // サブタブの表示/非表示
@@ -143,7 +153,7 @@ async function switchTab(tabName, event) {
     if (firstSubTab) {
       firstSubTab.classList.add('active');
     }
-    const subTabEvent = { target: firstSubTab };
+    const subTabEvent = { currentTarget: firstSubTab, target: firstSubTab };
     await switchAdminSubTab('database', subTabEvent);
   } else {
     adminSubTabs.style.display = 'none';
@@ -187,9 +197,14 @@ async function switchAdminSubTab(subTabName, event) {
   const adminSubTabs = document.getElementById('adminSubTabs');
   adminSubTabs.querySelectorAll('.apex-tab').forEach(tab => {
     tab.classList.remove('active');
+    tab.setAttribute('aria-selected', 'false');
+    tab.tabIndex = -1;
   });
-  if (event && event.target) {
-    event.target.classList.add('active');
+  const selectedTab = event?.currentTarget || event?.target?.closest('[role="tab"]');
+  if (selectedTab) {
+    selectedTab.classList.add('active');
+    selectedTab.setAttribute('aria-selected', 'true');
+    selectedTab.tabIndex = 0;
   }
   
   // タブコンテンツの表示切り替え
@@ -217,10 +232,15 @@ async function switchAdminSubTab(subTabName, event) {
   
   // サブタブに応じた初期化処理
   try {
-    if (subTabName === 'settings') {
+    if (subTabName === 'retrieval') {
+      console.log('Loading retrieval and indexing settings...');
+      utilsShowLoading('検索・索引設定を読み込み中...');
+      await loadRetrievalSettings();
+      utilsHideLoading();
+    } else if (subTabName === 'settings') {
       console.log('Loading OCI settings...');
       utilsShowLoading('OCI設定を読み込み中...');
-      await loadOciSettings();
+      await Promise.all([loadOciSettings(), loadRerankSettings()]);
       utilsHideLoading();
       console.log('OCI settings loaded');
     } else if (subTabName === 'database') {
@@ -233,7 +253,15 @@ async function switchAdminSubTab(subTabName, event) {
         const existingWarnings = dbContent.querySelectorAll('.bg-yellow-50.border-yellow-400');
         existingWarnings.forEach(warning => warning.remove());
       }
-      
+
+      // ADB OCIDは.envから読み込むだけでDB起動不要。
+      // DB接続読み込みがタイムアウトしても必ず表示されるよう、先に取得する
+      try {
+        await loadAdbOcidOnly();
+      } catch (error) {
+        console.warn('ADB OCID取得エラー（スキップ）:', error);
+      }
+
       try {
         await loadDbConnectionSettings();
       } catch (error) {
@@ -278,13 +306,10 @@ async function switchAdminSubTab(subTabName, event) {
         utilsShowToast(`設定の読み込みに失敗しました: ${error.message}`, 'error');
         return;
       }
-      
-      // ADB OCIDのみを自動取得（Display NameやLifecycle Stateは取得しない）
-      try {
-        await loadAdbOcidOnly();
-      } catch (error) {
-        console.warn('ADB OCID取得エラー（スキップ）:', error);
-      }
+
+      await loadSystemTableStatus();
+
+      // ADB OCIDは上で取得済み
       // .envからDB接続情報を自動取得（ユーザー名、パスワード、DSN）
       try {
         await loadDbConnectionInfoFromEnv();
@@ -572,7 +597,7 @@ function showUploadProgressUI(files) {
             </div>
             <span id="upload-progress-percent-${index}" class="text-xs font-semibold text-gray-600" style="min-width: 40px;">0%</span>
           </div>
-          <div id="upload-status-${index}" class="text-xs text-gray-500 mt-1"></div>
+          <div id="upload-status-${index}" class="text-xs text-gray-500 mt-1" aria-live="polite"></div>
         </div>
       </div>
     `;
@@ -601,7 +626,7 @@ function showUploadProgressUI(files) {
       </div>
       
       <div class="mt-3 pt-3 border-t border-gray-200">
-        <div id="upload-overall-status" class="text-sm font-semibold text-gray-700">準備中...</div>
+        <div id="upload-overall-status" class="text-sm font-semibold text-gray-700" aria-live="polite">準備中...</div>
       </div>
     </div>
   `;
@@ -638,6 +663,7 @@ async function processUploadStreamingResponse(response, totalFiles) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
+  const streamStartedAt = Date.now();
   
   let currentFileIndex = 0;
   let successCount = 0;
@@ -666,6 +692,21 @@ async function processUploadStreamingResponse(response, totalFiles) {
         case 'file_uploading':
           updateFileUploadStatus(data.file_index - 1, 'アップロード中...', 50);
           break;
+          
+        case 'heartbeat': {
+          const fileIndex = data.file_index || currentFileIndex;
+          const elapsedSeconds = Number.isFinite(Number(data.elapsed_seconds))
+            ? Number(data.elapsed_seconds)
+            : Math.round((Date.now() - streamStartedAt) / 1000);
+          const elapsedLabel = `${Math.max(0, Math.round(elapsedSeconds))}秒経過`;
+          if (fileIndex > 0) {
+            updateFileUploadStatus(fileIndex - 1, `アップロード中... ${elapsedLabel}`, 50);
+            updateUploadOverallStatus(`ファイル ${fileIndex}/${data.total_files || totalFiles} をアップロード中... ${elapsedLabel}`);
+          } else {
+            updateUploadOverallStatus(`アップロード中... ${elapsedLabel}`);
+          }
+          break;
+        }
           
         case 'file_complete':
           successCount++;
@@ -779,19 +820,24 @@ function updateFileUploadStatus(fileIndex, status, progress, isSuccess = false, 
   
   // 色の変更
   if (isSuccess) {
-    fileDiv.classList.remove('bg-gray-50', 'border-gray-200', 'bg-red-50', 'border-red-200');
+    fileDiv.classList.remove('bg-gray-50', 'border-gray-200', 'bg-red-50', 'border-red-200', 'progress-active');
+    fileDiv.setAttribute('aria-busy', 'false');
     fileDiv.classList.add('bg-green-50', 'border-green-200');
     progressBar.classList.remove('bg-blue-500', 'bg-red-500');
     progressBar.classList.add('bg-green-500');
     statusDiv.classList.remove('text-gray-500', 'text-red-600');
     statusDiv.classList.add('text-green-600');
   } else if (isError) {
-    fileDiv.classList.remove('bg-gray-50', 'border-gray-200', 'bg-green-50', 'border-green-200');
+    fileDiv.classList.remove('bg-gray-50', 'border-gray-200', 'bg-green-50', 'border-green-200', 'progress-active');
+    fileDiv.setAttribute('aria-busy', 'false');
     fileDiv.classList.add('bg-red-50', 'border-red-200');
     progressBar.classList.remove('bg-blue-500', 'bg-green-500');
     progressBar.classList.add('bg-red-500');
     statusDiv.classList.remove('text-gray-500', 'text-green-600');
     statusDiv.classList.add('text-red-600');
+  } else if (status) {
+    fileDiv.classList.add('progress-active');
+    fileDiv.setAttribute('aria-busy', 'true');
   }
 }
 
@@ -1332,7 +1378,7 @@ async function deleteDocument(documentId, filename) {
     `文書「${filename}」を削除してもよろしいですか?
 
 ※以下のデータも削除されます:
-- データベース内のレコード（FILE_INFO, IMG_EMBEDDINGS）
+- データベース内のレコード（SDS_FILES, SDS_IMAGE_EMBEDDINGS）
 - 生成された画像ファイル
 - Object Storageのファイル
 
@@ -1632,6 +1678,32 @@ window.addEventListener('DOMContentLoaded', async () => {
   
   // ログイン状態を確認
   await authCheckLoginStatus();
+
+  // 認証済み、またはログイン不要のデバッグモードでのみ検索条件を取得する
+  if (appState.get('isLoggedIn') || !appState.get('requireLogin')) {
+    await loadDynamicSearchFilters();
+  }
+
+  // ADB OCIDを起動直後（DB操作前でバックエンドがアイドルなうち）に一度取得しておく。
+  // これにより、後でDB管理タブを開いた際に接続プール初期化でブロックされても
+  // OCIDは既に表示済みとなり、DB停止時でも必ず表示される。
+  loadAdbOcidOnly().catch(err => console.warn('ADB OCID初期取得スキップ:', err));
+
+  ['mainTabs', 'adminSubTabs', 'searchTypeTabs'].forEach(id => {
+    const tabList = document.getElementById(id);
+    tabList?.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      const tabs = [...tabList.querySelectorAll('[role="tab"]:not([disabled])')];
+      const currentIndex = tabs.indexOf(document.activeElement);
+      if (currentIndex < 0 || tabs.length === 0) return;
+      event.preventDefault();
+      const nextIndex = event.key === 'Home' ? 0
+        : event.key === 'End' ? tabs.length - 1
+          : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      tabs[nextIndex].focus();
+      tabs[nextIndex].click();
+    });
+  });
   
   // console.log('資料見つかるくん - 初期化完了');
 });
@@ -1655,20 +1727,23 @@ let currentAdbInfo = {
  */
 async function loadAdbOcidOnly() {
   try {
+    // OCIDは.envを読むだけでDB起動不要。ただしDB接続プール初期化中はバックエンドが
+    // 一時的にブロックされるため、既定10秒では取りこぼす。タイムアウトを延長する。
     const data = await authApiCall('/ai/api/database/target/ocid', {
-      method: 'GET'
+      method: 'GET',
+      timeout: 30000
     });
     
     if (data.success && data.ocid) {
       // OCIDのみを表示
       document.getElementById('adbOcid').textContent = data.ocid;
       console.log('ADB OCIDを読み込みました:', data.ocid);
-    } else {
-      document.getElementById('adbOcid').textContent = '-';
     }
+    // 失敗時は既存の表示（初期化時に取得済みのOCID等）を上書きしない。
+    // HTMLの初期値は '-' なので、一度も取得できていなければ '-' のまま。
   } catch (error) {
     console.error('ADB OCID読み込みエラー:', error);
-    document.getElementById('adbOcid').textContent = '-';
+    // タイムアウト等で失敗しても、既に表示済みのOCIDは維持する（'-'で上書きしない）
   }
 }
 
@@ -1957,6 +2032,8 @@ window.refreshDbInfo = refreshDbInfo;
 window.refreshDbStorage = refreshDbStorage;
 window.handleWalletFileSelect = handleWalletFileSelect;
 window.loadDbStorage = loadDbStorage;
+window.refreshSystemTableStatus = refreshSystemTableStatus;
+window.initializeSystemTables = initializeSystemTables;
 
 // テーブル一覧ページング関連関数をグローバルスコープに公開
 window.handleDbTablesPrevPage = handleDbTablesPrevPage;

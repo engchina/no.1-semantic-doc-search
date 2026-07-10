@@ -81,6 +81,7 @@ tmp/
 # Documentation (generated or temporary)
 abc.md
 test_*.py
+!backend/tests/test_*.py
 
 # Presentation files
 *.pptx

@@ -18,6 +18,13 @@ import { appState, setAuthState } from '../state.js';
 // 開発時はViteのプロキシを使うため空文字列、本番ビルド時は環境変数から設定
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
+function directApiUrl(apiBase, endpoint) {
+  if (!apiBase) return endpoint;
+  const base = apiBase.replace(/\/+$/, '');
+  const path = endpoint.replace(/^\/ai\/api(?=\/|$)/, '') || '/';
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 // ========================================
 // グローバル変数
 // ========================================
@@ -211,7 +218,7 @@ export async function handleLogin(event) {
     }
     
     const apiBase = appState.get('apiBase') || '';
-    const url = apiBase ? `${apiBase}/api/login` : '/ai/api/login';
+    const url = directApiUrl(apiBase, '/ai/api/login');
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -250,6 +257,9 @@ export async function handleLogin(event) {
       // AI Assistantボタンの表示制御（設定に応じて）
       const showAiAssistant = appState.get('showAiAssistant');
       syncCopilotVisibility(showAiAssistant);
+
+      // 認証前には取得しない検索条件を、ログイン成功後に読み込む
+      await window.searchModule?.loadDynamicSearchFilters?.();
     }
   } catch (error) {
     if (errorMessage) {
@@ -279,7 +289,7 @@ export async function handleLogout() {
     const loginToken = appState.get('loginToken');
     if (loginToken) {
       const apiBase = appState.get('apiBase') || '';
-      const url = apiBase ? `${apiBase}/api/logout` : '/ai/api/logout';
+      const url = directApiUrl(apiBase, '/ai/api/logout');
       await fetch(url, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${loginToken}` }
@@ -443,7 +453,7 @@ function clearStoredAuthState() {
  */
 export async function fetchWithAuth(endpoint, options = {}) {
   const apiBase = appState.get('apiBase') || '';
-  const url = apiBase ? `${apiBase}${endpoint}` : endpoint;
+  const url = directApiUrl(apiBase, endpoint);
   const headers = { ...(options.headers || {}) };
 
   const loginToken = localStorage.getItem('loginToken');

@@ -355,7 +355,10 @@ def _run_soffice_convert_to_pdf(temp_file: Path, temp_dir: str, file_name: str) 
 def _convert_file_to_images_worker(
     file_content: bytes,
     file_ext: str,
-    file_name: str
+    file_name: str,
+    dpi: int = 200,
+    first_page: int | None = None,
+    last_page: int | None = None,
 ) -> Tuple[bool, List[Tuple[int, bytes]], str]:
     """
     ワーカープロセスで実行される画像変換関数
@@ -377,7 +380,10 @@ def _convert_file_to_images_worker(
         images = []
         
         if file_ext == 'pdf':
-            pil_images = convert_from_path(str(temp_file), dpi=200, fmt='PNG')
+            pil_images = convert_from_path(
+                str(temp_file), dpi=dpi, fmt='PNG',
+                first_page=first_page, last_page=last_page,
+            )
             images = pil_images
         elif file_ext in ['ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx']:
             # LibreOfficeでPDFに変換
@@ -391,7 +397,7 @@ def _convert_file_to_images_worker(
                     pdf_path = pdf_files[0]
                     logger.info(f"フォールバックPDFファイル使用: {pdf_path.name}")
             if pdf_path.exists():
-                images = convert_from_path(str(pdf_path), dpi=200, fmt='PNG')
+                images = convert_from_path(str(pdf_path), dpi=dpi, fmt='PNG')
             else:
                 return False, [], "PDF変換に失敗しました"
         elif file_ext in ['png', 'jpg', 'jpeg']:
@@ -403,7 +409,7 @@ def _convert_file_to_images_worker(
             # TXT/Markdown → PDF変換
             pdf_path = _convert_text_to_pdf(temp_file, file_ext, temp_dir)
             if pdf_path and pdf_path.exists():
-                images = convert_from_path(str(pdf_path), dpi=200, fmt='PNG')
+                images = convert_from_path(str(pdf_path), dpi=dpi, fmt='PNG')
             else:
                 return False, [], "TXT/Markdown変換に失敗しました"
         else:
@@ -411,7 +417,7 @@ def _convert_file_to_images_worker(
         
         # 画像をバイト列に変換
         result_images = []
-        for i, img in enumerate(images, start=1):
+        for i, img in enumerate(images, start=first_page or 1):
             img_bytes = io.BytesIO()
             img.save(img_bytes, format='PNG')
             img_bytes.seek(0)
