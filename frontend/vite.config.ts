@@ -6,7 +6,7 @@ export default defineConfig({
     port: 5175,  // no.1-semantic-doc-searchは5175ポートを使用
     proxy: {
       '/ai/api': {
-        target: 'http://localhost:8081',
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8081',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ai\/api/, ''),  // /ai/api/config -> /config
       }

@@ -14,6 +14,20 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Homebrew の Node.js を通常の PATH から参照できない場合にも対応する。
+if [ "$(uname -s)" = "Darwin" ]; then
+  for brew_bin in /opt/homebrew/bin /usr/local/bin; do
+    if [ -x "${brew_bin}/brew" ]; then
+      PATH="${brew_bin}:$PATH"
+      if [ -d "$("${brew_bin}/brew" --prefix node@20 2>/dev/null)/bin" ]; then
+        PATH="$("${brew_bin}/brew" --prefix node@20)/bin:$PATH"
+      fi
+      break
+    fi
+  done
+  export PATH
+fi
+
 PORT="${FRONTEND_PORT:-5175}"
 
 if ! command -v node >/dev/null 2>&1; then
@@ -26,7 +40,7 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[フロントエンド] Vite Proxyを使用してバックエンドに接続 (/api -> http://localhost:8081)"
+echo "[フロントエンド] Vite Proxyを使用してバックエンドに接続 (/ai/api -> ${VITE_PROXY_TARGET:-http://localhost:8081})"
 
 if command -v lsof >/dev/null 2>&1; then
   PIDS="$(lsof -PiTCP:"$PORT" -sTCP:LISTEN -t || true)"

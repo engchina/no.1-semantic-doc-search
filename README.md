@@ -3,6 +3,8 @@
 Profile-based multimodal retrieval setup and operations are documented in
 [docs/retrieval_profiles.md](docs/retrieval_profiles.md).
 
+macOSでローカル開発環境を構築する場合は、[README_MAC.md](README_MAC.md)を参照してください。
+
 ## Deploy
 
 - v1.13.0: 大阪リージョンのみをサポートしています。（デフォルト：大阪リージョン）

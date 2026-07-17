@@ -1745,6 +1745,7 @@ class DatabaseService:
         Returns:
             Dict: {"success": bool, "message": str, "available_services": List[str]}
         """
+        temp_wallet_path = None
         try:
             import oci
             from app.services.oci_service import oci_service
@@ -1787,12 +1788,14 @@ class DatabaseService:
             )
             
             # Walletを一時ファイルに保存
-            temp_wallet_file = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
-            with open(temp_wallet_file.name, 'wb') as f:
-                for chunk in wallet_response.data.raw.stream(1024 * 1024, decode_content=False):
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_wallet_file:
+                temp_wallet_path = temp_wallet_file.name
+
+            with open(temp_wallet_path, 'wb') as f:
+                for chunk in wallet_response.data.raw.stream(1024 * 1024, decode_content=True):
                     f.write(chunk)
             
-            logger.info(f"Walletダウンロード完了: {temp_wallet_file.name}")
+            logger.info(f"Walletダウンロード完了: {temp_wallet_path}")
             
             # Walletを展開（ディレクトリが存在しなくてもパスを取得）
             wallet_location = self._get_wallet_location(create_if_missing=True)
@@ -1813,7 +1816,7 @@ class DatabaseService:
             os.makedirs(wallet_location, exist_ok=True)
             
             # ZIPファイルを展開
-            with zipfile.ZipFile(temp_wallet_file.name, 'r') as zip_ref:
+            with zipfile.ZipFile(temp_wallet_path, 'r') as zip_ref:
                 zip_ref.extractall(wallet_location)
             
             logger.info(f"Walletを展開しました: {wallet_location}")
@@ -1828,9 +1831,6 @@ class DatabaseService:
                         logger.info(f"不要なファイルを削除: {file}")
                     except Exception as e:
                         logger.warning(f"ファイル削除失敗: {file} - {e}")
-            
-            # 一時ファイルを削除
-            os.unlink(temp_wallet_file.name)
             
             # 必要なファイルの存在確認
             required_files = ['cwallet.sso', 'ewallet.pem', 'tnsnames.ora', 'sqlnet.ora']
@@ -1862,6 +1862,12 @@ class DatabaseService:
                 "message": f"Walletのダウンロードに失敗しました: {str(e)}",
                 "available_services": []
             }
+        finally:
+            if temp_wallet_path and os.path.exists(temp_wallet_path):
+                try:
+                    os.unlink(temp_wallet_path)
+                except OSError as cleanup_error:
+                    logger.warning(f"Wallet一時ファイル削除エラー: {cleanup_error}")
     
     def _update_env_file_dsn(self, username: str, password: str, dsn: str) -> bool:
         """

@@ -11,11 +11,27 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../" && pwd)"
 cd "$ROOT_DIR"
 
+# Homebrew が通常の PATH にない場合にも対応する（Apple Silicon / Intel）。
+if [ "$(uname -s)" = "Darwin" ]; then
+  for brew_bin in /opt/homebrew/bin /usr/local/bin; do
+    if [ -x "${brew_bin}/brew" ]; then
+      PATH="${brew_bin}:$PATH"
+      break
+    fi
+  done
+
+  # Homebrew Cask 版 LibreOffice の CLI を文書変換処理から利用できるようにする。
+  if [ -d "/Applications/LibreOffice.app/Contents/MacOS" ]; then
+    PATH="/Applications/LibreOffice.app/Contents/MacOS:$PATH"
+  fi
+  export PATH
+fi
+
 # .envはpython-dotenvがアプリ側で読み込む。
 # シェルはexec前に必要なORACLE_CLIENT_LIB_DIRのみ抽出する。
 # ponytail: 全体sourceは.envの引用符/空白入り値で壊れるため、必要な1変数だけ読む
 if [ -f "$ROOT_DIR/.env" ]; then
-  ORACLE_CLIENT_LIB_DIR="${ORACLE_CLIENT_LIB_DIR:-$(grep -E '^ORACLE_CLIENT_LIB_DIR=' "$ROOT_DIR/.env" | tail -n1 | cut -d= -f2-)}"
+  ORACLE_CLIENT_LIB_DIR="${ORACLE_CLIENT_LIB_DIR:-$(awk -F= '$1 == "ORACLE_CLIENT_LIB_DIR" {sub(/^[^=]*=/, ""); value=$0} END {print value}' "$ROOT_DIR/.env")}"
   export ORACLE_CLIENT_LIB_DIR
 fi
 
@@ -30,7 +46,7 @@ if [ -z "${TNS_ADMIN:-}" ]; then
   fi
 fi
 
-if [ -n "${ORACLE_CLIENT_LIB_DIR:-}" ]; then
+if [ -n "${ORACLE_CLIENT_LIB_DIR:-}" ] && [ "$(uname -s)" != "Darwin" ]; then
   export LD_LIBRARY_PATH="${ORACLE_CLIENT_LIB_DIR}:${LD_LIBRARY_PATH:-}"
 fi
 

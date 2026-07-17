@@ -184,7 +184,13 @@ def _convert_text_to_pdf(temp_file: Path, file_ext: str, temp_dir: str) -> Optio
         # - IPA/Takao フォント: .ttf形式でfpdf2との互換性が高い
         # - 複数のパスを試行: 異なるLinuxディストリビューションに対応
         # - Noto Sans CJK: 理想的だが.ttc形式のためfpdf2では問題が発生する可能性あり
+        configured_font = os.getenv('JAPANESE_FONT_PATH', '').strip()
         japanese_fonts = [
+            # 明示設定（macOS など、標準パス以外に配置した場合）
+            configured_font,
+            # macOS（Homebrew Cask: font-ipaexfont）
+            str(Path.home() / 'Library/Fonts/ipaexg.ttf'),
+            '/Library/Fonts/ipaexg.ttf',
             # ゴシック体（推奨：読みやすさが高い）
             '/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf',       # IPAゴシック (Ubuntu/Debian)
             '/usr/share/fonts/truetype/takao-gothic/TakaoGothic.ttf',  # Takaoゴシック (Ubuntu/Debian)
@@ -199,12 +205,13 @@ def _convert_text_to_pdf(temp_file: Path, file_ext: str, temp_dir: str) -> Optio
         font_name = 'Helvetica'
         font_loaded = False
         for font_path in japanese_fonts:
-            if Path(font_path).exists():
+            if font_path and Path(font_path).expanduser().exists():
                 try:
-                    pdf.add_font('Japanese', '', font_path)
+                    resolved_font_path = str(Path(font_path).expanduser())
+                    pdf.add_font('Japanese', '', resolved_font_path)
                     font_name = 'Japanese'
                     font_loaded = True
-                    logger.debug(f"日本語フォント読み込み成功: {font_path}")
+                    logger.debug(f"日本語フォント読み込み成功: {resolved_font_path}")
                     break
                 except Exception as font_error:
                     logger.warning(f"フォント読み込みエラー ({font_path}): {font_error}")
@@ -214,7 +221,7 @@ def _convert_text_to_pdf(temp_file: Path, file_ext: str, temp_dir: str) -> Optio
             # 警告: 日本語フォントが見つからない場合、日本語テキストは正しく表示されない
             logger.warning(
                 "日本語フォントが見つかりません。日本語テキストは正しく表示されない可能性があります。"
-                "init_script.sh で fonts-ipafont-gothic または fonts-takao をインストールしてください。"
+                "Linuxではinit_script.sh、macOSではscripts/setup-mac.shで日本語フォントをインストールしてください。"
             )
         
         # ページを追加してフォントを設定
