@@ -1892,7 +1892,8 @@ class ParallelProcessor:
         oci_service: Any,
         image_vectorizer: Any,
         database_service: Any,
-        job_id: str
+        job_id: str,
+        rag_repository: Any = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         複数オブジェクトを並列で削除（SSEストリーミング対応）
@@ -1910,6 +1911,7 @@ class ParallelProcessor:
             image_vectorizer: 画像ベクトル化インスタンス
             database_service: データベースサービスインスタンス
             job_id: ジョブID
+            rag_repository: Artifact/Release lineageを削除するRepository
             
         Yields:
             SSEイベント辞書
@@ -2024,6 +2026,14 @@ class ParallelProcessor:
                     return
                 
                 if delete_result.get('success'):
+                    if rag_repository is not None and not (
+                        obj_name.endswith('/') or '/page_' in obj_name
+                    ):
+                        await asyncio.to_thread(
+                            rag_repository.delete_document_by_object,
+                            bucket=bucket_name,
+                            object_name=obj_name,
+                        )
                     result['success'] = True
                     result['message'] = '削除完了'
                     await JobManager.increment_completed(job_id)

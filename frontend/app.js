@@ -17,6 +17,7 @@ import {
   loadOciSettings,
 } from './src/modules/oci.js';
 import { loadRerankSettings, loadRetrievalSettings } from './src/modules/retrieval-settings.js';
+import { restorePipelineJobs } from './src/modules/pipeline.js';
 import { loadDynamicSearchFilters } from './src/modules/search.js';
 import { UPLOAD_CONFIG } from './src/config.js';
 // DB関連機能はdocument.jsモジュールに移動済み
@@ -329,55 +330,6 @@ async function switchAdminSubTab(subTabName, event) {
     utilsShowToast(`設定の読み込みに失敗しました: ${error.message}`, 'error');
   }
 }
-
-// ========================================
-// ページ画像化されたファイルの判定
-// ※ 移動先: src/modules/document.js
-// ========================================
-
-// /**
-//  * ページ画像化で生成されたファイルかどうかを判定
-//  * 構造: 親ファイル名/page_001.png, 親ファイル名/page_002.png ...
-//  * 例: "example.pdf" → "example/page_001.png"
-//  * 
-//  * @param {string} objectName - オブジェクト名
-//  * @param {Array} allObjects - 全オブジェクトのリスト（親ファイルの存在確認用）
-//  * @returns {boolean} ページ画像化されたファイルの場合true
-//  */
-// function isGeneratedPageImage(objectName, allObjects = appState.get('allOciObjects')) {
-//   // page_001.pngのパターンにマッチするかチェック
-//   if (!/\/page_\d{3}\.png$/.test(objectName)) {
-//     return false;
-//   }
-//    
-//   // 親ファイル名を抽出（例: "example/page_001.png" → "example"）
-//   const lastSlashIndex = objectName.lastIndexOf('/');
-//   if (lastSlashIndex === -1) {
-//     // ルート直下のpage_001.pngはページ画像化されたファイルではない
-//     return false;
-//   }
-//   
-//   const parentFolderPath = objectName.substring(0, lastSlashIndex);
-//   
-//   // 親フォルダと同名のファイルが存在するかチェック
-//   // 例: "example/page_001.png" の場合、"example", "example.pdf", "example.pptx" などが存在すればページ画像化されたファイル
-//   const parentFileExists = allObjects.some(obj => {
-//     // フォルダを除外
-//     if (obj.name.endsWith('/')) {
-//       return false;
-//     }
-//     
-//     // 拡張子を除いたファイル名を比較
-//     const objNameWithoutExt = obj.name.replace(/\.[^.]+$/, '');
-//     return objNameWithoutExt === parentFolderPath;
-//   });
-//   
-//   return parentFileExists;
-// }
-// src/modules/document.jsのisGeneratedPageImage関数を使用
-const isGeneratedPageImage = (objectName, allObjects) => {
-  return window.ociModule?.isGeneratedPageImage?.(objectName, allObjects) ?? false;
-};
 
 // 複数ファイルアップロード用の状態管理
 let selectedMultipleFiles = [];
@@ -1150,16 +1102,6 @@ const clearAllOciObjects = () => { window.ociModule?.clearAll?.(); };
 window.downloadSelectedOciObjects = () => { window.ociModule?.downloadSelected?.(); };
 
 /**
- * 選択されたOCIオブジェクトをページ毎に画像化
- * ※ 移動先: src/modules/document.js
- */
-// window.convertSelectedOciObjectsToImages = async function() {
-//   // ... (省略 - 詳細はsrc/modules/document.jsを参照)
-// };
-// src/modules/document.jsのconvertSelectedOciObjectsToImages関数を使用
-window.convertSelectedOciObjectsToImages = () => { window.ociModule?.convertToImages?.(); };
-
-/**
  * 選択されたOCIオブジェクトをベクトル化してDBに保存
  * ※ 移動先: src/modules/document.js
  */
@@ -1671,6 +1613,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   // 認証済み、またはログイン不要のデバッグモードでのみ検索条件を取得する
   if (appState.get('isLoggedIn') || !appState.get('requireLogin')) {
     await loadDynamicSearchFilters();
+    await restorePipelineJobs();
   }
 
   // ADB OCIDを起動直後（DB操作前でバックエンドがアイドルなうち）に一度取得しておく。

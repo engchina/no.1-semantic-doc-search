@@ -12,6 +12,7 @@ Object Storageへのファイルアップロード、ダウンロード、およ
 """
 import base64
 import configparser
+import io
 import logging
 import os
 import random
@@ -374,6 +375,10 @@ class OCIService:
         if self._object_storage_client is None:
             config = self.get_oci_config()
             if config:
+                timeout = (
+                    float(os.environ.get("OBJECT_STORAGE_CONNECT_TIMEOUT_SECONDS", "10")),
+                    float(os.environ.get("OBJECT_STORAGE_TRANSFER_TIMEOUT_SECONDS", "300")),
+                )
                 # Object Storageは OCI_REGION_DEPLOY を使用
                 deploy_region = os.environ.get("OCI_REGION_DEPLOY")
                 if deploy_region:
@@ -381,11 +386,15 @@ class OCIService:
                     storage_config = config.copy()
                     storage_config["region"] = deploy_region
                     logger.info(f"Object Storage ClientをOCI_REGION_DEPLOYで作成: {deploy_region}")
-                    self._object_storage_client = oci.object_storage.ObjectStorageClient(storage_config)
+                    self._object_storage_client = oci.object_storage.ObjectStorageClient(
+                        storage_config, timeout=timeout
+                    )
                 else:
                     # OCI_REGION_DEPLOYがない場合はデフォルトregionを使用
                     logger.warning("OCI_REGION_DEPLOYが設定されていません。OCI_REGIONを使用します")
-                    self._object_storage_client = oci.object_storage.ObjectStorageClient(config)
+                    self._object_storage_client = oci.object_storage.ObjectStorageClient(
+                        config, timeout=timeout
+                    )
         return self._object_storage_client
     
     def get_namespace(self) -> Dict[str, Any]:
@@ -671,11 +680,64 @@ class OCIService:
             
             if content_type:
                 put_object_kwargs["content_type"] = content_type
-            
-            self._retry_api_call(
-                client.put_object,
-                **put_object_kwargs
+
+            multipart_threshold = int(
+                os.environ.get(
+                    "OBJECT_STORAGE_MULTIPART_THRESHOLD_BYTES", str(10 * 1024 * 1024)
+                )
             )
+            content_length = file_size
+            if content_length is None and isinstance(file_content, (bytes, bytearray)):
+                content_length = len(file_content)
+            if content_length is not None and content_length >= multipart_threshold:
+                if isinstance(file_content, (bytes, bytearray)):
+                    payload = bytes(file_content)
+                elif hasattr(file_content, "getvalue"):
+                    payload = file_content.getvalue()
+                else:
+                    original_position = (
+                        file_content.tell() if hasattr(file_content, "tell") else None
+                    )
+                    payload = file_content.read()
+                    if original_position is not None and hasattr(file_content, "seek"):
+                        file_content.seek(original_position)
+                manager = oci.object_storage.UploadManager(
+                    client,
+                    allow_parallel_uploads=True,
+                    parallel_process_count=max(
+                        1, int(os.environ.get("OBJECT_STORAGE_MULTIPART_WORKERS", "3"))
+                    ),
+                )
+                multipart_kwargs = {
+                    "metadata": opc_meta,
+                    "part_size": max(
+                        10 * 1024 * 1024,
+                        int(
+                            os.environ.get(
+                                "OBJECT_STORAGE_MULTIPART_PART_SIZE_BYTES",
+                                str(10 * 1024 * 1024),
+                            )
+                        ),
+                    ),
+                }
+                if content_type:
+                    multipart_kwargs["content_type"] = content_type
+
+                def upload_multipart() -> Any:
+                    return manager.upload_stream(
+                        namespace,
+                        bucket_name,
+                        object_name,
+                        io.BytesIO(payload),
+                        **multipart_kwargs,
+                    )
+
+                self._retry_api_call(upload_multipart)
+            else:
+                self._retry_api_call(
+                    client.put_object,
+                    **put_object_kwargs,
+                )
             
             logger.info(f"Object Storageアップロード成功: {object_name} (原始ファイル名: {original_filename})")
             return True
@@ -861,7 +923,7 @@ class OCIService:
                                                 failed_objects.append(img_obj["name"])
                                 else:
                                     logger.info(f"画像ファイルなし: {image_folder_name}")
-                        except Exception as folder_check_e:
+                        except Exception:
                             # フォルダが存在しない場合はエラーを無視（画像化されていないファイル）
                             logger.debug(f"画像フォルダなし: {image_folder_name}")
                         

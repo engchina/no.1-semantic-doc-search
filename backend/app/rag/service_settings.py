@@ -7,6 +7,7 @@ from pathlib import Path
 from dotenv import dotenv_values, set_key
 
 from app.rag.models import (
+    LEGACY_VLM_VERIFY_PROMPT,
     GlobalVlmSettings,
     MinerUSettings,
     OcrEngineSettings,
@@ -115,11 +116,11 @@ class RetrievalServiceSettingsStore:
     def get_vlm(self) -> GlobalVlmSettings:
         values = self._values()
         defaults = GlobalVlmSettings()
+        verify_prompt = values.get("VLM_VERIFY_PROMPT", defaults.verify_prompt)
+        if verify_prompt == LEGACY_VLM_VERIFY_PROMPT:
+            verify_prompt = defaults.verify_prompt
         return GlobalVlmSettings(
-            query_enabled=self._bool(values, "VLM_QUERY_ENABLED", defaults.query_enabled),
-            verify_enabled=self._bool(values, "VLM_VERIFY_ENABLED", defaults.verify_enabled),
-            query_prompt=values.get("VLM_QUERY_PROMPT", defaults.query_prompt),
-            verify_prompt=values.get("VLM_VERIFY_PROMPT", defaults.verify_prompt),
+            verify_prompt=verify_prompt,
         )
 
     def get_query_expansion(self) -> QueryExpansionSettings:
@@ -138,6 +139,10 @@ class RetrievalServiceSettingsStore:
             enabled=self._bool(values, "RAG_QUERY_EXPANSION_ENABLED", False),
             llm_enabled=self._bool(values, "RAG_QUERY_EXPANSION_LLM_ENABLED", False),
             max_variants=max_variants,
+            llm_prompt=values.get(
+                "RAG_QUERY_EXPANSION_LLM_PROMPT",
+                QueryExpansionSettings().llm_prompt,
+            ),
             synonym_groups=synonym_groups,
         )
 
@@ -213,9 +218,6 @@ class RetrievalServiceSettingsStore:
     def save_vlm(self, settings: GlobalVlmSettings) -> GlobalVlmSettings:
         self._save(
             {
-                "VLM_QUERY_ENABLED": settings.query_enabled,
-                "VLM_VERIFY_ENABLED": settings.verify_enabled,
-                "VLM_QUERY_PROMPT": settings.query_prompt,
                 "VLM_VERIFY_PROMPT": settings.verify_prompt,
             }
         )
@@ -227,6 +229,7 @@ class RetrievalServiceSettingsStore:
                 "RAG_QUERY_EXPANSION_ENABLED": settings.enabled,
                 "RAG_QUERY_EXPANSION_LLM_ENABLED": settings.llm_enabled,
                 "RAG_QUERY_EXPANSION_MAX_VARIANTS": settings.max_variants,
+                "RAG_QUERY_EXPANSION_LLM_PROMPT": settings.llm_prompt,
                 "RAG_QUERY_EXPANSION_SYNONYM_GROUPS": json.dumps(
                     settings.synonym_groups, ensure_ascii=False
                 ),

@@ -644,6 +644,8 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
+        proxy_buffering off;
+        proxy_cache off;
     }
 
     # /ai/api を /ai/api/ にリダイレクト
@@ -757,6 +759,8 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
+        proxy_buffering off;
+        proxy_cache off;
     }
 
     # /ai/api を /ai/api/ にリダイレクト

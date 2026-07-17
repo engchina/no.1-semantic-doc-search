@@ -10,7 +10,6 @@ import os
 import re
 import secrets
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
@@ -25,8 +24,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request, Query, BackgroundTasks, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from pdf2image import convert_from_path
-from PIL import Image as PILImage
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 
@@ -85,11 +82,18 @@ from app.utils.auth_util import do_auth, get_username_from_connection_string
 from app.utils.sse import heartbeats_until_done
 from app.rag.settings_api import router as retrieval_settings_router
 from app.rag.search_api import router as retrieval_search_router
-from app.rag.index_pipeline import index_pipeline
+from app.rag.pipeline_api import router as pipeline_router
+from app.rag.pipeline_dispatcher import pipeline_dispatcher
+from app.rag.pipeline_repository import pipeline_repository
 from app.rag.profile_repository import profile_repository
 from app.rag.search_pipeline import principal_hash, search_pipeline
 from app.rag.oracle_repository import rag_repository
-from app.rag.oracle_schema import provision_system_tables, system_table_status
+from app.rag.oracle_schema import (
+    MIGRATION_CONFIRMATION,
+    migrate_to_v4,
+    provision_system_tables,
+    system_table_status,
+)
 
 # ========================================
 # アプリケーションライフサイクル
@@ -98,10 +102,19 @@ from app.rag.oracle_schema import provision_system_tables, system_table_status
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """アプリケーションのライフサイクル管理"""
-    # startup処理（必要に応じて追加）
+    # Start the dispatcher independently of schema provisioning.  The admin
+    # can apply the destructive migration while the API is running; keeping a
+    # live dispatcher means the migration's initial rebuild job is picked up
+    # immediately after ``wake()`` instead of waiting for a restart.
+    if os.getenv("PIPELINE_IN_PROCESS_DISPATCHER", "true").casefold() in {
+        "1", "true", "yes", "on"
+    }:
+        await pipeline_dispatcher.start()
     yield
     # shutdown処理
     logger.info("アプリケーションシャットダウン開始...")
+
+    await pipeline_dispatcher.stop()
     
     # データベースサービスのシャットダウン
     try:
@@ -122,6 +135,7 @@ app = FastAPI(
 )
 app.include_router(retrieval_settings_router)
 app.include_router(retrieval_search_router)
+app.include_router(pipeline_router)
 
 # CORS設定
 app.add_middleware(
@@ -626,309 +640,169 @@ async def test_object_storage_connection(request: ObjectStorageSettingsRequest):
             "message": f"接続テストに失敗しました: {str(e)}"
         }
 
+_LEGACY_PAGE_IMAGE_PATTERN = re.compile(
+    r"/page_(?:\d{3}|\d{6})(?:_[a-f0-9]{32})?\.png$", re.IGNORECASE
+)
+
+
+def _is_internal_pipeline_object(object_name: str) -> bool:
+    return object_name.startswith("_pipeline/") or "/_pipeline/" in object_name
+
+
+def _filter_source_objects(objects: list[dict]) -> list[dict]:
+    """Object Storage一覧から原本文書だけを残す。"""
+    candidates = [
+        item
+        for item in objects
+        if not str(item.get("name") or "").endswith("/")
+        and not _is_internal_pipeline_object(str(item.get("name") or ""))
+    ]
+    original_bases = {
+        re.sub(r"\.[^.]+$", "", str(item["name"]))
+        for item in candidates
+        if not _LEGACY_PAGE_IMAGE_PATTERN.search(str(item["name"]))
+    }
+    return [
+        item
+        for item in candidates
+        if not (
+            _LEGACY_PAGE_IMAGE_PATTERN.search(str(item["name"]))
+            and str(item["name"]).rsplit("/", 1)[0] in original_bases
+        )
+    ]
+
+
 @app.get("/oci/objects")
 async def list_oci_objects(
     prefix: str = Query(default="", description="プレフィックス（フォルダパス）"),
     page: int = Query(default=1, ge=1, description="ページ番号"),
     page_size: int = Query(default=50, ge=1, le=100, description="ページサイズ"),
-    filter_page_images: str = Query(default="all", description="ページ画像化フィルター: all, done, not_done"),
-    filter_embeddings: str = Query(default="all", description="ベクトル化フィルター: all, done, not_done"),
-    display_type: str = Query(default="files_only", description="表示タイプ: files_only, files_and_images")
+    filter_page_images: str = Query(default="all", pattern="^(all|done|not_done)$"),
+    filter_embeddings: str = Query(default="all", pattern="^(all|done|not_done)$"),
+    display_type: str = Query(
+        default="files_only", pattern="^(files_only|files_and_images)$"
+    ),
+    page_image_release: str = Query(
+        default="latest", pattern="^(latest|draft|serving)$"
+    ),
 ):
-    """OCI Object Storage内のオブジェクト一覧を取得（最適化版）"""
+    """Object Storageは原本の発見のみ、処理状態はArtifact/Releaseから返す。"""
     try:
-        # 環境変数からバケット名を取得
         bucket_name = os.getenv("OCI_BUCKET")
-        
         if not bucket_name:
             raise HTTPException(status_code=400, detail="バケット名が設定されていません")
-        
-        # Namespaceを取得
         namespace_result = oci_service.get_namespace()
         if not namespace_result.get("success"):
-            raise HTTPException(status_code=500, detail=f"Namespace取得エラー: {namespace_result.get('message')}")
-        
+            raise HTTPException(
+                status_code=500,
+                detail=f"Namespace取得エラー: {namespace_result.get('message')}",
+            )
         namespace = namespace_result.get("namespace")
-        
-        # 最適化: ストリーミング処理でメモリ使用量を削減
-        all_objects = []
+
+        all_objects: list[dict] = []
         page_token = None
         max_fetch_count = int(os.getenv("MAX_OBJECTS_FETCH", "10000"))
-        fetch_count = 0
-        
-        # 親ファイル名マップ（高速検索用）
-        parent_files_map = {}  # {parent_folder_path: True}
-        
-        while fetch_count < max_fetch_count:
+        while len(all_objects) < max_fetch_count:
             result = oci_service.list_objects(
                 bucket_name=bucket_name,
                 namespace=namespace,
                 prefix=prefix,
                 page_size=1000,
-                page_token=page_token
+                page_token=page_token,
             )
-            
             if not result.get("success"):
-                raise HTTPException(status_code=500, detail=result.get("message", "オブジェクト一覧取得エラー"))
-            
-            objects = result.get("objects", [])
-            
-            # 最適化: バッチ処理で親ファイルマップを構築
-            for obj in objects:
-                obj_name = obj["name"]
-                if not obj_name.endswith('/'):
-                    obj_name_without_ext = re.sub(r'\.[^.]+$', '', obj_name)
-                    # 拡張子なしファイル名から元のファイル名へのマッピングを保存
-                    parent_files_map[obj_name_without_ext] = obj_name
-            
-            all_objects.extend(objects)
-            fetch_count += len(objects)
-            
+                raise HTTPException(
+                    status_code=500,
+                    detail=result.get("message", "オブジェクト一覧取得エラー"),
+                )
+            all_objects.extend(result.get("objects", []))
             page_token = result.get("next_start_with")
             if not page_token:
                 break
-        
-        # ページネーション情報を計算
-        total = len(all_objects)
-        start_idx = (page - 1) * page_size
-        end_idx = start_idx + page_size
-        
-        # 現在のページのオブジェクトを取得
-        paginated_objects = all_objects[start_idx:end_idx]
-        
-        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
-        
-        # 最適化: 正規表現パターンを事前コンパイル（3桁または6桁に対応）
-        page_image_pattern = re.compile(r'/page_(\d{3}|\d{6})(?:_[a-f0-9]{32})?\.png$')
-        
-        # 最適化: O(1)高速検索用のマップを構築
-        page_images_map = {}  # {file_base_name: True}
-        
-        for obj in all_objects:
-            obj_name = obj["name"]
-            if page_image_pattern.search(obj_name):
-                last_slash_index = obj_name.rfind('/')
-                if last_slash_index != -1:
-                    parent_folder = obj_name[:last_slash_index]
-                    page_images_map[parent_folder] = True
-        
-        def is_generated_page_image(object_name: str) -> bool:
-            """ページ画像化で生成されたファイルかどうかを判定（最適化版 O(1)）"""
-            if not page_image_pattern.search(object_name):
-                return False
-            
-            last_slash_index = object_name.rfind('/')
-            if last_slash_index == -1:
-                return False
-            
-            parent_folder_path = object_name[:last_slash_index]
-            return parent_folder_path in parent_files_map
-        
-        def has_page_images_for_file(object_name: str) -> bool:
-            """ファイルに対応するページ画像が存在するか判定（最適化版 O(1)）"""
-            if object_name.endswith('/'):
-                return False
-            
-            file_base_name = re.sub(r'\.[^.]+$', '', object_name)
-            return file_base_name in page_images_map
-        
-        def get_parent_file_from_page_image(page_image_name: str) -> Optional[str]:
-            """ページ画像から親ファイル名（拡張子付き）を取得
-            例: 'file/page_001.png' -> 'file.pdf'
-            """
-            if not page_image_pattern.search(page_image_name):
-                return None
-            
-            last_slash_index = page_image_name.rfind('/')
-            if last_slash_index == -1:
-                return None
-            
-            folder_name = page_image_name[:last_slash_index]
-            # parent_files_mapから元のファイル名（拡張子付き）を取得
-            return parent_files_map.get(folder_name)
-        
-        # 最適化: 1パスで集計とファイル名収集
-        file_count = 0
-        page_image_count = 0
-        file_object_names = []
-        
-        for obj in all_objects:
-            obj_name = obj["name"]
-            if obj_name.endswith('/'):
-                continue
-            
-            if is_generated_page_image(obj_name):
-                page_image_count += 1
-            else:
-                file_count += 1
-                file_object_names.append(obj_name)
-        
-        # ベクトル化状態を一括取得（ファイルタイプのみ）
-        vectorization_status = {}
-        if file_object_names:
+
+        source_objects = _filter_source_objects(all_objects)
+        source_objects.sort(key=lambda item: str(item.get("name") or ""), reverse=True)
+        object_names = [str(item["name"]) for item in source_objects]
+        processing_status: dict[str, dict] = {}
+        if object_names:
             try:
-                vectorization_status = await asyncio.to_thread(image_vectorizer.get_vectorization_status, bucket_name, file_object_names)
-            except Exception as e:
-                logger.warning(f"ベクトル化状態取得エラー: {e}")
-        
-        # 最適化: 状態付与を効率化
-        for obj in all_objects:
-            obj_name = obj["name"]
-            is_folder = obj_name.endswith('/')
-            is_page_image = not is_folder and is_generated_page_image(obj_name)
-            
-            if is_folder or is_page_image:
-                # フォルダとページ画像は状態を表示しない
-                obj["has_page_images"] = None
-                obj["has_embeddings"] = None
-            else:
-                obj["has_page_images"] = has_page_images_for_file(obj_name)
-                obj["has_embeddings"] = vectorization_status.get(obj_name, False)
-        
-        # 最適化: リスト内包表記でフィルタリング
-        file_objects = [
-            obj for obj in all_objects
-            if not obj["name"].endswith('/') and not is_generated_page_image(obj["name"])
-        ]
-        
-        # フィルタリング条件に従ってファイルを絞り込む
-        filtered_files = file_objects
-        
-        # ページ画像化フィルター（ファイルのみ対象）
+                processing_status = await asyncio.to_thread(
+                    pipeline_repository.statuses_by_object,
+                    object_names,
+                    page_image_release,
+                )
+            except Exception as error:
+                logger.warning("文書処理状態取得エラー: %s", error)
+
+        for item in source_objects:
+            status = processing_status.get(str(item["name"]))
+            summary = (status or {}).get("page_images", {}).get("selected")
+            item["processing"] = status
+            item["page_images"] = summary
+            item["has_page_images"] = bool(summary and summary.get("count", 0) > 0)
+            item["has_embeddings"] = bool(status and status.get("serving_release_id"))
+
+        filtered_files = source_objects
         if filter_page_images == "done":
-            filtered_files = [
-                obj for obj in filtered_files
-                if obj["has_page_images"] is True
-            ]
+            filtered_files = [item for item in filtered_files if item["has_page_images"]]
         elif filter_page_images == "not_done":
-            filtered_files = [
-                obj for obj in filtered_files
-                if obj["has_page_images"] is False
-            ]
-        
-        # ベクトル化フィルター（ファイルのみ対象）
+            filtered_files = [item for item in filtered_files if not item["has_page_images"]]
         if filter_embeddings == "done":
-            filtered_files = [
-                obj for obj in filtered_files
-                if obj["has_embeddings"] is True
-            ]
+            filtered_files = [item for item in filtered_files if item["has_embeddings"]]
         elif filter_embeddings == "not_done":
-            filtered_files = [
-                obj for obj in filtered_files
-                if obj["has_embeddings"] is False
-            ]
-        
-        # フィルター条件に一致したファイルの名前セットを作成
-        filtered_file_names = {obj["name"] for obj in filtered_files}
-        
-        # 該当ファイルとその子ページ画像を含める
-        filtered_objects = []
-        for obj in all_objects:
-            obj_name = obj["name"]
-            
-            # フォルダは常に除外（フィルター対象外）
-            if obj_name.endswith('/'):
-                continue
-            
-            # 表示タイプによるページ画像のフィルタリング
-            if display_type == "files_only" and is_generated_page_image(obj_name):
-                # ファイルのみ表示の場合、ページ画像を除外
-                continue
-            
-            # 最適化: ページ画像の親ファイルチェック
-            if is_generated_page_image(obj_name):
-                last_slash_index = obj_name.rfind('/')
-                if last_slash_index != -1:
-                    parent_folder_path = obj_name[:last_slash_index]
-                    # 親フォルダ名がフィルター済みファイル名に含まれるかチェック
-                    if any(re.sub(r'\.[^.]+$', '', name) == parent_folder_path for name in filtered_file_names):
-                        filtered_objects.append(obj)
-            else:
-                # ファイルの場合、フィルター条件に一致しているかチェック
-                if obj_name in filtered_file_names:
-                    filtered_objects.append(obj)
-        
-        # ソートロジック: ファイル先 → ページ画像後、ページ画像は数値順
-        # 期待順序: ファイルA → ファイルAのページ画像(001,002,...,010,011,...) → ファイルB → ...
-        def get_sort_key(obj):
-            """ソートキーを生成"""
-            obj_name = obj["name"]
-            if is_generated_page_image(obj_name):
-                # ページ画像の場合: (親ファイル名, 1, ページ番号)
-                last_slash_index = obj_name.rfind('/')
-                parent_folder = obj_name[:last_slash_index] if last_slash_index != -1 else ""
-                # ページ番号を抽出
-                match = page_image_pattern.search(obj_name)
-                page_num = int(match.group(1)) if match else 0
-                return (parent_folder, 1, page_num)
-            else:
-                # ファイルの場合: (ファイル名（拡張子なし）, 0, 0)
-                file_base_name = re.sub(r'\.[^.]+$', '', obj_name)
-                return (file_base_name, 0, 0)
-        
-        # ソートキーを事前計算してキャッシュ（パフォーマンス最適化）
-        sort_key_cache = {id(obj): get_sort_key(obj) for obj in filtered_objects}
-        
-        # 2段階ソート（Pythonの安定ソートを利用）
-        # 1. まずタイプ（ファイル先）とページ番号（昇順）でソート
-        filtered_objects.sort(key=lambda obj: (
-            sort_key_cache[id(obj)][1],  # タイプ (0=ファイル, 1=ページ画像)
-            sort_key_cache[id(obj)][2]   # ページ番号（昇順）
-        ))
-        # 2. 次に基準名で降順ソート（安定ソートなので、同じ基準名内の順序は維持される）
-        filtered_objects.sort(key=lambda obj: sort_key_cache[id(obj)][0], reverse=True)
-        
-        # フィルタリング後のページネーション情報を計算
-        filtered_total = len(filtered_objects)
+            filtered_files = [item for item in filtered_files if not item["has_embeddings"]]
+
+        filtered_total = len(filtered_files)
         start_idx = (page - 1) * page_size
         end_idx = start_idx + page_size
-        
-        # 現在のページのオブジェクトを取得
-        paginated_objects = filtered_objects[start_idx:end_idx]
-        
-        total_pages = (filtered_total + page_size - 1) // page_size if filtered_total > 0 else 1
-        
-        # 最適化: 統計情報を効率的に計算
-        filtered_page_image_count = sum(1 for obj in filtered_objects if is_generated_page_image(obj["name"]))
-        filtered_file_count = len(filtered_objects) - filtered_page_image_count
-        
+        total_pages = max(1, (filtered_total + page_size - 1) // page_size)
+        page_image_count = sum(
+            int((item.get("page_images") or {}).get("count") or 0)
+            for item in filtered_files
+        )
+        unfiltered_page_image_count = sum(
+            int((item.get("page_images") or {}).get("count") or 0)
+            for item in source_objects
+        )
         return {
             "success": True,
-            "objects": paginated_objects,
+            "objects": filtered_files[start_idx:end_idx],
             "pagination": {
                 "current_page": page,
                 "total_pages": total_pages,
                 "page_size": page_size,
                 "total": filtered_total,
-                "total_unfiltered": total,
-                "start_row": start_idx + 1 if filtered_total > 0 else 0,
+                "total_unfiltered": len(source_objects),
+                "start_row": start_idx + 1 if filtered_total else 0,
                 "end_row": min(end_idx, filtered_total),
                 "has_next": page < total_pages,
-                "has_prev": page > 1
+                "has_prev": page > 1,
             },
             "statistics": {
-                "file_count": filtered_file_count,
-                "page_image_count": filtered_page_image_count,
-                "total_count": filtered_file_count + filtered_page_image_count,
-                "unfiltered_file_count": file_count,
-                "unfiltered_page_image_count": page_image_count,
-                "unfiltered_total_count": file_count + page_image_count
+                "file_count": filtered_total,
+                "page_image_count": page_image_count,
+                "total_count": filtered_total + page_image_count,
+                "unfiltered_file_count": len(source_objects),
+                "unfiltered_page_image_count": unfiltered_page_image_count,
+                "unfiltered_total_count": (
+                    len(source_objects) + unfiltered_page_image_count
+                ),
             },
             "filters": {
                 "filter_page_images": filter_page_images,
                 "filter_embeddings": filter_embeddings,
-                "display_type": display_type
+                "display_type": display_type,
+                "page_image_release": page_image_release,
             },
             "bucket_name": bucket_name,
             "namespace": namespace,
-            "prefix": prefix
+            "prefix": prefix,
         }
-        
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"OCI Object Storage一覧取得エラー: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as error:
+        logger.error("OCI Object Storage一覧取得エラー: %s", error)
+        raise HTTPException(status_code=500, detail=str(error)) from error
 
 class ObjectDeleteRequest(BaseModel):
     object_names: List[str]
@@ -994,6 +868,10 @@ async def delete_oci_objects(request: ObjectDeleteRequest):
     """
     if not request.object_names or len(request.object_names) == 0:
         raise HTTPException(status_code=400, detail="削除するオブジェクトが指定されていません")
+    if any(_is_internal_pipeline_object(name) for name in request.object_names):
+        raise HTTPException(
+            status_code=400, detail="内部のページ画像は個別に削除できません"
+        )
     
     job_id = str(uuid.uuid4())
     logger.info(f"削除処理開始（並列）: {len(request.object_names)}件, job_id={job_id}")
@@ -1008,7 +886,8 @@ async def delete_oci_objects(request: ObjectDeleteRequest):
                 oci_service=oci_service,
                 image_vectorizer=image_vectorizer,
                 database_service=database_service,
-                job_id=job_id
+                job_id=job_id,
+                rag_repository=rag_repository,
             ):
                 event_count += 1
                 # 心拍以外のイベントのみログ出力
@@ -2494,12 +2373,18 @@ async def initialize_system_tables(
     recreate: bool = False, confirmation: str | None = None
 ):
     """システム必須テーブルを初期化、または明示確認後に再作成"""
-    if recreate and confirmation != "RECREATE":
+    if recreate and confirmation != MIGRATION_CONFIRMATION:
         raise HTTPException(status_code=422, detail="再作成の確認が必要です")
     try:
-        result = await asyncio.to_thread(
-            provision_system_tables, recreate=recreate
-        )
+        if recreate:
+            result = await asyncio.to_thread(
+                migrate_to_v4,
+                confirmation=confirmation or "",
+                backup_dir=project_root / "var" / "schema-backups",
+            )
+            pipeline_dispatcher.wake()
+        else:
+            result = await asyncio.to_thread(provision_system_tables, recreate=False)
         return {
             "success": True,
             "message": (
@@ -3073,10 +2958,6 @@ class DocumentDownloadRequest(BaseModel):
     """文書ダウンロードリクエスト"""
     object_names: List[str]
 
-class DocumentConvertRequest(BaseModel):
-    """文書ページ画像化リクエスト"""
-    object_names: List[str]
-
 @app.post("/oci/objects/download")
 async def download_selected_objects(request: DocumentDownloadRequest, background_tasks: BackgroundTasks):
     """
@@ -3139,193 +3020,6 @@ async def download_selected_objects(request: DocumentDownloadRequest, background
     except Exception as e:
         logger.error(f"ZIPダウンロードエラー: {e}")
         raise HTTPException(status_code=500, detail=f"ダウンロードエラー: {str(e)}")
-
-class VectorizeRequest(BaseModel):
-    """画像ベクトル化リクエスト"""
-    object_names: List[str]
-
-@app.post("/oci/objects/vectorize")
-async def vectorize_documents(request: VectorizeRequest):
-    """
-    選択されたファイルを画像ベクトル化してDBに保存（並列処理版）
-    - ファイルが未画像化の場合は自動的にページ画像化を実行してからベクトル化
-    - 既存の画像イメージやEmbeddingがある場合は削除してから再作成
-    - Server-Sent Events (SSE)でリアルタイム進捗状況を送信
-    """
-    object_names = request.object_names
-    
-    if not object_names:
-        raise HTTPException(status_code=400, detail="ベクトル化するファイルが指定されていません")
-    
-    if not profile_repository.schema_ready():
-        raise HTTPException(
-            status_code=503,
-            detail="SDS schema is not provisioned. Apply the versioned SDS schema first.",
-        )
-
-    job_id = str(uuid.uuid4())
-    logger.info(f"共有インデックス作成開始: {len(object_names)}件, job_id={job_id}")
-    
-    async def generate_progress():
-        """進捗状況をSSE形式でストリーミング"""
-        event_count = 0
-        success_count = 0
-        failed_count = 0
-        try:
-            start_event = {
-                "type": "start",
-                "job_id": job_id,
-                "total_files": len(object_names),
-                "total_workers": 1,
-            }
-            yield f"data: {json.dumps(start_event, ensure_ascii=False)}\n\n"
-            for index, object_name in enumerate(object_names, start=1):
-                event = {
-                    "type": "file_start",
-                    "job_id": job_id,
-                    "file_index": index,
-                    "file_name": object_name,
-                    "total_files": len(object_names),
-                }
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'type': 'vectorize_start', 'file_index': index, 'file_name': object_name, 'total_files': len(object_names)}, ensure_ascii=False)}\n\n"
-                try:
-                    progress_queue: asyncio.Queue = asyncio.Queue()
-                    index_started_at = time.time()
-                    index_task = asyncio.create_task(index_pipeline.index_object(
-                        object_name,
-                        progress=lambda done, total: progress_queue.put_nowait((done, total)),
-                    ))
-                    while True:
-                        try:
-                            done, total = await asyncio.wait_for(progress_queue.get(), timeout=2.0)
-                            yield f"data: {json.dumps({'type': 'page_progress', 'file_index': index, 'file_name': object_name, 'total_files': len(object_names), 'page_index': done, 'total_pages': total}, ensure_ascii=False)}\n\n"
-                        except asyncio.TimeoutError:
-                            if index_task.done() and progress_queue.empty():
-                                break
-                            heartbeat_event = {
-                                "type": "heartbeat",
-                                "job_id": job_id,
-                                "file_index": index,
-                                "file_name": object_name,
-                                "total_files": len(object_names),
-                                "elapsed_seconds": int(time.time() - index_started_at),
-                                "status": "indexing",
-                            }
-                            yield f"data: {json.dumps(heartbeat_event, ensure_ascii=False)}\n\n"
-                        if index_task.done() and progress_queue.empty():
-                            break
-                    outcome = await index_task
-                    yield f"data: {json.dumps({'type': 'pages_count', 'file_index': index, 'total_pages': outcome.page_count}, ensure_ascii=False)}\n\n"
-                    completed_profiles = set(outcome.indexed_profiles) | set(outcome.reused_profiles)
-                    fully_indexed = (
-                        not outcome.failed_profiles
-                        and set(outcome.matched_profiles) <= completed_profiles
-                    )
-                    event = {
-                        "type": "file_complete" if fully_indexed else "file_error",
-                        "file_index": index,
-                        "file_name": object_name,
-                        "total_files": len(object_names),
-                        "matched_profiles": outcome.matched_profiles,
-                        "indexed_profiles": outcome.indexed_profiles,
-                        "reused_profiles": outcome.reused_profiles,
-                        "failed_profiles": outcome.failed_profiles,
-                        "degraded_services": outcome.degraded_services,
-                    }
-                    if fully_indexed:
-                        success_count += 1
-                    else:
-                        failed_count += 1
-                        if outcome.failed_profiles:
-                            slots = ", ".join(str(slot) for slot in sorted(outcome.failed_profiles))
-                            event["error"] = f"VLM抽出プロファイル {slots} の反映に失敗しました"
-                        else:
-                            event["error"] = "共有インデックスの作成が完了しませんでした"
-                except Exception as file_error:
-                    failed_count += 1
-                    logger.exception("インデックス作成エラー: %s", object_name)
-                    event = {
-                        "type": "file_error",
-                        "file_index": index,
-                        "file_name": object_name,
-                        "total_files": len(object_names),
-                        "error": str(file_error),
-                    }
-                event_count += 1
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            complete_event = {
-                "type": "complete",
-                "success": failed_count == 0,
-                "success_count": success_count,
-                "failed_count": failed_count,
-                "total_files": len(object_names),
-                "job_id": job_id,
-                "message": (
-                    "インデックス作成が完了しました"
-                    if failed_count == 0
-                    else "インデックス作成が完了しました（失敗あり）"
-                ),
-            }
-            yield f"data: {json.dumps(complete_event, ensure_ascii=False)}\n\n"
-            logger.info(f"インデックス作成SSE完了: job_id={job_id}, total_events={event_count}")
-        except Exception as e:
-            logger.error(f"ベクトル化エラー: {e}", exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
-    
-    return StreamingResponse(
-        generate_progress(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "X-Job-ID": job_id
-        }
-    )
-
-@app.post("/oci/objects/convert-to-images")
-async def convert_documents_to_images(request: DocumentConvertRequest):
-    """
-    選択されたファイルをページ毎にPNG画像化して同名フォルダに保存（並列処理版）
-    Server-Sent Events (SSE)でリアルタイム進捗状況を送信
-    """
-    object_names = request.object_names
-    
-    if not object_names:
-        raise HTTPException(status_code=400, detail="変換するファイルが指定されていません")
-    
-    job_id = str(uuid.uuid4())
-    logger.info(f"ページ画像化開始（並列）: {len(object_names)}件, job_id={job_id}")
-    
-    async def generate_progress():
-        """進捗状況をSSE形式でストリーミング"""
-        event_count = 0
-        try:
-            logger.info(f"ページ画像化SSEストリーム開始: job_id={job_id}")
-            async for event in parallel_processor.process_image_conversion(
-                object_names=object_names,
-                oci_service=oci_service,
-                job_id=job_id
-            ):
-                event_count += 1
-                # 心拍以外のイベントのみログ出力
-                if event.get('type') != 'heartbeat':
-                    logger.debug(f"SSEイベント送信 #{event_count}: type={event.get('type')}, job_id={job_id}")
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            logger.info(f"ページ画像化SSEストリーム完了: job_id={job_id}, total_events={event_count}")
-        except Exception as e:
-            logger.error(f"ページ画像化エラー: {e}", exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
-    
-    return StreamingResponse(
-        generate_progress(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "X-Job-ID": job_id
-        }
-    )
 
 @app.post("/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str):

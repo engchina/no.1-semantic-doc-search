@@ -260,6 +260,9 @@ export async function handleLogin(event) {
 
       // 認証前には取得しない検索条件を、ログイン成功後に読み込む
       await window.searchModule?.loadDynamicSearchFilters?.();
+      // ログイン画面から復帰した場合も、永続化された処理タスクを
+      // すぐにタスクトレイへ戻します（ページ再読み込み時と同じ挙動）。
+      await window.pipelineModule?.restore?.();
     }
   } catch (error) {
     if (errorMessage) {
@@ -493,7 +496,7 @@ export async function fetchWithAuth(endpoint, options = {}) {
     }
 
     if (error.name === 'AbortError') {
-      throw new Error('リクエストがタイムアウトしました。データベースが起動していない可能性があります。');
+      throw new Error('リクエストがタイムアウトしました。しばらくしてから再試行してください。');
     }
 
     throw error;
@@ -520,7 +523,9 @@ export async function apiCall(endpoint, options = {}) {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: response.statusText }));
-      throw new Error(error.detail || 'リクエストに失敗しました');
+      const requestError = new Error(error.detail || 'リクエストに失敗しました');
+      requestError.status = response.status;
+      throw requestError;
     }
     
     return await response.json();

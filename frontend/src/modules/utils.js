@@ -111,7 +111,10 @@ let _imageModalTitles = [];
  * @param {number} currentIndex - 現在の画像のインデックス（オプション）
  * @param {Array} titles - 画像タイトルの配列（オプション）
  */
-export function showImageModal(imageUrl, filename = '', images = null, currentIndex = 0, titles = null) {
+export function showImageModal(
+  imageUrl, filename = '', images = null, currentIndex = 0, titles = null
+) {
+  const focusReturnTarget = document.activeElement;
   const existingModal = document.getElementById('imageModalOverlay');
   if (existingModal) {
     existingModal.remove();
@@ -133,10 +136,14 @@ export function showImageModal(imageUrl, filename = '', images = null, currentIn
   const modal = document.createElement('div');
   modal.id = 'imageModalOverlay';
   modal.className = 'image-modal-overlay';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', 'ページ画像プレビュー');
   
   // ナビゲーションボタンを含むHTML
   modal.innerHTML = `
-    <div style="position: relative; max-width: 90vw; max-height: 90vh; display: flex; align-items: center; justify-content: center;">
+    <div class="image-modal-content" style="position: relative; max-width: 90vw; max-height: 90vh; display: flex; align-items: center; justify-content: center;">
+      <button type="button" id="imageModalCloseBtn" class="image-modal-close" aria-label="プレビューを閉じる">×</button>
       ${hasNavigation ? `
         <button 
           id="imageModalPrevBtn"
@@ -202,7 +209,13 @@ export function showImageModal(imageUrl, filename = '', images = null, currentIn
             ">${filename}</div>
           ` : ''}
         `}
-        
+        <div id="imageModalLoading" class="image-modal-state" role="status">
+          <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>画像を読み込み中…
+        </div>
+        <div id="imageModalError" class="image-modal-state image-modal-error" role="alert" hidden>
+          <span>画像を表示できません。</span>
+          <button type="button" id="imageModalRetryBtn">再試行</button>
+        </div>
         <img 
           id="imageModalImg"
           src="${imageUrl}" 
@@ -253,6 +266,9 @@ export function showImageModal(imageUrl, filename = '', images = null, currentIn
       document.removeEventListener('keydown', _imageModalEscHandler);
       _imageModalEscHandler = null;
     }
+    if (focusReturnTarget && typeof focusReturnTarget.focus === 'function') {
+      focusReturnTarget.focus();
+    }
   }
   
   // 画像を更新する関数
@@ -264,6 +280,8 @@ export function showImageModal(imageUrl, filename = '', images = null, currentIn
     const filenameEl = document.getElementById('imageModalFilename');
     
     if (img) {
+      document.getElementById('imageModalLoading')?.removeAttribute('hidden');
+      document.getElementById('imageModalError')?.setAttribute('hidden', '');
       img.src = _imageModalImages[newIndex];
       img.alt = _imageModalTitles[newIndex] || '';
     }
@@ -301,6 +319,44 @@ export function showImageModal(imageUrl, filename = '', images = null, currentIn
       }
     }, 0);
   }
+
+  setTimeout(() => {
+    const closeButton = document.getElementById('imageModalCloseBtn');
+    if (closeButton) {
+      closeButton.onclick = event => {
+        event.stopPropagation();
+        closeModal();
+      };
+      closeButton.focus();
+    }
+    const image = document.getElementById('imageModalImg');
+    const loading = document.getElementById('imageModalLoading');
+    const errorState = document.getElementById('imageModalError');
+    if (image) {
+      image.addEventListener('load', () => {
+        loading?.setAttribute('hidden', '');
+        errorState?.setAttribute('hidden', '');
+      });
+      image.addEventListener('error', () => {
+        loading?.setAttribute('hidden', '');
+        errorState?.removeAttribute('hidden');
+      });
+      // キャッシュ済み画像はリスナー登録前にload/errorが発火し得るため現状を反映する
+      if (image.complete) {
+        loading?.setAttribute('hidden', '');
+        if (!image.naturalWidth) errorState?.removeAttribute('hidden');
+      }
+    }
+    document.getElementById('imageModalRetryBtn')?.addEventListener('click', event => {
+      event.stopPropagation();
+      if (!image) return;
+      errorState?.setAttribute('hidden', '');
+      loading?.removeAttribute('hidden');
+      const separator = image.src.includes('?') ? '&' : '?';
+      image.src = image.src.replace(/([?&])retry=\d+/, '$1').replace(/[?&]$/, '') +
+        separator + 'retry=' + Date.now();
+    });
+  }, 0);
   
   // クリックで閉じる
   modal.onclick = closeModal;
@@ -320,8 +376,109 @@ export function showImageModal(imageUrl, filename = '', images = null, currentIn
     }
   }
   document.addEventListener('keydown', _imageModalEscHandler);
-  
+
   document.body.appendChild(modal);
+}
+
+/**
+ * 生成テキストプレビューモーダルを表示
+ * @param {string} title - モーダルタイトル
+ * @param {Array} sections - タブ切替で表示するセクション [{label, text, meta}]
+ * @param {Object} options - onPrev / onNext
+ */
+export function showTextPreviewModal(title, sections = [], options = {}) {
+  const focusReturnTarget = document.activeElement;
+  document.getElementById('textPreviewModalOverlay')?.remove();
+  document.getElementById('imageModalOverlay')?.remove();
+
+  const escape = value => String(value ?? '')
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+
+  const modal = document.createElement('div');
+  modal.id = 'textPreviewModalOverlay';
+  modal.className = 'image-modal-overlay';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', '生成テキストプレビュー');
+
+  modal.innerHTML = `
+    <div class="image-modal-content text-preview-modal" onclick="event.stopPropagation()">
+      <button type="button" id="textPreviewCloseBtn" class="image-modal-close" aria-label="プレビューを閉じる">×</button>
+      <div class="text-preview-header">${escape(title)}</div>
+      <div class="text-preview-tabs" role="tablist" aria-label="生成テキストの種類">
+        ${sections.map((section, index) => `
+          <button type="button" role="tab" data-text-tab="${index}"
+            aria-selected="${index === 0}">${escape(section.label)}</button>
+        `).join('')}
+      </div>
+      <div class="text-preview-meta" id="textPreviewMeta"></div>
+      <pre class="text-preview-body" id="textPreviewBody" tabindex="0"></pre>
+      ${options.onPrev ? '<button type="button" id="textPreviewPrevBtn" class="text-preview-nav text-preview-nav-prev" aria-label="前のページ">&lt;</button>' : ''}
+      ${options.onNext ? '<button type="button" id="textPreviewNextBtn" class="text-preview-nav text-preview-nav-next" aria-label="次のページ">&gt;</button>' : ''}
+    </div>
+  `;
+
+  const escHandler = e => {
+    if (e.key === 'Escape') {
+      closeModal();
+    } else if (e.key === 'ArrowLeft' && options.onPrev) {
+      e.preventDefault();
+      closeModal();
+      options.onPrev();
+    } else if (e.key === 'ArrowRight' && options.onNext) {
+      e.preventDefault();
+      closeModal();
+      options.onNext();
+    }
+  };
+  const closeModal = () => {
+    modal.remove();
+    document.removeEventListener('keydown', escHandler);
+    if (focusReturnTarget && typeof focusReturnTarget.focus === 'function') {
+      focusReturnTarget.focus();
+    }
+  };
+  const selectTab = index => {
+    const section = sections[index];
+    if (!section) return;
+    modal.querySelectorAll('[data-text-tab]').forEach(button => {
+      button.setAttribute('aria-selected', String(Number(button.dataset.textTab) === index));
+    });
+    const meta = modal.querySelector('#textPreviewMeta');
+    if (meta) meta.textContent = section.meta || '';
+    const body = modal.querySelector('#textPreviewBody');
+    if (body) body.textContent = section.text || '（テキストなし）';
+  };
+
+  setTimeout(() => {
+    const closeButton = modal.querySelector('#textPreviewCloseBtn');
+    if (closeButton) {
+      closeButton.onclick = event => {
+        event.stopPropagation();
+        closeModal();
+      };
+      closeButton.focus();
+    }
+    modal.querySelectorAll('[data-text-tab]').forEach(button => {
+      button.addEventListener('click', () => selectTab(Number(button.dataset.textTab)));
+    });
+    [['#textPreviewPrevBtn', options.onPrev], ['#textPreviewNextBtn', options.onNext]].forEach(([selector, handler]) => {
+      const button = modal.querySelector(selector);
+      if (button && handler) {
+        button.onclick = event => {
+          event.stopPropagation();
+          closeModal();
+          handler();
+        };
+      }
+    });
+  }, 0);
+
+  modal.onclick = closeModal;
+  document.addEventListener('keydown', escHandler);
+  document.body.appendChild(modal);
+  selectTab(0);
 }
 
 /**
@@ -332,30 +489,37 @@ export function showImageModal(imageUrl, filename = '', images = null, currentIn
  * @param {string} [options.variant='default'] - バリアント ('default' | 'danger' | 'warning' | 'info')
  * @param {string} [options.confirmText='確認'] - 確認ボタンのテキスト
  * @param {string} [options.cancelText='キャンセル'] - キャンセルボタンのテキスト
- * @returns {Promise<boolean>} ユーザーの選択結果
+ * @param {Object} [options.checkbox] - チェックボックス ({ label, checked })。指定時は {confirmed, checked} を返す
+ * @returns {Promise<boolean|{confirmed: boolean, checked: boolean}>} ユーザーの選択結果
  */
 export function showConfirmModal(message, title = '確認', options = {}) {
   const {
     variant = 'default',
     confirmText = '確認',
-    cancelText = 'キャンセル'
+    cancelText = 'キャンセル',
+    checkbox = null
   } = options;
 
   return new Promise((resolve) => {
     // UIComponentsのshowModalを使用
     if (window.UIComponents && window.UIComponents.showModal) {
+      const content = checkbox
+        ? `${message}\n<label style="display:inline-flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;"><input type="checkbox" id="confirm-modal-checkbox" ${checkbox.checked ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;">${checkbox.label}</label>`
+        : message;
       window.UIComponents.showModal({
         title,
-        content: message,
+        content,
         confirmText,
         cancelText,
         variant,
-        onConfirm: () => resolve(true),
-        onCancel: () => resolve(false)
+        // モーダルDOMの除去は閉じるアニメーション後なので、onConfirm時点でまだ読める
+        onConfirm: () => resolve(checkbox ? { confirmed: true, checked: !!document.getElementById('confirm-modal-checkbox')?.checked } : true),
+        onCancel: () => resolve(checkbox ? { confirmed: false, checked: false } : false)
       });
     } else {
       // フォールバック: ブラウザのconfirmダイアログ
-      resolve(confirm(`${title}\n\n${message}`));
+      const ok = confirm(`${title}\n\n${message}`);
+      resolve(checkbox ? { confirmed: ok, checked: checkbox.checked } : ok);
     }
   });
 }
@@ -534,6 +698,7 @@ export default {
   showLoading,
   hideLoading,
   showImageModal,
+  showTextPreviewModal,
   showConfirmModal,
   showToast,
   scrollToTop,

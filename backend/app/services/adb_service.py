@@ -1,7 +1,4 @@
 """
-Autonomous Database 管理サービス
-"""
-"""
 Autonomous Database サービス
 
 Oracle Autonomous Databaseの管理を行うサービスです。
@@ -37,7 +34,18 @@ class ADBService:
     def __init__(self):
         self._db_client = None
     
-    def _get_db_client(self) -> Optional[oci.database.DatabaseClient]:
+    @staticmethod
+    def _region_from_adb_ocid(adb_ocid: str | None) -> str | None:
+        if not adb_ocid:
+            return None
+        parts = adb_ocid.split(".")
+        if len(parts) > 3 and parts[:3] == ["ocid1", "autonomousdatabase", "oc1"]:
+            return parts[3] or None
+        return None
+
+    def _get_db_client(
+        self, adb_ocid: str | None = None
+    ) -> Optional[oci.database.DatabaseClient]:
         """Database Clientを取得"""
         try:
             config = oci_service.get_oci_config()
@@ -45,8 +53,17 @@ class ADBService:
                 logger.error("OCI設定が見つかりません")
                 return None
             
+            # Embeddingなどが別リージョンでも、ADBはOCIDのリージョンへ接続する。
+            # ADB_REGIONを明示した場合はそちらを優先する。
+            database_config = dict(config)
+            adb_region = os.getenv("ADB_REGION") or self._region_from_adb_ocid(
+                adb_ocid or os.getenv("ADB_OCID")
+            )
+            if adb_region:
+                database_config["region"] = adb_region
+
             # Database Clientを作成
-            return oci.database.DatabaseClient(config)
+            return oci.database.DatabaseClient(database_config)
         except Exception as e:
             logger.error(f"Database Client作成エラー: {e}")
             return None
@@ -75,7 +92,7 @@ class ADBService:
                     message="ADB_NAME または OCI_COMPARTMENT_OCID が設定されていません。"
                 )
             
-            db_client = self._get_db_client()
+            db_client = self._get_db_client(os.getenv("ADB_OCID"))
             if not db_client:
                 return ADBGetResponse(
                     status="error",
@@ -126,7 +143,7 @@ class ADBService:
             ADBOperationResponse: 操作結果
         """
         try:
-            db_client = self._get_db_client()
+            db_client = self._get_db_client(adb_ocid)
             if not db_client:
                 return ADBOperationResponse(
                     status="error",
@@ -174,7 +191,7 @@ class ADBService:
             ADBOperationResponse: 操作結果
         """
         try:
-            db_client = self._get_db_client()
+            db_client = self._get_db_client(adb_ocid)
             if not db_client:
                 return ADBOperationResponse(
                     status="error",

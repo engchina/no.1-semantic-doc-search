@@ -3,14 +3,13 @@ from __future__ import annotations
 import asyncio
 import base64
 from io import BytesIO
-from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, Field
 
 from app.rag.clients import mineru_client, ocr_client, rerank_client, vlm_client
-from app.rag.index_pipeline import INDEX_OUTPUT_CONTRACT, index_pipeline
+from app.rag.index_pipeline import INDEX_OUTPUT_CONTRACT
 from app.rag.models import (
     GlobalVlmSettings,
     MinerUSettings,
@@ -23,6 +22,10 @@ from app.rag.models import (
     VlmExtractionOutput,
 )
 from app.rag.oracle_repository import rag_repository
+from app.rag.pipeline_dispatcher import pipeline_dispatcher
+from app.rag.pipeline_models import PipelineJobRequest, PipelineStepSelector
+from app.rag.pipeline_planner import plan_steps, planned_dependencies
+from app.rag.pipeline_repository import pipeline_repository, stable_hash
 from app.rag.profile_repository import profile_repository
 from app.rag.profile_validation import validate_profile
 from app.rag.service_settings import retrieval_service_settings
@@ -91,30 +94,12 @@ def save_profile(slot_no: int, profile: ProfileConfig, response: Response) -> Pr
     return profile_repository.apply_profile(profile)
 
 
-async def _run_profile_apply(job_id: str, slot_no: int, object_names: list[str]) -> None:
-    completed = 0
-    failed = 0
-    for object_name in object_names:
-        try:
-            await index_pipeline.index_object(object_name, profile_slots={slot_no})
-            completed += 1
-        except Exception:
-            failed += 1
-        rag_repository.update_ingestion_job(
-            job_id, completed=completed, failed=failed, finished=False
-        )
-    if failed:
-        profile_repository.set_apply_status(slot_no, "FAILED")
-    else:
-        profile_repository.refresh_apply_status(slot_no)
-    rag_repository.update_ingestion_job(
-        job_id, completed=completed, failed=failed, finished=True
-    )
-
-
 @router.post("/profiles/{slot_no}/apply")
 def apply_profile(
-    slot_no: int, profile: ProfileConfig, background_tasks: BackgroundTasks
+    slot_no: int,
+    profile: ProfileConfig,
+    background_tasks: BackgroundTasks,
+    run_vlm: bool = True,
 ) -> dict[str, object]:
     _require_schema()
     _validate_profile(slot_no, profile)
@@ -122,15 +107,64 @@ def apply_profile(
     object_names = profile_repository.pending_object_names(slot_no)
     page_count = profile_repository.pending_page_count(slot_no)
     job_id: str | None = None
-    if object_names:
-        job_id = uuid4().hex
-        rag_repository.create_ingestion_job(job_id, len(object_names))
-        background_tasks.add_task(_run_profile_apply, job_id, slot_no, object_names)
+    job_ids: list[str] = []
+    # run_vlm=False は保存のみ。文書は反映待ちのまま残り、次回のapplyで処理される
+    if run_vlm and object_names:
+        for offset in range(0, len(object_names), 500):
+            batch = object_names[offset : offset + 500]
+            request = PipelineJobRequest(
+                object_names=batch,
+                mode="CUSTOM",
+                steps=[
+                    PipelineStepSelector(kind="VLM", key=str(slot_no)),
+                    PipelineStepSelector(kind="PUBLISH"),
+                ],
+                include_downstream=True,
+                publish_mode="AUTO",
+            )
+            recipes = pipeline_repository.list_recipes()
+            planned, _, _ = plan_steps(
+                request,
+                recipes=recipes,
+                profile_slots=[
+                    item.slot_no for item in profile_repository.enabled_profiles()
+                ],
+                mineru_enabled=(
+                    retrieval_service_settings.get_mineru().enabled
+                    and bool(retrieval_service_settings.get_mineru().base_url)
+                ),
+                ocr_enabled=retrieval_service_settings.get_ocr().enabled,
+            )
+            dependencies = planned_dependencies(planned, recipes=recipes)
+            current_job_id, _ = pipeline_repository.create_job(
+                request_json=request.model_dump_json(),
+                mode=request.mode,
+                publish_mode=request.publish_mode,
+                step_specs=[
+                    {
+                        "object_name": object_name,
+                        "kind": step.kind,
+                        "component_key": step.component_key,
+                        "force": False,
+                        "depends_on": sorted(dependencies[step.component_key]),
+                    }
+                    for object_name in batch
+                    for step in planned
+                ],
+                idempotency_key=(
+                    f"profile-apply:{slot_no}:{saved.current_revision_id}:"
+                    f"{stable_hash(batch)[:16]}"
+                ),
+            )
+            job_ids.append(current_job_id)
+        job_id = job_ids[0] if job_ids else None
+        pipeline_dispatcher.wake()
     return {
         "success": True,
         "profile": saved.model_dump(mode="json"),
         "job_id": job_id,
-        "queued_documents": len(object_names),
+        "job_ids": job_ids,
+        "queued_documents": len(object_names) if run_vlm else 0,
         "estimated_vlm_calls": page_count,
     }
 

@@ -197,37 +197,38 @@ class RerankSettings(BaseModel):
         return self
 
 
+LEGACY_VLM_VERIFY_PROMPT = (
+    "候補画像がユーザー条件に合っているか確認してください。\n"
+    "- 主対象を確認する\n"
+    "- 重要な視覚特徴を確認する\n"
+    "- 数量、配置、位置関係を確認する\n"
+    "- 背景や周辺要素を確認する\n"
+    "- ユーザーが重視している条件を確認する\n"
+    "- 一致ならverifiedをtrueにする\n"
+    "- 一部一致または不一致ならverifiedをfalseにする\n"
+    "- 必ずJSONで返す\n"
+    "- 使用するキーはverified、confidence、evidence、failed_constraintsのみ"
+)
+
+DEFAULT_VLM_VERIFY_PROMPT = (
+    "候補画像がユーザーの検索条件を満たすか、画像と候補コンテキストで確認できる事実だけに基づいて厳格に判定してください。\n"
+    "- 問い合わせから必須条件と参考条件を区別する\n"
+    "- 主対象、形状、色、材質、数量、配置、位置関係を確認する\n"
+    "- 参照画像がある場合は主対象と重要な視覚特徴を比較し、背景や撮影条件の差は重視しない\n"
+    "- 推測や外部知識で不足情報を補わない\n"
+    "- 必須条件が1つでも不一致、または確認不能ならverifiedをfalseにする\n"
+    "- すべての必須条件を確認できた場合だけverifiedをtrueにする\n"
+    "- confidenceは判定の確信度を0から1で返す\n"
+    "- evidenceには判定根拠となる確認済み事実を簡潔に列挙する\n"
+    "- failed_constraintsには不一致または確認不能な必須条件を列挙する\n"
+    "- 必ずJSONで返す\n"
+    "- 使用するキーはverified、confidence、evidence、failed_constraintsのみ"
+)
+
+
 class GlobalVlmSettings(BaseModel):
-    query_enabled: bool = True
-    verify_enabled: bool = True
-    query_prompt: str = Field(
-        default=(
-            "ユーザーの問い合わせを検索しやすく整理してください。\n"
-            "- 元の目的を保つ\n"
-            "- 重要条件を抽出する\n"
-            "- 視覚情報、文書情報、仕様情報を考慮する\n"
-            "- 表記ゆれを考慮する\n"
-            "- 短い検索バリエーションを最大3件作成する\n"
-            "- intentは日本語の短い検索意図名で返す\n"
-            "- 必ずJSONで返す\n"
-            "- 使用するキーはquery_variantsとintentのみ"
-        ),
-        min_length=1,
-        max_length=40_000,
-    )
     verify_prompt: str = Field(
-        default=(
-            "候補画像がユーザー条件に合っているか確認してください。\n"
-            "- 主対象を確認する\n"
-            "- 重要な視覚特徴を確認する\n"
-            "- 数量、配置、位置関係を確認する\n"
-            "- 背景や周辺要素を確認する\n"
-            "- ユーザーが重視している条件を確認する\n"
-            "- 一致ならverifiedをtrueにする\n"
-            "- 一部一致または不一致ならverifiedをfalseにする\n"
-            "- 必ずJSONで返す\n"
-            "- 使用するキーはverified、confidence、evidence、failed_constraintsのみ"
-        ),
+        default=DEFAULT_VLM_VERIFY_PROMPT,
         min_length=1,
         max_length=40_000,
     )
@@ -237,6 +238,19 @@ class QueryExpansionSettings(BaseModel):
     enabled: bool = False
     llm_enabled: bool = False
     max_variants: int = Field(default=3, ge=1, le=8)
+    llm_prompt: str = Field(
+        default=(
+            "ユーザーの問い合わせから検索バリエーションを作成してください。\n"
+            "- 元の目的を保つ\n"
+            "- 重要条件を保持する\n"
+            "- 表記ゆれや同義語を考慮する\n"
+            "- 短い検索バリエーションを作成する\n"
+            "- 必ずJSONで返す\n"
+            "- 使用するキーはquery_variantsのみ"
+        ),
+        min_length=1,
+        max_length=40_000,
+    )
     synonym_groups: list[list[str]] = Field(
         default_factory=lambda: [list(group) for group in DEFAULT_QUERY_SYNONYM_GROUPS],
         max_length=200,
@@ -294,6 +308,7 @@ class FieldFilter(BaseModel):
 class SearchV2Request(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     top_k: int = Field(default=20, ge=1, le=100)
+    min_score: float = Field(default=0.0, ge=0.0, le=1.0)
     filename_filter: str | None = Field(default=None, max_length=1024)
     field_filters: list[FieldFilter] = Field(default_factory=list, max_length=50)
     document_types: list[str] = Field(default_factory=list, max_length=50)
@@ -315,6 +330,7 @@ class EvidenceResult(BaseModel):
     asset_url: str | None = None
     score: float
     rerank_score: float | None = None
+    image_similarity_score: float | None = None
     visual_rank: int | None = None
     text_rerank_rank: int | None = None
     retrieval_channels: list[str] = Field(default_factory=list)
@@ -333,6 +349,8 @@ class DocumentSearchResult(BaseModel):
     object_name: str
     bucket: str
     score: float
+    rerank_score: float | None = None
+    image_similarity_score: float | None = None
     profile_slots: list[int]
     evidence: list[EvidenceResult]
 

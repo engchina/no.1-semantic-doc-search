@@ -7,9 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:ui": "node tests/ui-regression.test.js"
+    "test:ui": "node tests/ui-regression.test.js",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "autoprefixer": "^10.4.23",
     "jsdom": "^28.0.0",
     "postcss": "^8.5.6",

@@ -164,6 +164,8 @@ export const appState = new StateManager({
   ociObjectsFilterPageImages: 'all',
   ociObjectsFilterEmbeddings: 'all',
   ociObjectsDisplayType: 'files_only', // 'files_only' | 'files_and_images'
+  ociObjectsPageImageRelease: 'serving', // 'draft' | 'serving'
+  pipelineJobIds: [],
 });
 
 // ========================================

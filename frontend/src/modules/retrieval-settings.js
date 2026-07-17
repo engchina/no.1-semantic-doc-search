@@ -1,5 +1,6 @@
 import { invalidateDynamicSearchFilters } from './search.js';
 import { apiCall as authApiCall } from './auth.js';
+import { trackPipelineJob } from './pipeline.js';
 import {
   hideLoading as utilsHideLoading,
   showConfirmModal as utilsShowConfirmModal,
@@ -120,7 +121,7 @@ function engineCard(key, title, value) {
 function renderGlobalPanels() {
   const root = document.getElementById('retrievalGlobalPanels');
   const { mineru, ocr, vlm, weights } = settings;
-  const queryExpansion = settings.query_expansion || { enabled: false, llm_enabled: false, max_variants: 3, synonym_groups: [] };
+  const queryExpansion = settings.query_expansion || { enabled: false, llm_enabled: false, max_variants: 3, llm_prompt: '', synonym_groups: [] };
   const mode = queryExpansionMode(queryExpansion);
   root.innerHTML = `
     <details class="retrieval-global-section">
@@ -149,6 +150,8 @@ function renderGlobalPanels() {
           <label class="form-label" for="query-expansion-synonyms">ルールベース同義語</label>
           <textarea id="query-expansion-synonyms" class="form-input retrieval-prompt-small">${escapeHtml(synonymGroupsToText(queryExpansion.synonym_groups))}</textarea>
           <p class="retrieval-help">1行に1グループ、カンマ区切りで入力します。例: 浴室換気乾燥機, 浴乾, 換気乾燥機</p>
+          <label class="form-label" for="query-expansion-llm-prompt">LLM検索バリエーションの指示</label>
+          <textarea id="query-expansion-llm-prompt" class="form-input retrieval-prompt-small">${escapeHtml(queryExpansion.llm_prompt || '')}</textarea>
           <div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-query-expansion">保存</button></div>
         </section>
         <section class="retrieval-card"><h3>検索ルートの重み</h3><p class="retrieval-help">相対倍率です。合計1不要、0で無効。VLM抽出は有効Profile数で配分します。通常は変更不要です。</p>
@@ -162,11 +165,10 @@ function renderGlobalPanels() {
       </div>
     </details>
     <details class="retrieval-global-section">
-      <summary><span><i class="fas fa-brain"></i> VLMの共通処理（詳細設定）</span><small>問い合わせ整理・画像確認</small></summary>
+      <summary><span><i class="fas fa-brain"></i> VLMの画像確認（詳細設定）</span><small>画像確認</small></summary>
       <div class="retrieval-global-content">
-        <section class="retrieval-card">${checkbox('vlm-query-enabled', '問い合わせ整理を使用する', vlm.query_enabled)}<label class="form-label" for="vlm-query-prompt">問い合わせ整理の指示</label><textarea id="vlm-query-prompt" class="form-input retrieval-prompt-small">${escapeHtml(vlm.query_prompt)}</textarea></section>
-        <section class="retrieval-card">${checkbox('vlm-verify-enabled', '画像確認を使用する', vlm.verify_enabled)}<label class="form-label" for="vlm-verify-prompt">画像確認の指示</label><textarea id="vlm-verify-prompt" class="form-input retrieval-prompt-small">${escapeHtml(vlm.verify_prompt)}</textarea></section>
-        <div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-vlm">VLM共通設定を保存</button></div>
+        <section class="retrieval-card"><p class="retrieval-help">実行するかどうかは検索画面の「VLM精密確認」で指定します。</p><label class="form-label" for="vlm-verify-prompt">画像確認の指示</label><textarea id="vlm-verify-prompt" class="form-input retrieval-prompt-small">${escapeHtml(vlm.verify_prompt)}</textarea></section>
+        <div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-vlm">画像確認設定を保存</button></div>
       </div>
     </details>`;
 }
@@ -292,15 +294,17 @@ function bindEvents(root) {
         const profile = collectProfile();
         const preview = await api(`/profiles/${activeSlot}/preview`, { method: 'POST', body: JSON.stringify(profile) });
         utilsHideLoading();
-        const confirmed = await utilsShowConfirmModal(`設定を保存し、${preview.affected_documents}件の文書を反映対象にします。\n推定VLM呼び出し: ${preview.estimated_vlm_calls}回`, 'VLM抽出設定を反映', { variant: 'warning', confirmText: '保存して反映', cancelText: 'キャンセル' });
-        if (!confirmed) return;
-        utilsShowLoading('設定を保存して反映を開始中...');
-        const result = await api(`/profiles/${activeSlot}/apply`, { method: 'POST', body: JSON.stringify(profile) });
+        const choice = await utilsShowConfirmModal(`設定を保存し、${preview.affected_documents}件の文書を反映対象にします。\n推定VLM呼び出し: ${preview.estimated_vlm_calls}回`, 'VLM抽出設定を反映', { variant: 'warning', confirmText: '保存する', cancelText: 'キャンセル', checkbox: { label: 'VLM抽出を再実行する', checked: true } });
+        if (!choice.confirmed) return;
+        const runVlm = choice.checked;
+        utilsShowLoading(runVlm ? '設定を保存して反映を開始中...' : '設定を保存中...');
+        const result = await api(`/profiles/${activeSlot}/apply${runVlm ? '' : '?run_vlm=false'}`, { method: 'POST', body: JSON.stringify(profile) });
+        if (runVlm) trackPipelineJob(result);
         settings.profiles = settings.profiles.map(item => item.slot_no === activeSlot ? result.profile : item);
         invalidateDynamicSearchFilters();
         render();
         scheduleStatusRefresh();
-        utilsShowToast(`${result.queued_documents}件の文書でVLM抽出の反映を開始しました`, 'success');
+        utilsShowToast(runVlm ? `${result.queued_documents}件の文書でVLM抽出の反映を開始しました` : '設定を保存しました（VLM抽出は未実行、反映待ちのまま残ります）', 'success');
       } else if (action === 'save-mineru') {
         settings.mineru = await api('/mineru', { method: 'PUT', body: JSON.stringify({ enabled: document.getElementById('mineru-enabled').checked, base_url: document.getElementById('mineru-url').value.trim(), timeout_seconds: Number(document.getElementById('mineru-timeout').value), backend: 'pipeline', effort: 'medium' }) }); utilsShowToast('MinerU設定を保存しました', 'success');
       } else if (action === 'test-mineru') {
@@ -314,10 +318,10 @@ function bindEvents(root) {
       } else if (action === 'test-rerank') {
         await api('/rerank/test', { method: 'POST', timeout: 120000 }); utilsShowToast('再ランキング接続に成功しました', 'success');
       } else if (action === 'save-vlm') {
-        settings.vlm = await api('/vlm', { method: 'PUT', body: JSON.stringify({ query_enabled: document.getElementById('vlm-query-enabled').checked, verify_enabled: document.getElementById('vlm-verify-enabled').checked, query_prompt: document.getElementById('vlm-query-prompt').value.trim(), verify_prompt: document.getElementById('vlm-verify-prompt').value.trim() }) }); utilsShowToast('VLM共通設定を保存しました', 'success');
+        settings.vlm = await api('/vlm', { method: 'PUT', body: JSON.stringify({ verify_prompt: document.getElementById('vlm-verify-prompt').value.trim() }) }); utilsShowToast('VLM画像確認設定を保存しました', 'success');
       } else if (action === 'save-query-expansion') {
         const mode = document.querySelector('input[name="query-expansion-mode"]:checked')?.value || 'rule';
-        settings.query_expansion = await api('/query-expansion', { method: 'PUT', body: JSON.stringify({ enabled: mode !== 'off', llm_enabled: mode === 'llm', max_variants: Number(document.getElementById('query-expansion-max').value), synonym_groups: synonymTextToGroups(document.getElementById('query-expansion-synonyms').value) }) }); utilsShowToast('検索バリエーション設定を保存しました', 'success');
+        settings.query_expansion = await api('/query-expansion', { method: 'PUT', body: JSON.stringify({ enabled: mode !== 'off', llm_enabled: mode === 'llm', max_variants: Number(document.getElementById('query-expansion-max').value), llm_prompt: document.getElementById('query-expansion-llm-prompt').value.trim(), synonym_groups: synonymTextToGroups(document.getElementById('query-expansion-synonyms').value) }) }); utilsShowToast('検索バリエーション設定を保存しました', 'success');
       } else if (action === 'save-weights') {
         const keys = ['oracle_text', 'text_vector', 'vlm_text', 'vlm_vector', 'visual_vector'];
         settings.weights = await api('/weights', { method: 'PUT', body: JSON.stringify(Object.fromEntries(keys.map(key => [key, Number(document.getElementById(`weight-${key}`).value)]))) }); utilsShowToast('検索ルートの重みを保存しました', 'success');

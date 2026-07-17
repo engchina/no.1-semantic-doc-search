@@ -16,6 +16,7 @@ from app.rag.search_pipeline import principal_hash, search_pipeline
 
 router = APIRouter(tags=["retrieval"])
 logger = logging.getLogger(__name__)
+SEARCH_EVENT_HEARTBEAT_SECONDS = 2.0
 
 
 class DifyRetrievalSetting(BaseModel):
@@ -73,6 +74,7 @@ def _search_events(
     *,
     query: str,
     top_k: int,
+    min_score: float = 0.0,
     field_filters: list[FieldFilter],
     document_types: list[str],
     current_version_only: bool,
@@ -112,6 +114,7 @@ def _search_events(
                 result = await search_pipeline.search(
                     query=query,
                     top_k=top_k,
+                    min_score=min_score,
                     field_filters=field_filters,
                     document_types=document_types,
                     current_version_only=current_version_only,
@@ -150,26 +153,43 @@ def _search_events(
         task = asyncio.create_task(run_search())
         try:
             while True:
-                event = await queue.get()
+                try:
+                    event = await asyncio.wait_for(
+                        queue.get(), timeout=SEARCH_EVENT_HEARTBEAT_SECONDS
+                    )
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
                 if event is None:
                     break
                 yield _sse(event)
         finally:
             if not task.done():
                 task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/search/v2/filters")
 async def search_v2_filters() -> dict[str, object]:
-    from app.rag.profile_repository import profile_repository
+    from app.rag.pipeline_repository import pipeline_repository
 
     # schema_ready()は同期DBコール（DB停止時は接続待ちで長時間ブロックする）。
     # イベントループを凍結させないよう必ずワーカースレッドで実行する。
     return {
         "profile_retrieval_active": False,
-        "v2_retrieval_active": await asyncio.to_thread(profile_repository.schema_ready),
+        "v2_retrieval_active": await asyncio.to_thread(pipeline_repository.schema_ready),
         "fields": [],
     }
 
@@ -236,6 +256,7 @@ async def search_v2(payload: SearchV2Request, request: Request) -> SearchV2Respo
         return await search_pipeline.search(
             query=payload.query,
             top_k=payload.top_k,
+            min_score=payload.min_score,
             field_filters=payload.field_filters,
             document_types=payload.document_types,
             current_version_only=payload.current_version_only,
@@ -254,6 +275,7 @@ async def search_v2_events(payload: SearchV2Request, request: Request) -> Stream
         request,
         query=payload.query,
         top_k=payload.top_k,
+        min_score=payload.min_score,
         field_filters=payload.field_filters,
         document_types=payload.document_types,
         current_version_only=payload.current_version_only,
@@ -269,6 +291,7 @@ async def search_v2_image(
     image: UploadFile = File(...),
     query: str = Form(default="", max_length=4000),
     top_k: int = Form(default=20, ge=1, le=100),
+    min_score: float = Form(default=0.0, ge=0.0, le=1.0),
     filename_filter: str | None = Form(default=None, max_length=1024),
     field_filters: str = Form(default="[]"),
     document_types: str = Form(default="[]"),
@@ -290,6 +313,7 @@ async def search_v2_image(
         return await search_pipeline.search(
             query=query,
             top_k=top_k,
+            min_score=min_score,
             field_filters=filters,
             document_types=types,
             current_version_only=current_version_only,
@@ -310,6 +334,7 @@ async def search_v2_image_events(
     image: UploadFile = File(...),
     query: str = Form(default="", max_length=4000),
     top_k: int = Form(default=20, ge=1, le=100),
+    min_score: float = Form(default=0.0, ge=0.0, le=1.0),
     filename_filter: str | None = Form(default=None, max_length=1024),
     field_filters: str = Form(default="[]"),
     document_types: str = Form(default="[]"),
@@ -331,6 +356,7 @@ async def search_v2_image_events(
         request,
         query=query,
         top_k=top_k,
+        min_score=min_score,
         field_filters=filters,
         document_types=types,
         current_version_only=current_version_only,

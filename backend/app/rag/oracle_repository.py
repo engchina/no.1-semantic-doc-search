@@ -68,8 +68,6 @@ def oracle_text_terms(query: str, *, max_terms: int | None = None) -> list[str]:
                 for run in pattern.findall(raw.casefold()):
                     if len(run) >= 2:
                         candidates.append(run)
-                        if len(run) >= 3:
-                            candidates.extend((run[:2], run[-2:]))
         for term in candidates:
             if len(term) >= 2 and term not in terms:
                 terms.append(term)
@@ -185,7 +183,7 @@ class OracleRagRepository:
         filename_filter: str | None,
     ) -> tuple[str, dict[str, Any]]:
         access, binds = self._access_sql(user_hash)
-        clauses = ["d.status IN ('INDEXED', 'REINDEX_REQUIRED', 'PROCESSING')", access]
+        clauses = ["d.serving_release_id IS NOT NULL", access]
         if current_version_only:
             clauses.append("d.is_current=1")
         if document_types:
@@ -224,18 +222,21 @@ class OracleRagRepository:
     @staticmethod
     def _base_select() -> str:
         return """
-            e.evidence_id, e.document_id, 0 slot_no, NULL revision_id,
-            e.page_number, e.unit_kind, e.source_locator, e.bbox_json,
-            e.raw_text, NULL caption, e.asset_object_name,
+            a.artifact_id evidence_id, d.document_id, 0 slot_no,
+            rel.document_revision_id revision_id,
+            a.page_number, a.artifact_kind unit_kind, a.source_locator, a.bbox_json,
+            NVL(a.raw_text, page_text.raw_text) raw_text, NULL caption,
+            NVL(a.object_name, page_image.object_name) asset_object_name,
             d.file_name, d.object_name, d.bucket
         """
 
     @staticmethod
     def _facet_select() -> str:
         return """
-            e.evidence_id, e.document_id, f.slot_no, f.revision_id,
-            e.page_number, e.unit_kind, e.source_locator, e.bbox_json,
-            e.raw_text, f.summary caption, e.asset_object_name,
+            a.artifact_id evidence_id, d.document_id, :slot slot_no,
+            rel.document_revision_id revision_id,
+            a.page_number, a.artifact_kind unit_kind, a.source_locator, a.bbox_json,
+            a.raw_text, a.raw_text caption, page_image.object_name asset_object_name,
             d.file_name, d.object_name, d.bucket
         """
 
@@ -257,42 +258,131 @@ class OracleRagRepository:
                 f"""
                 SELECT * FROM (
                     SELECT {self._base_select()}, SCORE(1)/100 score
-                    FROM sds_evidence e
-                    JOIN sds_document_index_runs ir ON ir.index_run_id=e.index_run_id
-                    JOIN sds_documents d ON d.document_id=e.document_id
-                    WHERE ir.is_serving=1 AND ir.status='SUCCEEDED' AND {where}
-                      AND CONTAINS(e.search_text, :text_query, 1)>0
-                    ORDER BY SCORE(1) DESC, e.evidence_id
+                    FROM sds_documents d
+                    JOIN sds_index_releases rel
+                      ON rel.release_id=d.serving_release_id AND rel.status='PUBLISHED'
+                    JOIN sds_index_release_components rc
+                      ON rc.release_id=rel.release_id AND rc.is_stale=0
+                    JOIN sds_artifacts a ON a.stage_run_id=rc.stage_run_id
+                    LEFT JOIN sds_index_release_components nc
+                      ON nc.release_id=rel.release_id AND nc.component_key='normalize'
+                         AND nc.is_stale=0
+                    LEFT JOIN sds_artifacts page_text
+                      ON page_text.stage_run_id=nc.stage_run_id
+                         AND page_text.artifact_kind='PAGE_TEXT'
+                         AND page_text.page_number=a.page_number
+                    LEFT JOIN sds_index_release_components ic
+                      ON ic.release_id=rel.release_id AND ic.component_key='render'
+                         AND ic.is_stale=0
+                    LEFT JOIN sds_artifacts page_image
+                      ON page_image.stage_run_id=ic.stage_run_id
+                         AND page_image.artifact_kind='PAGE_IMAGE'
+                         AND page_image.page_number=a.page_number
+                    WHERE {where}
+                      AND a.search_text IS NOT NULL
+                      AND CONTAINS(a.search_text, :text_query, 1)>0
+                    ORDER BY SCORE(1) DESC, a.artifact_id
                 ) WHERE ROWNUM<=:top_k
                 """,
                 binds,
             )
-            return [self._hit(row, channel="oracle_text") for row in self.rows(cursor)]
+            return [self._hit(row, channel="keyword:page_text") for row in self.rows(cursor)]
 
     def vector_search(self, *, embedding: list[float], column: str, channel: str,
                       top_k: int, user_hash: str | None, current_version_only: bool,
                       document_types: list[str], filename_filter: str | None = None) -> list[RetrievalHit]:
         if column not in {"text_embedding", "visual_embedding"}:
             raise ValueError("invalid vector column")
+        with self.connection() as connection, connection.cursor() as cursor:
+            source_type = "PAGE_IMAGE" if column == "visual_embedding" else "CHUNK_TEXT"
+            cursor.execute(
+                """
+                SELECT DISTINCT r.code
+                FROM sds_embedding_recipes r
+                JOIN sds_embedding_recipe_inputs i
+                  ON i.revision_id=r.current_revision_id
+                WHERE r.enabled=1 AND i.source_type=:source
+                ORDER BY r.code
+                """,
+                {"source": source_type},
+            )
+            codes = [str(row[0]) for row in cursor.fetchall()]
+        results: list[RetrievalHit] = []
+        for code in codes:
+            results.extend(
+                self.recipe_vector_search(
+                    recipe_code=code,
+                    embedding=embedding,
+                    channel=channel,
+                    top_k=top_k,
+                    user_hash=user_hash,
+                    current_version_only=current_version_only,
+                    document_types=document_types,
+                    filename_filter=filename_filter,
+                )
+            )
+        return sorted(results, key=lambda item: item.score, reverse=True)[:top_k]
+
+    def recipe_vector_search(
+        self,
+        *,
+        recipe_code: str,
+        embedding: list[float],
+        channel: str,
+        top_k: int,
+        user_hash: str | None,
+        current_version_only: bool,
+        document_types: list[str],
+        filename_filter: str | None = None,
+        min_score: float = 0.0,
+    ) -> list[RetrievalHit]:
         top_k = max(1, min(top_k, 1000))
+        score_filter = ""
+        if min_score > 0:
+            score_filter = "AND 1-VECTOR_DISTANCE(ev.vector_value, :embedding, COSINE) >= :min_score"
         where, binds = self._document_where(
             user_hash=user_hash,
             current_version_only=current_version_only,
             document_types=document_types,
             filename_filter=filename_filter,
         )
-        binds["embedding"] = _vector(embedding)
+        binds.update(embedding=_vector(embedding), recipe_code=recipe_code)
+        if score_filter:
+            binds["min_score"] = float(min_score)
         with self.connection() as connection, connection.cursor() as cursor:
             cursor.execute(
                 f"""
                 SELECT {self._base_select()},
-                       1-VECTOR_DISTANCE(e.{column}, :embedding, COSINE) score
-                FROM sds_evidence e
-                JOIN sds_document_index_runs ir ON ir.index_run_id=e.index_run_id
-                JOIN sds_documents d ON d.document_id=e.document_id
-                WHERE ir.is_serving=1 AND ir.status='SUCCEEDED' AND {where}
-                  AND e.{column} IS NOT NULL
-                ORDER BY VECTOR_DISTANCE(e.{column}, :embedding, COSINE), e.evidence_id
+                       1-VECTOR_DISTANCE(ev.vector_value, :embedding, COSINE) score
+                FROM sds_documents d
+                JOIN sds_index_releases rel
+                  ON rel.release_id=d.serving_release_id AND rel.status='PUBLISHED'
+                JOIN sds_embedding_recipes recipe ON recipe.code=:recipe_code
+                JOIN sds_index_release_components rc
+                  ON rc.release_id=rel.release_id
+                     AND rc.component_key='embedding:' || recipe.code
+                     AND rc.is_stale=0
+                JOIN sds_embeddings ev
+                  ON ev.stage_run_id=rc.stage_run_id
+                     AND ev.document_revision_id=rel.document_revision_id
+                JOIN sds_artifacts a ON a.artifact_id=ev.target_artifact_id
+                LEFT JOIN sds_index_release_components nc
+                  ON nc.release_id=rel.release_id AND nc.component_key='normalize'
+                     AND nc.is_stale=0
+                LEFT JOIN sds_artifacts page_text
+                  ON page_text.stage_run_id=nc.stage_run_id
+                     AND page_text.artifact_kind='PAGE_TEXT'
+                     AND page_text.page_number=a.page_number
+                LEFT JOIN sds_index_release_components ic
+                  ON ic.release_id=rel.release_id AND ic.component_key='render'
+                     AND ic.is_stale=0
+                LEFT JOIN sds_artifacts page_image
+                  ON page_image.stage_run_id=ic.stage_run_id
+                     AND page_image.artifact_kind='PAGE_IMAGE'
+                     AND page_image.page_number=a.page_number
+                WHERE {where}
+                {score_filter}
+                ORDER BY VECTOR_DISTANCE(ev.vector_value, :embedding, COSINE), ev.embedding_id
                 FETCH APPROX FIRST {top_k} ROWS ONLY WITH TARGET ACCURACY 95
                 """,
                 binds,
@@ -321,58 +411,46 @@ class OracleRagRepository:
                 f"""
                 SELECT * FROM (
                     SELECT {self._facet_select()}, SCORE(1)/100 score
-                    FROM sds_vlm_facets f
-                    JOIN sds_vlm_profile_runs pr ON pr.profile_run_id=f.profile_run_id
-                    JOIN sds_evidence e ON e.evidence_id=f.evidence_id
-                    JOIN sds_documents d ON d.document_id=f.document_id
-                    WHERE pr.is_serving=1 AND pr.build_status='INDEXED'
-                      AND pr.content_sha256=d.content_sha256
-                      AND f.slot_no=:slot AND {where}
-                      AND CONTAINS(f.search_text, :text_query, 1)>0
-                    ORDER BY SCORE(1) DESC, f.facet_id
+                    FROM sds_documents d
+                    JOIN sds_index_releases rel
+                      ON rel.release_id=d.serving_release_id AND rel.status='PUBLISHED'
+                    JOIN sds_index_release_components rc
+                      ON rc.release_id=rel.release_id
+                         AND rc.component_key='vlm:' || TO_CHAR(:slot)
+                         AND rc.is_stale=0
+                    JOIN sds_artifacts a
+                      ON a.stage_run_id=rc.stage_run_id AND a.artifact_kind='VLM_TEXT'
+                    LEFT JOIN sds_index_release_components ic
+                      ON ic.release_id=rel.release_id AND ic.component_key='render'
+                         AND ic.is_stale=0
+                    LEFT JOIN sds_artifacts page_image
+                      ON page_image.stage_run_id=ic.stage_run_id
+                         AND page_image.artifact_kind='PAGE_IMAGE'
+                         AND page_image.page_number=a.page_number
+                    WHERE {where}
+                      AND CONTAINS(a.search_text, :text_query, 1)>0
+                    ORDER BY SCORE(1) DESC, a.artifact_id
                 ) WHERE ROWNUM<=:top_k
                 """,
                 binds,
             )
-            channel = f"vlm_profile_{profile.slot_no}_text"
+            channel = f"keyword:vlm_text_slot_{profile.slot_no}"
             return [self._hit(row, channel=channel) for row in self.rows(cursor)]
 
     def facet_vector_search(self, *, profile: ProfileConfig, embedding: list[float], top_k: int,
                             user_hash: str | None, current_version_only: bool,
                             document_types: list[str], filename_filter: str | None = None) -> list[RetrievalHit]:
-        if not profile.current_revision_id:
-            return []
-        top_k = max(1, min(top_k, 1000))
-        where, binds = self._document_where(
+        code = f"vlm_text_slot_{profile.slot_no}"
+        return self.recipe_vector_search(
+            recipe_code=code,
+            embedding=embedding,
+            channel=f"vector:vlm_text_slot_{profile.slot_no}",
+            top_k=top_k,
             user_hash=user_hash,
             current_version_only=current_version_only,
             document_types=document_types,
             filename_filter=filename_filter,
         )
-        binds.update(
-            embedding=_vector(embedding),
-            slot=profile.slot_no,
-        )
-        with self.connection() as connection, connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT {self._facet_select()},
-                       1-VECTOR_DISTANCE(f.text_embedding, :embedding, COSINE) score
-                FROM sds_vlm_facets f
-                JOIN sds_vlm_profile_runs pr ON pr.profile_run_id=f.profile_run_id
-                JOIN sds_evidence e ON e.evidence_id=f.evidence_id
-                JOIN sds_documents d ON d.document_id=f.document_id
-                WHERE pr.is_serving=1 AND pr.build_status='INDEXED'
-                  AND pr.content_sha256=d.content_sha256
-                  AND f.slot_no=:slot AND {where}
-                  AND f.text_embedding IS NOT NULL
-                ORDER BY VECTOR_DISTANCE(f.text_embedding, :embedding, COSINE), f.facet_id
-                FETCH APPROX FIRST {top_k} ROWS ONLY WITH TARGET ACCURACY 95
-                """,
-                binds,
-            )
-            channel = f"vlm_profile_{profile.slot_no}_vector"
-            return [self._hit(row, channel=channel) for row in self.rows(cursor)]
 
     def enrich_hits(self, hits: list[RetrievalHit]) -> None:
         return
@@ -717,6 +795,20 @@ class OracleRagRepository:
 
     def delete_document_by_object(self, *, bucket: str, object_name: str) -> int:
         with self.connection() as connection, connection.cursor() as cursor:
+            # SDS_DOCUMENTS and SDS_INDEX_RELEASES intentionally have a
+            # bidirectional pointer (serving/draft release on the document,
+            # document_id on the release).  Null the pointers first so
+            # Oracle can cascade-delete releases/revisions without an
+            # ORA-02292 child-record violation.
+            cursor.execute(
+                """
+                UPDATE sds_documents
+                SET serving_release_id=NULL, draft_release_id=NULL,
+                    updated_at=SYSTIMESTAMP
+                WHERE bucket=:bucket AND object_name=:object_name
+                """,
+                {"bucket": bucket, "object_name": object_name},
+            )
             cursor.execute(
                 "DELETE FROM sds_documents WHERE bucket=:bucket AND object_name=:object_name",
                 {"bucket": bucket, "object_name": object_name},
@@ -740,7 +832,7 @@ class OracleRagRepository:
     def update_document_type(self, document_id: str, document_type: str | None) -> None:
         with self.connection() as connection, connection.cursor() as cursor:
             cursor.execute(
-                "UPDATE sds_documents SET document_type=:type, status='REINDEX_REQUIRED', "
+                "UPDATE sds_documents SET document_type=:type, status='UPDATE_AVAILABLE', "
                 "updated_at=SYSTIMESTAMP WHERE document_id=:document",
                 {"type": document_type, "document": document_id},
             )
@@ -813,14 +905,14 @@ class OracleRagRepository:
             cursor.execute(
                 """
                 INSERT INTO sds_search_feedback
-                    (feedback_id, trace_id, document_id, evidence_id, action, user_id_hash)
-                VALUES (:feedback, :trace, :document, :evidence, :action, :user_hash)
+                    (feedback_id, trace_id, document_id, artifact_id, action, user_id_hash)
+                VALUES (:feedback, :trace, :document, :artifact, :action, :user_hash)
                 """,
                 {
                     "feedback": feedback_id,
                     "trace": trace_id,
                     "document": document_id,
-                    "evidence": evidence_id,
+                    "artifact": evidence_id,
                     "action": action,
                     "user_hash": user_hash,
                 },

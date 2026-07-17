@@ -31,13 +31,14 @@ let searchProgressTimer = null;
 const searchProgress = { startedAt: 0, state: {}, steps: new Map() };
 
 const stepLabels = {
-  query_plan: '検索意図の整理',
+  initialization: '検索準備',
   query_variants: '検索バリエーション生成',
   keyword_plan: '検索キーワード生成',
   embedding: 'ベクトル作成',
   retrieval: '候補取得',
   candidate_merge: '候補統合',
   rerank: '再ランキング',
+  llm_judge: 'LLM最終判定',
   verify: 'VLM確認',
   format_results: '結果整形'
 };
@@ -86,23 +87,19 @@ export async function loadDynamicSearchFilters() {
         : '検索索引の初期化後に利用できます';
       if (!v2RetrievalActive) imageQuery.value = '';
     }
-    updateMinScoreState();
   } catch (error) {
     v2RetrievalActive = false;
     const wrapper = document.getElementById('dynamicSearchFilters');
     const imageQuery = document.getElementById('imageSearchQuery');
     if (wrapper) wrapper.hidden = true;
     if (imageQuery) imageQuery.disabled = true;
-    updateMinScoreState();
     console.warn('Dynamic search filters are unavailable:', error);
   }
 }
 
-function updateMinScoreState() {
-  const input = document.getElementById('minScore');
-  const label = document.getElementById('minScoreLabel');
-  if (input) input.disabled = v2RetrievalActive;
-  if (label) label.textContent = v2RetrievalActive ? '最小スコア（新しい検索では非適用）' : '最小スコア';
+function getMinScore() {
+  const value = parseFloat(document.getElementById('minScore')?.value);
+  return Number.isFinite(value) ? Math.min(Math.max(value, 0), 1) : 0;
 }
 
 function isSearchButtonBusy(button) {
@@ -159,10 +156,6 @@ function stepDetails(name) {
   const candidateMerge = searchProgress.state.candidateMerge || diagnostics.candidate_merge;
   const rerankSummary = searchProgress.state.rerankSummary || diagnostics.rerank_summary;
   const formatSummary = searchProgress.state.formatSummary || diagnostics.format_summary;
-  if (name === 'query_plan' && queryPlan?.intent) {
-    const intentLabels = { general: '一般検索' };
-    return `<div>検索意図: ${escapeHtml(intentLabels[queryPlan.intent] || queryPlan.intent)}</div>`;
-  }
   if (name === 'query_variants' && queryPlan) {
     const sourceLabels = { deterministic: 'ルールベース', llm: 'LLM', off: '原文のみ' };
     return `
@@ -224,17 +217,23 @@ function renderSearchProgress(message = '') {
   if (status) status.textContent = message || searchProgress.state.message || '検索中...';
   updateSearchElapsed();
   if (steps) {
-    steps.innerHTML = [...searchProgress.steps.entries()].map(([name, statusValue]) => `
-      <li class="search-agent-step search-agent-step-${statusValue}">
-        <details>
-          <summary>
-            <span>${escapeHtml(stepLabels[name] || name)}</span>
-            <span>${statusValue === 'done' ? '完了' : '処理中'}</span>
-          </summary>
-          <div class="search-agent-step-body">${stepDetails(name) || '詳細は処理後に表示されます'}</div>
-        </details>
-      </li>
-    `).join('');
+    steps.innerHTML = [...searchProgress.steps.entries()].map(([name, statusValue]) => {
+      const detail = stepDetails(name);
+      const header = `
+        <span>${escapeHtml(stepLabels[name] || name)}</span>
+        <span class="search-agent-step-status">${statusValue === 'done' ? '完了' : '処理中'}</span>
+      `;
+      return `
+        <li class="search-agent-step search-agent-step-${statusValue}">
+          ${detail ? `
+            <details>
+              <summary>${header}</summary>
+              <div class="search-agent-step-body">${detail}</div>
+            </details>
+          ` : `<div class="search-agent-step-static">${header}</div>`}
+        </li>
+      `;
+    }).join('');
   }
   if (details) {
     const degraded = searchProgress.state.result?.diagnostics?.degraded || [];
@@ -401,21 +400,29 @@ function objectUrl(bucket, objectName) {
   return `/ai/api/object/${encodeURIComponent(bucket)}/${encoded}`;
 }
 
-function adaptV2Response(data) {
+function adaptV2Response(data, { includeImageSimilarity = false } = {}) {
   const source = data.results || [];
-  const maxScore = Math.max(...source.map(item => item.score || 0), 1e-9);
+  // rerank_score はcross-encoderの絶対的な関連度(0〜1)。無い場合(rerank無効/失敗)は
+  // RRFスコアしかなく絶対的な意味を持たないため、%表示自体を出さない(null)。
+  const toPercent = score => {
+    if (score == null) return null;
+    const value = Number(score);
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) * 100 : null;
+  };
   const results = source.map(document => {
     const seen = new Set();
     const matched_images = (document.evidence || []).flatMap(evidence => {
       if (!evidence.asset_url || seen.has(evidence.asset_url)) return [];
       seen.add(evidence.asset_url);
-      const score = evidence.rerank_score ?? evidence.score ?? 0;
       return [{
         embed_id: evidence.evidence_id,
         bucket: document.bucket,
         object_name: evidence.asset_url,
         page_number: evidence.page_number,
-        vector_distance: Math.max(0, 1 - Math.min(1, score / maxScore)),
+        match_percent: toPercent(evidence.rerank_score),
+        image_similarity_percent: includeImageSimilarity
+          ? toPercent(evidence.image_similarity_score)
+          : null,
         url: objectUrl(document.bucket, evidence.asset_url),
         retrieval_channels: evidence.retrieval_channels,
         verification_status: evidence.verification_status,
@@ -428,7 +435,10 @@ function adaptV2Response(data) {
       bucket: document.bucket,
       object_name: document.object_name,
       original_filename: document.file_name,
-      min_distance: Math.max(0, 1 - Math.min(1, (document.score || 0) / maxScore)),
+      match_percent: toPercent(document.rerank_score),
+      image_similarity_percent: includeImageSimilarity
+        ? toPercent(document.image_similarity_score)
+        : null,
       matched_images,
       url: objectUrl(document.bucket, document.object_name),
       profile_slots: document.profile_slots
@@ -438,6 +448,7 @@ function adaptV2Response(data) {
     success: data.success,
     query: data.query,
     results,
+    result_order: includeImageSimilarity ? 'image_similarity' : 'search_rank',
     total_files: results.length,
     total_images: results.reduce((count, item) => count + item.matched_images.length, 0),
     processing_time: data.processing_time || 0,
@@ -566,34 +577,31 @@ export async function performImageSearch() {
   // 共通のフィルター値を使用
   const filenameFilter = document.getElementById('filenameFilter').value.trim();
   const topK = parseInt(document.getElementById('topK').value) || 10;
+  const minScore = getMinScore();
   const imageQuery = document.getElementById('imageSearchQuery')?.value.trim() || '';
   const verify = Boolean(document.getElementById('searchVlmVerify')?.checked);
   let usesEventStream = false;
   searchCancelled = false;
   
   try {
+    hideSearchResults();
     setSearchButtonBusy(submitButton, true, '検索中...');
     if (!dynamicFiltersLoaded) await loadDynamicSearchFilters();
-    usesEventStream = v2RetrievalActive;
+    usesEventStream = true;
     setSearchButtonBusy(submitButton, true, '検索中...', usesEventStream);
     if (searchCancelled) throw new Error('検索をキャンセルしました');
-    
+
     // FormDataを作成
     const formData = new FormData();
     formData.append('image', selectedSearchImage);
     formData.append('top_k', topK.toString());
+    formData.append('min_score', minScore.toString());
     if (filenameFilter) formData.append('filename_filter', filenameFilter);
-    let endpoint = '/ai/api/search/image';
-    if (v2RetrievalActive) {
-      endpoint = '/ai/api/search/v2/image/events';
-      formData.append('query', imageQuery);
-      formData.append('field_filters', JSON.stringify(collectDynamicFilters()));
-      formData.append('document_types', '[]');
-      formData.append('verify', verify ? 'true' : 'false');
-    } else {
-      utilsShowLoading('画像検索中...（最大70秒かかる場合があります）');
-      formData.append('min_score', document.getElementById('minScore').value || '0.7');
-    }
+    const endpoint = '/ai/api/search/v2/image/events';
+    formData.append('query', imageQuery);
+    formData.append('field_filters', JSON.stringify(collectDynamicFilters()));
+    formData.append('document_types', '[]');
+    formData.append('verify', verify ? 'true' : 'false');
 
     const data = usesEventStream ? await streamSearch(endpoint, {
       method: 'POST',
@@ -604,7 +612,7 @@ export async function performImageSearch() {
       timeout: 70000
     });
 
-    displaySearchResults(v2RetrievalActive ? adaptV2Response(data) : data);
+    displaySearchResults(adaptV2Response(data, { includeImageSimilarity: true }));
     
     // 検索完了メッセージを表示
     utilsShowToast('画像検索が完了しました', 'success');
@@ -664,6 +672,7 @@ export async function performSearch() {
   const query = document.getElementById('searchQuery').value.trim();
   const filenameFilter = document.getElementById('filenameFilter').value.trim();
   const topK = parseInt(document.getElementById('topK').value) || 10;
+  const minScore = getMinScore();
   const verify = Boolean(document.getElementById('searchVlmVerify')?.checked);
   let usesEventStream = false;
   searchCancelled = false;
@@ -674,17 +683,15 @@ export async function performSearch() {
   }
   
   try {
+    hideSearchResults();
     setSearchButtonBusy(submitButton, true, '検索中...');
     if (!dynamicFiltersLoaded) await loadDynamicSearchFilters();
-    usesEventStream = v2RetrievalActive;
+    usesEventStream = true;
     setSearchButtonBusy(submitButton, true, '検索中...', usesEventStream);
     if (searchCancelled) throw new Error('検索をキャンセルしました');
-    
-    const requestBody = v2RetrievalActive
-      ? { query, top_k: topK, filename_filter: filenameFilter || null, field_filters: [], document_types: [], current_version_only: true, verify }
-      : { query, top_k: topK, min_score: Number(document.getElementById('minScore').value) || 0.7, filename_filter: filenameFilter || null };
-    const endpoint = v2RetrievalActive ? '/ai/api/search/v2/events' : '/ai/api/search';
-    if (!usesEventStream) utilsShowLoading('検索中...（最大70秒かかる場合があります）');
+
+    const requestBody = { query, top_k: topK, min_score: minScore, filename_filter: filenameFilter || null, field_filters: collectDynamicFilters(), document_types: [], current_version_only: true, verify };
+    const endpoint = '/ai/api/search/v2/events';
 
     const data = usesEventStream ? await streamSearch(endpoint, {
       method: 'POST',
@@ -697,7 +704,7 @@ export async function performSearch() {
       timeout: 70000
     });
 
-    displaySearchResults(v2RetrievalActive ? adaptV2Response(data) : data);
+    displaySearchResults(adaptV2Response(data));
     
     // 検索完了メッセージを表示
     utilsShowToast('検索が完了しました', 'success');
@@ -740,7 +747,6 @@ export function displaySearchResults(data) {
   
   // ファイル単位で表示
   listDiv.innerHTML = data.results.map((fileResult, fileIndex) => {
-    const distancePercent = (1 - fileResult.min_distance) * 100;
     const originalFilename = displayFilename(fileResult);
     
     // ファイル情報カード
@@ -756,9 +762,12 @@ export function displaySearchResults(data) {
               </div>
             </div>
             <div class="search-result-stats">
-              <span class="badge search-result-stat-badge">
-                マッチ度: ${distancePercent.toFixed(1)}%
-              </span>
+              ${fileResult.image_similarity_percent != null ? `<span class="badge search-result-stat-badge">
+                画像類似度: ${fileResult.image_similarity_percent.toFixed(1)}%
+              </span>` : ''}
+              ${fileResult.match_percent != null ? `<span class="badge search-result-stat-badge">
+                関連度: ${fileResult.match_percent.toFixed(1)}%
+              </span>` : ''}
               <span class="badge search-result-stat-badge">
                 ${fileResult.matched_images.length}ページ
               </span>
@@ -776,11 +785,10 @@ export function displaySearchResults(data) {
         <!-- ページ画像グリッド -->
         <div class="card-body">
           <div class="search-result-body-title">
-            <i class="fas fa-images"></i> マッチしたページ画像（距離が小さい順）
+            <i class="fas fa-images"></i> マッチしたページ画像（${data.result_order === 'image_similarity' ? '画像類似度が高い順' : '検索順位順'}）
           </div>
           <div class="search-result-images-grid">
             ${fileResult.matched_images.map((img, imgIndex) => {
-              const imgDistancePercent = (1 - img.vector_distance) * 100;
               // img.url(APIから返却された絶対URL)を優先、なければbucket+object_nameから生成
               const imageUrl = img.url ? getAuthenticatedImageUrl(img.url) : getAuthenticatedImageUrl(img.bucket, img.object_name);
               
@@ -818,34 +826,37 @@ export function displaySearchResults(data) {
                       "
                       onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27200%27 height=%27200%27%3E%3Crect fill=%27%23f1f5f9%27 width=%27200%27 height=%27200%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 fill=%27%2394a3b8%27 font-size=%2724%27%3E画像エラー%3C/text%3E%3C/svg%3E'"
                     />
-                    <!-- マッチ度バッジ -->
-                    <div style="
+                    <!-- スコアバッジ -->
+                    ${img.image_similarity_percent != null || img.match_percent != null ? `<div style="
                       position: absolute;
                       top: 8px;
                       right: 8px;
-                      background: rgba(26, 54, 93, 0.95);
-                      color: white;
-                      padding: 4px 8px;
-                      border-radius: 4px;
-                      font-size: 11px;
-                      font-weight: 600;
-                      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                      display: grid;
+                      gap: 4px;
+                      justify-items: end;
                     ">
-                      ${imgDistancePercent.toFixed(1)}%
-                    </div>
+                      ${img.image_similarity_percent != null ? `<span style="background:rgba(26,54,93,.95);color:white;padding:4px 8px;border-radius:4px;font-size:11px;font-weight:600;box-shadow:0 2px 4px rgba(0,0,0,.2)">
+                        画像類似度 ${img.image_similarity_percent.toFixed(1)}%
+                      </span>` : ''}
+                      ${img.match_percent != null ? `<span style="background:rgba(30,64,175,.92);color:white;padding:4px 8px;border-radius:4px;font-size:11px;font-weight:600;box-shadow:0 2px 4px rgba(0,0,0,.2)">
+                        関連度 ${img.match_percent.toFixed(1)}%
+                      </span>` : ''}
+                    </div>` : ''}
                   </div>
-                  
+
                   <!-- 画像情報 -->
                   <div class="search-result-image-info">
                     <div class="search-result-image-title">
                       <i class="fas fa-file"></i> ページ ${img.page_number}
                     </div>
-                    <div class="search-result-image-similarity">
-                      距離: ${img.vector_distance.toFixed(4)}
-                    </div>
-                    ${img.retrieval_channels?.length ? `<div class="text-xs text-gray-500">${escapeHtml(img.retrieval_channels.join(' · '))}</div>` : ''}
+                    ${img.image_similarity_percent != null ? `<div class="search-result-image-similarity">
+                      画像類似度: ${img.image_similarity_percent.toFixed(1)}%
+                    </div>` : ''}
+                    ${img.match_percent != null ? `<div class="search-result-image-similarity">
+                      関連度: ${img.match_percent.toFixed(1)}%
+                    </div>` : ''}
+                    ${img.retrieval_channels?.length ? `<ul class="text-xs text-gray-500" style="margin:0;padding-left:1.2em;list-style:disc">${img.retrieval_channels.map(channel => `<li>${escapeHtml(channel)}</li>`).join('')}</ul>` : ''}
                     ${img.verification_status && img.verification_status !== 'not_requested' ? `<div class="text-xs text-gray-500">VLM: ${escapeHtml(img.verification_status)}</div>` : ''}
-                    ${img.caption ? `<div class="text-xs text-gray-600" style="margin-top:6px;line-height:1.5">${escapeHtml(img.caption.slice(0, 180))}</div>` : ''}
                   </div>
                 </button>
               `;
@@ -889,8 +900,14 @@ export function showSearchImageModal(fileIndex, imageIndex) {
   });
   
   const imageTitles = matchedImages.map(img => {
-    const matchPercent = (1 - img.vector_distance) * 100;
-    return `ページ ${img.page_number} - マッチ度: ${matchPercent.toFixed(1)}% | 距離: ${img.vector_distance.toFixed(4)}`;
+    const scores = [];
+    if (img.image_similarity_percent != null) {
+      scores.push(`画像類似度: ${img.image_similarity_percent.toFixed(1)}%`);
+    }
+    if (img.match_percent != null) {
+      scores.push(`関連度: ${img.match_percent.toFixed(1)}%`);
+    }
+    return `ページ ${img.page_number}${scores.length ? ` - ${scores.join(' | ')}` : ''}`;
   });
   
   // 共通のshowImageModal関数を呼び出す（画像リストとインデックスを渡す）
@@ -922,20 +939,28 @@ export async function downloadFile(bucket, encodedObjectName) {
 }
 
 /**
+ * 前回の検索結果表示を非表示にする
+ */
+function hideSearchResults() {
+  const resultsDiv = document.getElementById('searchResults');
+  if (resultsDiv) resultsDiv.style.display = 'none';
+}
+
+/**
  * 検索結果をクリア
  */
 export function clearSearchResults() {
   cancelCurrentSearch();
   // テキスト検索のクリア
   document.getElementById('searchQuery').value = '';
-  
+
   // 画像検索のクリア
   clearSearchImage();
   const imageQuery = document.getElementById('imageSearchQuery');
   if (imageQuery) imageQuery.value = '';
-  
+
   // 検索結果を非表示
-  document.getElementById('searchResults').style.display = 'none';
+  hideSearchResults();
   const progress = document.getElementById('searchAgentProgress');
   if (progress) progress.hidden = true;
   stopSearchProgressTimer();

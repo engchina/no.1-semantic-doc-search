@@ -202,6 +202,12 @@ class ImageVectorizer:
             return False
     
     def _ensure_tables_exist(self, connection):
+        # Legacy SDS_FILES/SDS_IMAGE_EMBEDDINGS persistence was removed in
+        # schema 20260714_004.  Keep this guard so stale callers cannot
+        # silently recreate those tables.
+        raise RuntimeError(
+            "image_vectorizer legacy tables are retired; use the pipeline repository"
+        )
         """必要なテーブルが存在することを確認し、なければ作成
         
         Args:
@@ -379,7 +385,9 @@ class ImageVectorizer:
             logger.error(f"予期しないエラー: {e}")
             return None
     
-    def generate_text_embedding(self, text: str) -> Optional[np.ndarray]:
+    def generate_text_embedding(
+        self, text: str, input_type: str = "SEARCH_QUERY"
+    ) -> Optional[np.ndarray]:
         """
         テキストからembeddingベクトルを生成（検索クエリ用、リトライ対応）
         
@@ -411,7 +419,9 @@ class ImageVectorizer:
             embed_detail.serving_mode = oci.generative_ai_inference.models.OnDemandServingMode(
                 model_id=os.getenv("OCI_COHERE_EMBED_MODEL", "cohere.embed-v4.0")
             )
-            embed_detail.input_type = "SEARCH_QUERY"  # 検索クエリ用
+            if input_type not in {"SEARCH_QUERY", "SEARCH_DOCUMENT"}:
+                raise ValueError("Embeddingのinput_typeが不正です")
+            embed_detail.input_type = input_type
             embed_detail.inputs = [text]
             embed_detail.truncate = os.getenv("OCI_EMBEDDING_TRUNCATE", "END")
             embed_detail.compartment_id = os.getenv("OCI_COMPARTMENT_OCID")
@@ -438,6 +448,9 @@ class ImageVectorizer:
     
     def save_file_info(self, bucket: str, object_name: str, original_filename: str, 
                       file_size: int, content_type: str) -> Optional[int]:
+        raise RuntimeError(
+            "save_file_info is retired; register a document revision through the pipeline"
+        )
         """ファイル情報をSDS_FILESテーブルに保存（接続プール経由）"""
         try:
             if not self._ensure_pool_initialized():
@@ -481,6 +494,9 @@ class ImageVectorizer:
     def save_image_embedding(self, file_id: int, bucket: str, object_name: str, 
                            page_number: int, content_type: str, file_size: int, 
                            embedding: np.ndarray) -> Optional[int]:
+        raise RuntimeError(
+            "save_image_embedding is retired; use SDS_EMBEDDINGS via the pipeline"
+        )
         """画像embeddingをSDS_IMAGE_EMBEDDINGSテーブルに保存（接続プール経由）"""
         try:
             if not self._ensure_pool_initialized():
@@ -524,6 +540,9 @@ class ImageVectorizer:
             return None
     
     def delete_file_embeddings(self, file_id: int) -> bool:
+        raise RuntimeError(
+            "delete_file_embeddings is retired; supersede or delete a pipeline release"
+        )
         """ファイルに関連するすべてのembeddingを削除（接続プール経由）"""
         try:
             if not self._ensure_pool_initialized():

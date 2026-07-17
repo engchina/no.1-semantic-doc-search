@@ -140,11 +140,53 @@ def _xlsx_pages(content: bytes) -> dict[int, str]:
         return pages
 
 
+# 日本語文書で通常使われる文字ブロック。ToUnicode CMapが壊れたPDFでは
+# extract_text()がCIDずれの文字（制御文字・ギリシャ/IPA/インド系ブロック等）を
+# 返すため、この範囲外の文字比率で文字化けページを判定する。
+_EXPECTED_TEXT_RANGES = (
+    (0x09, 0x0D),      # タブ・改行
+    (0x20, 0x7E),      # ASCII
+    (0xA0, 0x17F),     # Latin-1補助・拡張A
+    (0x2000, 0x206F),  # 一般句読点
+    (0x2100, 0x2BFF),  # 文字様記号・数字形・矢印・数学記号・囲み英数・罫線
+    (0x3000, 0x30FF),  # CJK記号・ひらがな・カタカナ
+    (0x3200, 0x33FF),  # 囲みCJK・CJK互換文字
+    (0x4E00, 0x9FFF),  # CJK統合漢字
+    (0xF900, 0xFAFF),  # CJK互換漢字
+    (0xFF00, 0xFFEF),  # 全角・半角形
+)
+
+
+def _garbled_ratio(text: str) -> float:
+    chars = [char for char in text if not char.isspace()]
+    if not chars:
+        return 0.0
+    unexpected = sum(
+        1
+        for char in chars
+        if not any(low <= ord(char) <= high for low, high in _EXPECTED_TEXT_RANGES)
+    )
+    return unexpected / len(chars)
+
+
+def _strip_garbled_lines(text: str) -> str:
+    # 同一ページ内で正常なフォントと壊れたフォントが混在するため行単位で判定する。
+    # C0制御文字（タブ以外）は正規の抽出結果には現れず、CIDずれの決定的な指標。
+    # 化けた行を落としてもOCR_TEXTが全ページをカバーするので情報は失われない。
+    kept = [
+        line
+        for line in text.split("\n")
+        if _garbled_ratio(line) <= 0.3
+        and not any(ord(char) < 0x20 and char != "\t" for char in line)
+    ]
+    return "\n".join(kept).strip()
+
+
 def _native_pages(content: bytes, extension: str) -> dict[int, str]:
     try:
         if extension == "pdf":
             return {
-                index: _clean_text(page.extract_text() or "")
+                index: _strip_garbled_lines(_clean_text(page.extract_text() or ""))
                 for index, page in enumerate(PdfReader(BytesIO(content)).pages, start=1)
             }
         if extension == "pptx":

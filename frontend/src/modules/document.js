@@ -2,7 +2,7 @@
  * OCI Object Storage管理モジュール
  * 
  * OCI Object Storageの操作、表示、フィルタリング、および
- * ファイルのページ画像化・ベクトル化などのバッチ処理を担当します。
+ * 原本ファイルとArtifact由来のページ画像表示を担当します。
  * 
  * @module document
  */
@@ -12,67 +12,127 @@
 // ========================================
 import { appState, getSelectedOciObjects, toggleOciObjectSelection, setAllOciObjectsSelection } from '../state.js';
 import { apiCall as authApiCall, forceLogout as authForceLogout, showLoginModal as authShowLoginModal } from './auth.js';
-import { showLoading as utilsShowLoading, hideLoading as utilsHideLoading, showToast as utilsShowToast, showConfirmModal as utilsShowConfirmModal, updateStatusBadge as utilsUpdateStatusBadge, showImageModal as utilsShowImageModal } from './utils.js';
+import { showLoading as utilsShowLoading, hideLoading as utilsHideLoading, showToast as utilsShowToast, showConfirmModal as utilsShowConfirmModal, updateStatusBadge as utilsUpdateStatusBadge, showImageModal as utilsShowImageModal, showTextPreviewModal as utilsShowTextPreviewModal } from './utils.js';
+import { runSelectedPipeline, stepLabel } from './pipeline.js';
 
 // ========================================
 // OCI Objects管理
 // ========================================
 
-/**
- * ページ画像化で生成されたファイルかどうかを判定します。
- * 親ファイル名とフォルダ構造に基づいて判定します。
- * 3桁（page_001.png）および6桁（page_000001.png）の形式に対応しています。
- * 
- * @param {string} objectName - 判定対象のオブジェクト名
- * @param {Array<Object>} [allObjects=[]] - 全オブジェクトのリスト（親ファイルの存在確認用）
- * @returns {boolean} ページ画像化されたファイルの場合true
- */
-export function isGeneratedPageImage(objectName, allObjects = []) {
-  // 3桁または6桁のページ番号に対応
-  const pageImagePattern = /\/page_(\d{3}|\d{6})\.png$/;
-  if (!pageImagePattern.test(objectName)) {
-    return false;
-  }
-  
-  const lastSlashIndex = objectName.lastIndexOf('/');
-  if (lastSlashIndex === -1) {
-    return false;
-  }
-  
-  const parentFolderPath = objectName.substring(0, lastSlashIndex);
-  return allObjects.some(obj => {
-    const objNameWithoutExt = obj.name.replace(/\.[^.]+$/, '');
-    return objNameWithoutExt === parentFolderPath;
-  });
+const expandedPageImageDocuments = new Set();
+const pageImageCache = new Map();
+let lastOciObjectsResponse = null;
+const DISPLAY_TYPE_STORAGE_KEY = 'sdsDocumentsDisplayType';
+const PAGE_IMAGE_RELEASE_STORAGE_KEY = 'sdsPageImageRelease';
+const DEFAULT_PAGE_IMAGE_RELEASE = 'serving';
+const PAGE_IMAGE_RELEASE_CHOICES = [
+  ['draft', 'Draft'],
+  ['serving', '公開済み']
+];
+
+function captureDocumentsListView() {
+  const tableScroller = document.querySelector('#documentsList .table-wrapper-scrollable');
+  const tabScroller = document.querySelector('.tab-scroll-container');
+  const activeControl = document.activeElement?.closest?.('[data-list-focus-action]');
+  return {
+    tableScrollTop: tableScroller?.scrollTop ?? 0,
+    tableScrollLeft: tableScroller?.scrollLeft ?? 0,
+    tabScrollTop: tabScroller?.scrollTop ?? 0,
+    tabScrollLeft: tabScroller?.scrollLeft ?? 0,
+    focus: activeControl ? {
+      action: activeControl.dataset.listFocusAction || '',
+      documentId: activeControl.dataset.documentId || '',
+      objectName: activeControl.dataset.objectName || '',
+      pageNumber: activeControl.dataset.pageNumber || '',
+      fallbackPage: activeControl.dataset.focusFallbackPage || ''
+    } : null
+  };
 }
 
-/**
- * ページ画像からページ番号を抽出します。
- * 3桁（page_001.png）および6桁（page_000001.png）の形式に対応しています。
- * 
- * @param {string} objectName - ページ画像のオブジェクト名
- * @returns {number|null} ページ番号（数値）、抽出できない場合はnull
- */
-export function extractPageNumber(objectName) {
-  const match = objectName.match(/\/page_(\d{3}|\d{6})\.png$/);
-  if (match) {
-    return parseInt(match[1], 10);
+function findDocumentsListControl(focus) {
+  if (!focus) return null;
+  const controls = [...document.querySelectorAll('#documentsList [data-list-focus-action]')];
+  if (focus.documentId && focus.fallbackPage) {
+    const nextPageControl = controls.find(control =>
+      control.dataset.listFocusAction === 'preview-page' &&
+      control.dataset.documentId === focus.documentId &&
+      control.dataset.pageNumber === focus.fallbackPage
+    );
+    if (nextPageControl) return nextPageControl;
   }
-  return null;
+  const exact = controls.find(control =>
+    control.dataset.listFocusAction === focus.action &&
+    (control.dataset.documentId || '') === focus.documentId &&
+    (control.dataset.objectName || '') === focus.objectName &&
+    (control.dataset.pageNumber || '') === focus.pageNumber
+  );
+  if (exact) return exact;
+  return focus.documentId ? controls.find(control =>
+    control.dataset.listFocusAction === 'toggle-pages' &&
+    control.dataset.documentId === focus.documentId
+  ) : null;
 }
 
-/**
- * ページ画像の親ファイルパス（拡張子なし）を取得します。
- * 
- * @param {string} objectName - ページ画像のオブジェクト名
- * @returns {string|null} 親ファイルパス、取得できない場合はnull
- */
-export function getPageImageParentPath(objectName) {
-  const lastSlashIndex = objectName.lastIndexOf('/');
-  if (lastSlashIndex === -1) {
-    return null;
+function restoreDocumentsListView(view) {
+  if (!view) return;
+  const restore = () => {
+    const tableScroller = document.querySelector('#documentsList .table-wrapper-scrollable');
+    const tabScroller = document.querySelector('.tab-scroll-container');
+    if (tableScroller) {
+      tableScroller.scrollTop = view.tableScrollTop;
+      tableScroller.scrollLeft = view.tableScrollLeft;
+    }
+    if (tabScroller) {
+      tabScroller.scrollTop = view.tabScrollTop;
+      tabScroller.scrollLeft = view.tabScrollLeft;
+    }
+    const control = findDocumentsListControl(view.focus);
+    if (control && document.activeElement !== control) {
+      try {
+        control.focus({ preventScroll: true });
+      } catch {
+        control.focus();
+      }
+    }
+  };
+  // 同期復元により、直後に完了するAPIでも次の再描画が0位置を記録しない。
+  restore();
+  const schedule = globalThis.requestAnimationFrame || window.requestAnimationFrame;
+  if (typeof schedule === 'function') schedule(restore);
+}
+
+async function reloadOciObjectsPreservingView(showLoadingOverlay = true) {
+  const view = captureDocumentsListView();
+  try {
+    await loadOciObjects(showLoadingOverlay);
+  } finally {
+    restoreDocumentsListView(view);
   }
-  return objectName.substring(0, lastSlashIndex);
+}
+
+const escapeHtml = value => String(value ?? '')
+  .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+const inlineValue = value => encodeURIComponent(String(value ?? '')).replaceAll("'", '%27');
+
+function pageImageCacheKey(documentId) {
+  return `${documentId}:${appState.get('ociObjectsPageImageRelease') || DEFAULT_PAGE_IMAGE_RELEASE}`;
+}
+
+try {
+  const savedDisplayType = localStorage.getItem(DISPLAY_TYPE_STORAGE_KEY);
+  const savedRelease = localStorage.getItem(PAGE_IMAGE_RELEASE_STORAGE_KEY);
+  if (['files_only', 'files_and_images'].includes(savedDisplayType)) {
+    appState.set('ociObjectsDisplayType', savedDisplayType);
+  }
+  if (['draft', 'serving'].includes(savedRelease)) {
+    appState.set('ociObjectsPageImageRelease', savedRelease);
+  } else if (savedRelease === 'latest') {
+    appState.set('ociObjectsPageImageRelease', DEFAULT_PAGE_IMAGE_RELEASE);
+    localStorage.setItem(PAGE_IMAGE_RELEASE_STORAGE_KEY, DEFAULT_PAGE_IMAGE_RELEASE);
+  }
+} catch {
+  // Storageが利用できない環境でも一覧表示は継続する。
 }
 
 /**
@@ -95,6 +155,7 @@ export async function loadOciObjects(showLoadingOverlay = true) {
     const ociObjectsFilterPageImages = appState.get('ociObjectsFilterPageImages');
     const ociObjectsFilterEmbeddings = appState.get('ociObjectsFilterEmbeddings');
     const ociObjectsDisplayType = appState.get('ociObjectsDisplayType');
+    const pageImageRelease = appState.get('ociObjectsPageImageRelease') || DEFAULT_PAGE_IMAGE_RELEASE;
     
     const params = new URLSearchParams({
       prefix: ociObjectsPrefix,
@@ -102,10 +163,16 @@ export async function loadOciObjects(showLoadingOverlay = true) {
       page_size: ociObjectsPageSize.toString(),
       filter_page_images: ociObjectsFilterPageImages,
       filter_embeddings: ociObjectsFilterEmbeddings,
-      display_type: ociObjectsDisplayType
+      display_type: ociObjectsDisplayType,
+      page_image_release: pageImageRelease
     });
     
-    const data = await authApiCall(`/ai/api/oci/objects?${params}`);
+    // Object Storage のページ走査と処理状態の集計には、通常の API 既定値
+    // (10 秒) を超えることがある。途中でブラウザ側から中断しないよう、一覧
+    // 専用に十分な待機時間を与える。
+    const data = await authApiCall(`/ai/api/oci/objects?${params}`, {
+      timeout: 180000
+    });
     
     if (showLoadingOverlay) {
       utilsHideLoading();
@@ -134,6 +201,7 @@ export async function loadOciObjects(showLoadingOverlay = true) {
       appState.set('ociObjectsTotalPages', data.pagination.total_pages);
     }
     
+    lastOciObjectsResponse = data;
     displayOciObjectsList(data);
     
     // バッジを更新
@@ -167,12 +235,12 @@ export function displayOciObjectsList(data) {
   const listDiv = document.getElementById('documentsList');
   const objects = data.objects || [];
   const pagination = data.pagination || {}
-  const allOciObjects = appState.get('allOciObjects') || [];
   const selectedOciObjects = getSelectedOciObjects();
   const ociObjectsBatchDeleteLoading = appState.get('ociObjectsBatchDeleteLoading');
   const ociObjectsFilterPageImages = appState.get('ociObjectsFilterPageImages');
   const ociObjectsFilterEmbeddings = appState.get('ociObjectsFilterEmbeddings');
   const ociObjectsDisplayType = appState.get('ociObjectsDisplayType');
+  const pageImageRelease = appState.get('ociObjectsPageImageRelease') || DEFAULT_PAGE_IMAGE_RELEASE;
   
   // 現在のページに表示されているオブジェクトを保存
   appState.set('currentPageOciObjects', objects);
@@ -188,12 +256,12 @@ export function displayOciObjectsList(data) {
   console.log('selectedOciObjects:', selectedOciObjects);
   
   // 選択可能なオブジェクトをフィルタ
-  const selectableObjects = objects.filter(obj => !isGeneratedPageImage(obj.name, allOciObjects));
+  const selectableObjects = objects;
   const allPageSelected = selectableObjects.length > 0 && selectableObjects.every(obj => selectedOciObjects.includes(obj.name));
   
   // フィルターUI
   const filterHtml = `
-    <div class="flex items-center gap-4 mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+    <div class="flex flex-wrap items-center gap-4 mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
       <div class="flex items-center gap-2">
         <span class="text-xs font-medium text-gray-600"><i class="fas fa-folder-open"></i> 表示タイプ：</span>
         <div class="flex gap-1">
@@ -207,10 +275,25 @@ export function displayOciObjectsList(data) {
             onclick="window.ociModule.setDisplayType('files_and_images')" 
             class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsDisplayType === 'files_and_images' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
           >
-            ファイル+ページ画像
+            ファイル＋ページ画像
           </button>
         </div>
       </div>
+      ${ociObjectsDisplayType === 'files_and_images' ? `
+        <div class="w-px h-6 bg-gray-300"></div>
+        <div class="flex items-center gap-2 page-image-release-filter" aria-label="ページ画像の版">
+          <span class="text-xs font-medium text-gray-600">画像の版：</span>
+          <div class="flex gap-1" role="group" aria-label="表示するページ画像の版">
+            ${PAGE_IMAGE_RELEASE_CHOICES.map(([value, label]) => `
+              <button type="button"
+                onclick="window.ociModule.setPageImageRelease('${value}')"
+                aria-pressed="${pageImageRelease === value}"
+                class="px-2.5 py-1 text-xs rounded-full transition-all ${pageImageRelease === value ? 'bg-gray-700 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
+              >${label}</button>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
       <div class="w-px h-6 bg-gray-300" style="display: none;"></div>
       <div class="flex items-center gap-2" style="display: none;">
         <span class="text-xs font-medium text-gray-600"><i class="fas fa-image"></i> ページ画像化:</span>
@@ -237,7 +320,7 @@ export function displayOciObjectsList(data) {
       </div>
       <div class="w-px h-6 bg-gray-300"></div>
       <div class="flex items-center gap-2">
-        <span class="text-xs font-medium text-gray-600">ベクトル化：</span>
+        <span class="text-xs font-medium text-gray-600">公開状態：</span>
         <div class="flex gap-1">
           <button 
             onclick="window.ociModule.setFilterEmbeddings('all')" 
@@ -249,13 +332,13 @@ export function displayOciObjectsList(data) {
             onclick="window.ociModule.setFilterEmbeddings('done')" 
             class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterEmbeddings === 'done' ? 'bg-green-600 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
           >
-            完了
+            公開済み
           </button>
           <button 
             onclick="window.ociModule.setFilterEmbeddings('not_done')" 
             class="px-2.5 py-1 text-xs rounded-full transition-all ${ociObjectsFilterEmbeddings === 'not_done' ? 'bg-orange-500 text-white shadow-sm' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}"
           >
-            未実行
+            未公開
           </button>
         </div>
       </div>
@@ -305,6 +388,7 @@ export function displayOciObjectsList(data) {
       <button 
         class="px-3 py-1 text-xs border rounded transition-colors ${canSelectAction ? 'hover:bg-gray-100' : 'opacity-50 cursor-not-allowed'}" 
         onclick="window.ociModule.selectAll()" 
+        data-list-focus-action="select-all"
         ${canSelectAction ? '' : 'disabled'}
         title="すべてのオブジェクトを選択"
       >
@@ -313,6 +397,7 @@ export function displayOciObjectsList(data) {
       <button 
         class="px-3 py-1 text-xs border rounded transition-colors ${canSelectAction ? 'hover:bg-gray-100' : 'opacity-50 cursor-not-allowed'}" 
         onclick="window.ociModule.clearAll()" 
+        data-list-focus-action="clear-all"
         ${canSelectAction ? '' : 'disabled'}
         title="すべての選択を解除"
       >
@@ -334,21 +419,40 @@ export function displayOciObjectsList(data) {
       >
         <i class="fas fa-download"></i> ダウンロード (${selectedOciObjects.length}件)
       </button>
-      <button 
-        class="hidden px-3 py-1 text-xs rounded transition-colors ${canExecuteAction ? 'bg-blue-700 hover:bg-blue-800 text-white' : 'bg-blue-300 text-white cursor-not-allowed'}" 
-        onclick="window.ociModule.convertToImages()" 
-        ${canExecuteAction ? '' : 'disabled'}
-        title="${canExecuteAction ? `選択されたファイル（フォルダ配下の子ファイルを含む）をページ毎に画像化: ${selectedOciObjects.length}件` : 'ページ画像化するファイルを選択してください'}"
+      <div class="pipeline-split-action">
+        <button
+          class="apex-button pipeline-main-action"
+          onclick="window.pipelineModule.run('FULL')"
+          ${canExecuteAction ? '' : 'disabled'}
+          title="${canExecuteAction ? `選択した${selectedOciObjects.length}件を全段階処理し、検証後に検索へ反映します` : '処理するファイルを選択してください'}"
+        >
+          <i class="fas fa-play" aria-hidden="true"></i> すべて処理 (${selectedOciObjects.length}件)
+        </button>
+        <button
+          id="pipelineStageMenuButton"
+          type="button"
+          class="apex-button pipeline-menu-button"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          aria-controls="pipelineStageMenu"
+          onclick="window.pipelineModule.toggleMenu()"
+          ${canExecuteAction ? '' : 'disabled'}
+          aria-label="個別の処理段階を選択"
+        ><i class="fas fa-chevron-down" aria-hidden="true"></i></button>
+        <div id="pipelineStageMenu" class="pipeline-stage-menu" role="menu" hidden>
+          <button type="button" role="menuitem" onclick="window.pipelineModule.run('RENDER');window.pipelineModule.toggleMenu(false)"><i class="fas fa-images" aria-hidden="true"></i><span>ページ画像を再生成<small>ページごとにPNGを作成・Draftに保存</small></span></button>
+          <button type="button" role="menuitem" onclick="window.pipelineModule.run('PREPROCESS');window.pipelineModule.toggleMenu(false)"><i class="fas fa-file-import" aria-hidden="true"></i><span>前処理・解析<small>テキスト抽出・OCR・正規化をDraftに保存</small></span></button>
+          <button type="button" role="menuitem" onclick="window.pipelineModule.chooseVlm();window.pipelineModule.toggleMenu(false)"><i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i><span>VLMを再実行…<small>有効なプロファイルを選択</small></span></button>
+          <button type="button" role="menuitem" onclick="window.pipelineModule.chooseEmbedding();window.pipelineModule.toggleMenu(false)"><i class="fas fa-vector-square" aria-hidden="true"></i><span>Embeddingを再生成<small>有効なレシピすべてをDraftに保存</small></span></button>
+          <button type="button" role="menuitem" onclick="window.pipelineModule.publish();window.pipelineModule.toggleMenu(false)"><i class="fas fa-cloud-upload-alt" aria-hidden="true"></i><span>検索へ反映<small>Draftを検証して公開</small></span></button>
+        </div>
+      </div>
+      <button
+        class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
+        onclick="window.pipelineModule.showJobs()"
+        title="処理タスクの進捗・失敗詳細・再試行を表示"
       >
-        <i class="fas fa-image"></i> ページ画像化 (${selectedOciObjects.length}件)
-      </button>
-      <button 
-        class="apex-button px-4 py-2" 
-        onclick="window.ociModule.vectorizeSelected()" 
-        ${canExecuteAction ? '' : 'disabled'}
-        title="${canExecuteAction ? `選択されたファイルの画像をベクトル化してDBに保存: ${selectedOciObjects.length}件` : 'ベクトル化するファイルを選択してください'}"
-      >
-        ベクトル化 (${selectedOciObjects.length}件)
+        <i class="fas fa-tasks"></i> 処理タスク
       </button>
     </div>
   `;
@@ -367,50 +471,16 @@ export function displayOciObjectsList(data) {
     disabled: ociObjectsBatchDeleteLoading
   }) || '';
   
-  // テーブル行を生成（ファイル先 → ページ画像後、ページ画像は数値順でソート）
-  // 期待順序: ファイルA → ファイルAのページ画像（001,002,...,010,011,...） → ファイルB → ファイルBのページ画像...
-  const sortedObjects = [...objects].sort((a, b) => {
-    const nameA = a.name || '';
-    const nameB = b.name || '';
-    
-    const isPageImageA = isGeneratedPageImage(nameA, allOciObjects);
-    const isPageImageB = isGeneratedPageImage(nameB, allOciObjects);
-    
-    // ソート用の基準名を取得（ファイルは拡張子なし名、ページ画像は親ファイル名）
-    const baseNameA = isPageImageA ? getPageImageParentPath(nameA) : nameA.replace(/\.[^.]+$/, '');
-    const baseNameB = isPageImageB ? getPageImageParentPath(nameB) : nameB.replace(/\.[^.]+$/, '');
-    
-    // 基準名が異なる場合、基準名の降順でソート
-    if (baseNameA !== baseNameB) {
-      return (baseNameB || '').localeCompare(baseNameA || '', 'ja');
-    }
-    
-    // 基準名が同じ場合（同じファイルグループ内）
-    // ファイル優先（ファイルが先、ページ画像が後）
-    if (!isPageImageA && isPageImageB) {
-      return -1; // ファイルが先
-    }
-    if (isPageImageA && !isPageImageB) {
-      return 1; // ページ画像が後
-    }
-    
-    // 両方ともファイル（通常起きないが念のため）
-    if (!isPageImageA && !isPageImageB) {
-      return nameB.localeCompare(nameA, 'ja');
-    }
-    
-    // 両方ともページ画像の場合、ページ番号昇順
-    const pageNumA = extractPageNumber(nameA);
-    const pageNumB = extractPageNumber(nameB);
-    
-    if (pageNumA !== null && pageNumB !== null) {
-      return pageNumA - pageNumB; // 昇順（001, 002, ..., 010, 011, ...）
-    }
-    
-    // ページ番号が抽出できない場合はフォールバック
-    return nameA.localeCompare(nameB, 'ja');
-  });
-  const tableRowsHtml = sortedObjects.map(obj => generateObjectRow(obj, allOciObjects, selectedOciObjects, ociObjectsBatchDeleteLoading)).join('');
+  const tableRowsHtml = objects.map(obj => {
+    const documentRow = generateObjectRow(
+      obj, selectedOciObjects, ociObjectsBatchDeleteLoading, ociObjectsDisplayType
+    );
+    if (
+      ociObjectsDisplayType !== 'files_and_images' ||
+      !expandedPageImageDocuments.has(obj.processing?.document_id)
+    ) return documentRow;
+    return documentRow + generatePageImageRows(obj);
+  }).join('');
   
   listDiv.innerHTML = `
     <div>
@@ -421,13 +491,14 @@ export function displayOciObjectsList(data) {
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width: 40px;"><input type="checkbox" id="ociObjectsHeaderCheckbox" onchange="window.ociModule.toggleSelectAll(this.checked)" ${allPageSelected ? 'checked' : ''} class="w-4 h-4 rounded" ${ociObjectsBatchDeleteLoading ? 'disabled' : ''}></th>
+              <th style="width: 40px;"><input type="checkbox" id="ociObjectsHeaderCheckbox" onchange="window.ociModule.toggleSelectAll(this.checked)" data-list-focus-action="select-page" ${allPageSelected ? 'checked' : ''} class="w-4 h-4 rounded" ${ociObjectsBatchDeleteLoading ? 'disabled' : ''}></th>
               <th>タイプ</th>
               <th>名前</th>
               <th>サイズ</th>
               <th>作成日時</th>
               <th style="text-align: center;" class="hidden">ページ画像化</th>
-              <th style="text-align: center;">ベクトル化</th>
+              <th style="text-align: center;">公開状態</th>
+              <th style="text-align: center;">処理段階</th>
             </tr>
           </thead>
           <tbody>
@@ -443,74 +514,63 @@ export function displayOciObjectsList(data) {
 // プライベートヘルパー関数
 // ========================================
 
-/**
- * オブジェクト一覧の各行のHTMLを生成します。
- * 
- * @private
- * @param {Object} obj - オブジェクトデータ
- * @param {Array} allOciObjects - 全オブジェクトリスト
- * @param {Array} selectedOciObjects - 選択済みオブジェクトリスト
- * @param {boolean} ociObjectsBatchDeleteLoading - 処理中フラグ
- * @returns {string} HTML文字列
- */
-function generateObjectRow(obj, allOciObjects, selectedOciObjects, ociObjectsBatchDeleteLoading) {
-  const isFolder = obj.name.endsWith('/');
-  const isPageImage = isGeneratedPageImage(obj.name, allOciObjects);
-  
-  // 画像ファイルかどうかを判定（PNG, JPG, JPEG）
-  // 注: 元のファイルではなく、生成されたページ画像のみプレビュー可能
-  const isImageFile = !isFolder && /^.+\.(png|jpg|jpeg)$/i.test(obj.name);
-  const isPreviewable = isPageImage; // ページ画像のみプレビュー可能
-  
-  // アイコンまたはサムネイル画像
-  let typeCellContent;
-  if (isImageFile && isPreviewable) {
-    // ページ画像の場合はサムネイルを表示（プレビュー可能）
-    // 統一サイズ（20x20px）で表示し、クリックでプレビュー
-    const bucketName = appState.get('ociBucketName') || '';
-    const thumbnailUrl = getAuthenticatedImageUrl(bucketName, obj.name);
-    // オブジェクト名をエスケープ
-    const escapedName = obj.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-    typeCellContent = `<img src="${thumbnailUrl}" alt="${obj.name.split('/').pop()}" class="file-type-thumbnail" style="width: 20px; height: 20px; border-radius: 2px; object-fit: cover; cursor: pointer; vertical-align: middle; border: 1px solid #e2e8f0;" onclick="window.ociModule.showImagePreview('${escapedName}')" onmouseover="this.style.borderColor='#1a365d'; this.style.boxShadow='0 1px 4px rgba(0,0,0,0.2)';" onmouseout="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none';" title="クリックでプレビュー" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2720%27 height=%2720%27%3E%3Crect fill=%27%23f1f5f9%27 width=%2720%27 height=%2720%27/%3E%3Ctext x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 dy=%27.3em%27 fill=%27%2394a3b8%27 font-size=%2712%27%3E?%3C/text%3E%3C/svg%3E';" />`;
-  } else {
-    // フォルダ、元ファイル、または画像以外のファイルはアイコンを表示
-    const icon = isFolder ? '<i class="fas fa-folder-open"></i>' : (isPageImage ? '<i class="fas fa-image"></i>' : '<i class="fas fa-file"></i>');
-    typeCellContent = icon;
-  }
-  
+function generateObjectRow(obj, selectedOciObjects, ociObjectsBatchDeleteLoading, displayType) {
   const isChecked = selectedOciObjects.includes(obj.name);
-  
-  // ページ画像化状態（ページ画像の場合は空表示）
-  const hasPageImages = obj.has_page_images;
-  const pageImagesStatusHtml = (isPageImage || hasPageImages == null) ? '' :
-    (hasPageImages ? '<span class="badge badge-success">完了</span>' : 
-    '<span class="badge badge-neutral">未実行</span>');
-  
-  // ベクトル化状態（ページ画像の場合は空表示）
-  const hasEmbeddings = obj.has_embeddings;
-  const embeddingsStatusHtml = (isPageImage || hasEmbeddings == null) ? '' :
-    (hasEmbeddings ? '<span class="badge badge-success">完了</span>' : 
-    '<span class="badge badge-neutral">未実行</span>');
+  const processing = obj.processing;
+  const documentId = processing?.document_id;
+  const pageImages = obj.page_images;
+  const isExpanded = expandedPageImageDocuments.has(documentId);
+  const expandControl = displayType === 'files_and_images' && documentId ? `
+    <button type="button" class="page-image-expand-button"
+      onclick="window.ociModule.togglePageImages('${escapeHtml(documentId)}')"
+      data-list-focus-action="toggle-pages" data-document-id="${escapeHtml(documentId)}"
+      aria-expanded="${isExpanded}" aria-label="${escapeHtml(obj.name)}のページ画像を${isExpanded ? '閉じる' : '開く'}">
+      <i class="fas fa-chevron-${isExpanded ? 'down' : 'right'}" aria-hidden="true"></i>
+      <span>${Number(pageImages?.count || 0)} ページ</span>
+    </button>` : '';
+  const publicationMap = {
+    PUBLISHED: ['badge-success', '公開済み', 'fa-check-circle'],
+    UPDATE_AVAILABLE: ['badge-warning', '更新あり', 'fa-exclamation-circle'],
+    UNPUBLISHED: ['badge-neutral', '未公開', 'fa-minus-circle'],
+    ERROR: ['badge-error', 'エラー', 'fa-times-circle']
+  };
+  const publication = publicationMap[processing?.publication_status]
+    || ['badge-neutral', '未公開', 'fa-minus-circle'];
+  const publicationStatusHtml = '<span class="badge ' + publication[0] + '"><i class="fas ' +
+    publication[2] + '" aria-hidden="true"></i> ' + publication[1] + '</span>';
+  const stageValues = Object.values(processing?.stages || {});
+  let stage = ['badge-neutral', '未実行', 'fa-minus-circle'];
+  if (stageValues.some(value => ['FAILED', 'PARTIAL_FAILED', 'ERROR'].includes(value))) {
+    stage = ['badge-error', '失敗', 'fa-times-circle'];
+  } else if (stageValues.includes('RUNNING')) {
+    stage = ['badge-info', '処理中', 'fa-spinner fa-spin'];
+  } else if (stageValues.includes('QUEUED') || stageValues.includes('PENDING')) {
+    stage = ['badge-neutral', '待機中', 'fa-clock'];
+  } else if (stageValues.includes('STALE')) {
+    stage = ['badge-warning', '要更新', 'fa-exclamation-circle'];
+  } else if (stageValues.some(value => ['SUCCEEDED', 'COMPLETED'].includes(value))) {
+    stage = ['badge-success', '完了', 'fa-check-circle'];
+  }
+  const stageTitle = Object.entries(processing?.stale_reasons || {})
+    .map(([key, value]) => stepLabel(key) + ': ' + value).join('\n').replaceAll('"', '&quot;');
+  const stageStatusHtml = '<span class="badge ' + stage[0] + '" title="' + stageTitle +
+    '"><i class="fas ' + stage[2] + '" aria-hidden="true"></i> ' + stage[1] + '</span>';
   
   return `
     <tr>
       <td>
-        ${!isPageImage ? `
-          <input 
-            type="checkbox" 
-            ${isChecked ? 'checked' : ''} 
-            onchange="window.ociModule.toggleSelection('${obj.name.replace(/'/g, "\\'")}')" 
-            class="w-4 h-4 rounded"
-            ${ociObjectsBatchDeleteLoading ? 'disabled' : ''}
-          />
-        ` : ''}
+        <input type="checkbox" ${isChecked ? 'checked' : ''}
+          onchange="window.ociModule.toggleSelection(decodeURIComponent('${inlineValue(obj.name)}'))"
+          data-list-focus-action="select-object" data-object-name="${escapeHtml(obj.name)}"
+          class="w-4 h-4 rounded" ${ociObjectsBatchDeleteLoading ? 'disabled' : ''} />
       </td>
-      <td>${typeCellContent}</td>
-      <td>${obj.name}</td>
+      <td><i class="fas fa-file" aria-hidden="true"></i></td>
+      <td><div class="document-name-cell"><span>${escapeHtml(obj.name)}</span>${expandControl}</div></td>
       <td>${obj.size ? formatBytes(obj.size) : '-'}</td>
-      <td>${obj.time_created || '-'}</td>
-      <td style="text-align: center;" class="hidden">${pageImagesStatusHtml}</td>
-      <td style="text-align: center;">${embeddingsStatusHtml}</td>
+      <td>${escapeHtml(obj.time_created || '-')}</td>
+      <td style="text-align: center;" class="hidden"></td>
+      <td style="text-align: center;">${publicationStatusHtml}</td>
+      <td style="text-align: center;">${stageStatusHtml}</td>
     </tr>
   `;
 }
@@ -530,36 +590,266 @@ function formatBytes(bytes) {
   return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 }
 
-/**
- * 認証トークン付きの画像URLを生成します。
- * 
- * @private
- * @param {string} bucket - バケット名
- * @param {string} objectName - オブジェクト名
- * @returns {string} 認証トークン付きのURL
- */
-function getAuthenticatedImageUrl(bucket, objectName) {
+function pageImageContentUrl(documentId, releaseId, artifactId) {
   const token = localStorage.getItem('loginToken');
-  const baseUrl = `/ai/api/object/${bucket}/${encodeURIComponent(objectName)}`;
+  const baseUrl = '/ai/api/documents/' + encodeURIComponent(documentId) +
+    '/releases/' + encodeURIComponent(releaseId) + '/page-images/' +
+    encodeURIComponent(artifactId) + '/content';
   if (token) {
     return `${baseUrl}?token=${encodeURIComponent(token)}`;
   }
   return baseUrl;
 }
 
-/**
- * 画像プレビューモーダルを表示します。
- * 登録済み文書一覧のサムネイルクリック時に呼び出されます。
- * 
- * @param {string} objectName - オブジェクト名
- */
-export function showImagePreview(objectName) {
-  const bucketName = appState.get('ociBucketName') || '';
-  const imageUrl = getAuthenticatedImageUrl(bucketName, objectName);
-  const filename = objectName.split('/').pop();
-  
-  // 共通のshowImageModal関数を呼び出し
-  utilsShowImageModal(imageUrl, filename);
+function generatePageImageRows(obj) {
+  const documentId = obj.processing?.document_id;
+  const state = pageImageCache.get(pageImageCacheKey(documentId));
+  if (!state || (state.loading && !state.data)) {
+    return '<tr class="page-image-state-row"><td></td><td colspan="7">' +
+      '<div class="page-image-inline-state" role="status"><i class="fas fa-spinner fa-spin" aria-hidden="true"></i>ページ画像を読み込み中…</div></td></tr>';
+  }
+  if (state.error && !state.data) {
+    return '<tr class="page-image-state-row"><td></td><td colspan="7">' +
+      '<div class="page-image-inline-state page-image-error" role="alert"><span>' +
+      escapeHtml(state.error) + '</span><button type="button" onclick="window.ociModule.retryPageImages(\'' +
+      escapeHtml(documentId) + '\')" data-list-focus-action="retry-pages" data-document-id="' +
+      escapeHtml(documentId) + '">再試行</button></div></td></tr>';
+  }
+  const data = state.data;
+  if (!data?.items?.length) {
+    const selector = appState.get('ociObjectsPageImageRelease') || DEFAULT_PAGE_IMAGE_RELEASE;
+    const label = selector === 'draft' ? 'Draft' : '公開済み';
+    return '<tr class="page-image-state-row"><td></td><td colspan="7"><div class="page-image-inline-state">' +
+      label + 'のページ画像はありません。</div></td></tr>';
+  }
+  const rows = data.items.map(item => {
+    const url = pageImageContentUrl(documentId, data.release_id, item.artifact_id);
+    return `
+      <tr class="page-image-child-row" data-document-id="${escapeHtml(documentId)}">
+        <td aria-hidden="true"></td>
+        <td><button type="button" class="page-image-thumbnail-button"
+          onclick="window.ociModule.previewPageImage('${escapeHtml(documentId)}','${escapeHtml(item.artifact_id)}')"
+          data-list-focus-action="preview-page" data-document-id="${escapeHtml(documentId)}"
+          data-page-number="${item.page_number}"
+          aria-label="ページ ${item.page_number}をプレビュー">
+          <img src="${url}" alt="ページ ${item.page_number}のサムネイル" loading="lazy"
+            onerror="this.hidden=true;this.nextElementSibling.hidden=false" />
+          <span class="page-image-thumbnail-fallback" hidden aria-hidden="true"><i class="fas fa-image"></i></span>
+        </button></td>
+        <td><div class="page-image-name"><strong>ページ ${item.page_number}</strong>
+          <button type="button" class="page-image-text-button"
+            onclick="window.ociModule.previewPageTexts('${escapeHtml(documentId)}', ${item.page_number})"
+            aria-label="ページ ${item.page_number}の生成テキストをプレビュー">
+            <i class="fas fa-file-lines" aria-hidden="true"></i> 生成テキスト
+          </button></div></td>
+        <td>${item.size == null ? '-' : formatBytes(item.size)}</td>
+        <td>${escapeHtml(item.created_at || '-')}</td>
+        <td class="hidden"></td>
+        <td></td>
+        <td></td>
+      </tr>`;
+  }).join('');
+  const nextPageNumber = Number(data.items.at(-1)?.page_number || data.items.length) + 1;
+  let more = '';
+  if (state.loading) {
+    more = `
+    <tr class="page-image-state-row"><td></td><td colspan="7"><div class="page-image-load-more" role="status">
+      <button type="button" aria-disabled="true" aria-busy="true"
+        data-list-focus-action="load-more-pages" data-document-id="${escapeHtml(documentId)}"
+        data-focus-fallback-page="${nextPageNumber}">
+        <i class="fas fa-spinner fa-spin" aria-hidden="true"></i> 追加のページ画像を読み込み中…
+      </button></div></td></tr>`;
+  } else if (state.error) {
+    more = `
+    <tr class="page-image-state-row"><td></td><td colspan="7"><div class="page-image-inline-state page-image-error" role="alert">
+      <span>追加のページ画像を読み込めませんでした: ${escapeHtml(state.error)}</span>
+      <button type="button" onclick="window.ociModule.retryPageImages('${escapeHtml(documentId)}')"
+        data-list-focus-action="retry-pages" data-document-id="${escapeHtml(documentId)}"
+        data-focus-fallback-page="${nextPageNumber}">再試行</button>
+    </div></td></tr>`;
+  } else if (data.pagination?.has_next) {
+    more = `
+    <tr class="page-image-state-row"><td></td><td colspan="7"><div class="page-image-load-more">
+      <button type="button" onclick="window.ociModule.loadMorePageImages('${escapeHtml(documentId)}')"
+        data-list-focus-action="load-more-pages" data-document-id="${escapeHtml(documentId)}"
+        data-focus-fallback-page="${nextPageNumber}">
+        さらに表示（${data.items.length} / ${data.total}ページ）
+      </button></div></td></tr>`;
+  }
+  return rows + more;
+}
+
+function rerenderOciObjects() {
+  if (!lastOciObjectsResponse) return;
+  const view = captureDocumentsListView();
+  displayOciObjectsList(lastOciObjectsResponse);
+  restoreDocumentsListView(view);
+}
+
+async function fetchPageImages(documentId, page = 1, append = false) {
+  const key = pageImageCacheKey(documentId);
+  const previous = pageImageCache.get(key);
+  pageImageCache.set(key, {
+    ...previous,
+    loading: true,
+    error: null,
+    pendingPage: page,
+    pendingAppend: append
+  });
+  rerenderOciObjects();
+  try {
+    const release = appState.get('ociObjectsPageImageRelease') || DEFAULT_PAGE_IMAGE_RELEASE;
+    const data = await authApiCall(
+      '/ai/api/documents/' + encodeURIComponent(documentId) +
+      '/page-images?release=' + encodeURIComponent(release) +
+      '&page=' + page + '&page_size=50'
+    );
+    if (append && previous?.data) {
+      data.items = [...previous.data.items, ...data.items];
+    }
+    pageImageCache.set(key, {
+      loading: false,
+      error: null,
+      data,
+      pendingPage: null,
+      pendingAppend: false
+    });
+  } catch (error) {
+    if (error.status === 404) {
+      if (append && previous?.data) {
+        pageImageCache.set(key, {
+          loading: false,
+          error: null,
+          data: {
+            ...previous.data,
+            pagination: { ...previous.data.pagination, has_next: false }
+          }
+        });
+      } else {
+        pageImageCache.set(key, {
+          loading: false,
+          error: null,
+          data: {
+            items: [], total: 0,
+            pagination: {
+              current_page: 1, page_size: 50, total: 0,
+              total_pages: 1, has_next: false, has_prev: false
+            }
+          }
+        });
+      }
+    } else {
+      pageImageCache.set(key, {
+        loading: false,
+        error: error.message,
+        data: previous?.data,
+        pendingPage: page,
+        pendingAppend: append
+      });
+    }
+  }
+  rerenderOciObjects();
+}
+
+export async function toggleDocumentPageImages(documentId) {
+  if (expandedPageImageDocuments.has(documentId)) {
+    expandedPageImageDocuments.delete(documentId);
+    rerenderOciObjects();
+    return;
+  }
+  expandedPageImageDocuments.add(documentId);
+  rerenderOciObjects();
+  const cached = pageImageCache.get(pageImageCacheKey(documentId));
+  if (!cached?.data) await fetchPageImages(documentId);
+}
+
+export async function retryDocumentPageImages(documentId) {
+  const state = pageImageCache.get(pageImageCacheKey(documentId));
+  await fetchPageImages(
+    documentId,
+    state?.pendingPage || 1,
+    Boolean(state?.pendingAppend)
+  );
+}
+
+export async function loadMoreDocumentPageImages(documentId) {
+  const state = pageImageCache.get(pageImageCacheKey(documentId));
+  if (!state?.data?.pagination?.has_next || state.loading) return;
+  await fetchPageImages(documentId, state.data.pagination.current_page + 1, true);
+}
+
+// 表示順: 正規化結果を先頭に、抽出元テキスト → VLM の順で並べる
+const TEXT_KIND_ORDER = ['PAGE_TEXT', 'NATIVE_TEXT', 'MINERU_TEXT', 'OCR_TEXT', 'VLM_TEXT'];
+
+export async function showDocumentPageTexts(documentId, pageNumber) {
+  const release = appState.get('ociObjectsPageImageRelease') || DEFAULT_PAGE_IMAGE_RELEASE;
+  try {
+    utilsShowLoading('生成テキストを取得中...');
+    const data = await authApiCall(
+      '/ai/api/documents/' + encodeURIComponent(documentId) +
+      '/page-texts?release=' + encodeURIComponent(release) +
+      '&page_number=' + pageNumber
+    );
+    utilsHideLoading();
+    const items = (data.items || []).slice().sort((a, b) =>
+      TEXT_KIND_ORDER.indexOf(a.artifact_kind) - TEXT_KIND_ORDER.indexOf(b.artifact_kind) ||
+      String(a.component_key).localeCompare(String(b.component_key)));
+    if (!items.length) {
+      utilsShowToast('この版にはまだ生成テキストがありません。前処理・解析またはVLMを実行してください', 'info');
+      return;
+    }
+    const sections = items.map(item => {
+      let text = item.raw_text || '';
+      if (item.payload_json != null) {
+        text += (text ? '\n\n--- 構造化出力 (JSON) ---\n' : '') +
+          JSON.stringify(item.payload_json, null, 2);
+      }
+      return {
+        label: stepLabel(item.component_key) + (item.stage_status === 'STALE' ? '（要更新）' : ''),
+        text,
+        meta: [
+          item.artifact_kind,
+          item.created_at ? '生成日時: ' + item.created_at : null
+        ].filter(Boolean).join('　')
+      };
+    });
+    const releaseLabel = release === 'draft' ? 'Draft' : '公開済み';
+    const totalPages = pageImageCache.get(pageImageCacheKey(documentId))?.data?.total || null;
+    utilsShowTextPreviewModal(
+      'ページ ' + pageNumber + (totalPages ? ' / ' + totalPages : '') + ' の生成テキスト（' + releaseLabel + '）',
+      sections,
+      {
+        onPrev: pageNumber > 1
+          ? () => showDocumentPageTexts(documentId, pageNumber - 1)
+          : null,
+        onNext: (!totalPages || pageNumber < totalPages)
+          ? () => showDocumentPageTexts(documentId, pageNumber + 1)
+          : null
+      }
+    );
+  } catch (error) {
+    utilsHideLoading();
+    if (error.status === 404) {
+      utilsShowToast('この版にはまだ生成テキストがありません', 'info');
+    } else {
+      utilsShowToast('生成テキスト取得エラー: ' + error.message, 'error');
+    }
+  }
+}
+
+export function showArtifactPageImage(documentId, artifactId) {
+  const state = pageImageCache.get(pageImageCacheKey(documentId));
+  const items = state?.data?.items || [];
+  const index = items.findIndex(item => item.artifact_id === artifactId);
+  if (index < 0) {
+    utilsShowToast('ページ画像が更新されました。一覧を再読み込みしてください', 'warning');
+    return;
+  }
+  const urls = items.map(item => pageImageContentUrl(
+    documentId, state.data.release_id, item.artifact_id
+  ));
+  const titles = items.map(item => `ページ ${item.page_number}`);
+  utilsShowImageModal(urls[index], titles[index], urls, index, titles);
 }
 
 /**
@@ -654,24 +944,12 @@ export function handleOciObjectsJumpPage() {
  * @param {string} objectName - オブジェクト名
  */
 export function toggleOciObjectSelectionHandler(objectName) {
-  // スクロール位置を保存
-  const scrollableArea = document.querySelector('#documentsList .table-wrapper-scrollable');
-  const scrollTop = scrollableArea ? scrollableArea.scrollTop : 0;
-  
   const selectedOciObjects = getSelectedOciObjects();
   const isSelected = selectedOciObjects.includes(objectName);
   toggleOciObjectSelection(objectName, !isSelected);
   
   // UIを再描画して、ボタンの活性状態を更新
-  loadOciObjects(false).then(() => {
-    // スクロール位置を復元
-    const scrollableAreaAfter = document.querySelector('#documentsList .table-wrapper-scrollable');
-    if (scrollableAreaAfter) {
-      requestAnimationFrame(() => {
-        scrollableAreaAfter.scrollTop = scrollTop;
-      });
-    }
-  });
+  reloadOciObjectsPreservingView(false);
 }
 
 /**
@@ -680,30 +958,14 @@ export function toggleOciObjectSelectionHandler(objectName) {
  * @param {boolean} checked - チェック状態
  */
 export function toggleSelectAllOciObjects(checked) {
-  // スクロール位置を保存
-  const scrollableArea = document.querySelector('#documentsList .table-wrapper-scrollable');
-  const scrollTop = scrollableArea ? scrollableArea.scrollTop : 0;
-  
   // 現在のページに表示されているオブジェクトを使用
   const currentPageObjects = appState.get('currentPageOciObjects') || [];
-  const allOciObjects = appState.get('allOciObjects') || [];
-  
-  const selectableObjects = currentPageObjects
-    .filter(obj => !isGeneratedPageImage(obj.name, allOciObjects))
-    .map(obj => obj.name);
+  const selectableObjects = currentPageObjects.map(obj => obj.name);
   
   setAllOciObjectsSelection(selectableObjects, checked);
   
   // 再描画
-  loadOciObjects().then(() => {
-    // スクロール位置を復元
-    const scrollableAreaAfter = document.querySelector('#documentsList .table-wrapper-scrollable');
-    if (scrollableAreaAfter) {
-      requestAnimationFrame(() => {
-        scrollableAreaAfter.scrollTop = scrollTop;
-      });
-    }
-  });
+  reloadOciObjectsPreservingView();
 }
 
 /**
@@ -711,51 +973,24 @@ export function toggleSelectAllOciObjects(checked) {
  * 現在のページに表示されているオブジェクトのみを選択します。
  */
 export function selectAllOciObjects() {
-  // スクロール位置を保存
-  const scrollableArea = document.querySelector('#documentsList .table-wrapper-scrollable');
-  const scrollTop = scrollableArea ? scrollableArea.scrollTop : 0;
-  
   // 現在のページに表示されているオブジェクトのみを対象にする
   const currentPageObjects = appState.get('currentPageOciObjects') || [];
-  const allOciObjects = appState.get('allOciObjects') || [];
-  const selectableObjects = currentPageObjects
-    .filter(obj => !isGeneratedPageImage(obj.name, allOciObjects))
-    .map(obj => obj.name);
+  const selectableObjects = currentPageObjects.map(obj => obj.name);
   
   // 現在の選択に追加（既存の選択を保持しながら追加）
   const currentSelection = getSelectedOciObjects();
   const newSelection = [...new Set([...currentSelection, ...selectableObjects])];
   appState.set('selectedOciObjects', newSelection);
   
-  loadOciObjects().then(() => {
-    // スクロール位置を復元
-    const scrollableAreaAfter = document.querySelector('#documentsList .table-wrapper-scrollable');
-    if (scrollableAreaAfter) {
-      requestAnimationFrame(() => {
-        scrollableAreaAfter.scrollTop = scrollTop;
-      });
-    }
-  });
+  reloadOciObjectsPreservingView();
 }
 
 /**
  * すべての選択を解除します。
  */
 export function clearAllOciObjects() {
-  // スクロール位置を保存
-  const scrollableArea = document.querySelector('#documentsList .table-wrapper-scrollable');
-  const scrollTop = scrollableArea ? scrollableArea.scrollTop : 0;
-  
   appState.set('selectedOciObjects', []);
-  loadOciObjects().then(() => {
-    // スクロール位置を復元
-    const scrollableAreaAfter = document.querySelector('#documentsList .table-wrapper-scrollable');
-    if (scrollableAreaAfter) {
-      requestAnimationFrame(() => {
-        scrollableAreaAfter.scrollTop = scrollTop;
-      });
-    }
-  });
+  reloadOciObjectsPreservingView();
 }
 
 // ========================================
@@ -774,7 +1009,7 @@ export function setOciObjectsFilterPageImages(filter) {
 }
 
 /**
- * ベクトル化状態によるフィルターを設定します。
+ * 公開状態（Serving Releaseの有無）によるフィルターを設定します。
  * 
  * @param {string} filter - フィルター値 ('all' | 'done' | 'not_done')
  */
@@ -801,6 +1036,17 @@ export function clearOciObjectsFilters() {
  */
 export function setOciObjectsDisplayType(displayType) {
   appState.set('ociObjectsDisplayType', displayType);
+  try { localStorage.setItem(DISPLAY_TYPE_STORAGE_KEY, displayType); } catch { /* noop */ }
+  appState.set('ociObjectsPage', 1);
+  loadOciObjects();
+}
+
+export function setPageImageRelease(release) {
+  if (!['draft', 'serving'].includes(release)) return;
+  appState.set('ociObjectsPageImageRelease', release);
+  try { localStorage.setItem(PAGE_IMAGE_RELEASE_STORAGE_KEY, release); } catch { /* noop */ }
+  pageImageCache.clear();
+  expandedPageImageDocuments.clear();
   appState.set('ociObjectsPage', 1);
   loadOciObjects();
 }
@@ -908,209 +1154,19 @@ export async function downloadSelectedOciObjects() {
 }
 
 /**
- * 選択されたOCIオブジェクトをページごとに画像化（PDF/PPTX等）します。
- * サーバー側で処理を実行し、進捗をSSEで受信します。
- * 
- * @async
- * @returns {Promise<void>}
- */
-export async function convertSelectedOciObjectsToImages() {
-  const selectedOciObjects = getSelectedOciObjects();
-  
-  if (selectedOciObjects.length === 0) {
-    utilsShowToast('変換するファイルを選択してください', 'warning');
-    return;
-  }
-  
-  const ociObjectsBatchDeleteLoading = appState.get('ociObjectsBatchDeleteLoading');
-  if (ociObjectsBatchDeleteLoading) {
-    utilsShowToast('処理中です。しばらくお待ちください', 'warning');
-    return;
-  }
-  
-  // トークンを確認（localStorageから直接取得 - referenceプロジェクトに準拠）
-  const loginToken = localStorage.getItem('loginToken');
-  const debugMode = appState.get('debugMode');
-  
-  if (!loginToken && !debugMode) {
-    utilsShowToast('認証が必要です。ログインしてください', 'warning');
-    authShowLoginModal();
-    return;
-  }
-  
-  // 確認モーダルを表示
-  const confirmed = await utilsShowConfirmModal(
-    `選択された${selectedOciObjects.length}件のファイルを各ページPNG画像として同名フォルダに保存します。\n\n処理には時間がかかる場合があります。実行しますか？`,
-    'ページ画像化確認'
-  );
-  
-  if (!confirmed) {
-    return;
-  }
-  
-  try {
-    appState.set('ociObjectsBatchDeleteLoading', true);
-    utilsShowLoading('ページ画像化を準備中...\nサーバーに接続しています');
-    
-    // リクエストヘッダーを構築
-    const headers = {
-      'Content-Type': 'application/json'
-    }
-    
-    // トークンがある場合のみAuthorizationヘッダーを追加
-    if (loginToken) {
-      headers['Authorization'] = `Bearer ${loginToken}`;
-    }
-    
-    const response = await fetch('/ai/api/oci/objects/convert-to-images', {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        object_names: selectedOciObjects
-      })
-    });
-    
-    if (!response.ok) {
-      // 401エラーの場合は強制ログアウト（referenceプロジェクトに準拠）
-      if (response.status === 401) {
-        utilsHideLoading();
-        appState.set('ociObjectsBatchDeleteLoading', false);
-        const requireLogin = appState.get('requireLogin');
-        if (requireLogin) {
-          authForceLogout();
-        }
-        throw new Error('無効または期限切れのトークンです');
-      }
-      
-      utilsHideLoading();
-      appState.set('ociObjectsBatchDeleteLoading', false);
-      const errorData = await response.json();
-      throw new Error(errorData.detail || 'ページ画像化に失敗しました');
-    }
-    
-    // SSE (Server-Sent Events) を使用して進捗状況を受信
-    await processStreamingResponse(response, selectedOciObjects.length, 'convert');
-    
-  } catch (error) {
-    console.error('ページ画像化エラー:', error);
-    utilsShowToast(`ページ画像化に失敗しました: ${error.message}`, 'error');
-    
-    // エラー時も一覧を再読み込みして状態を同期
-    utilsHideLoading();
-    appState.set('ociObjectsBatchDeleteLoading', false);
-    await loadOciObjects(false);
-  }
-}
-
-/**
- * 選択されたOCIオブジェクトをベクトル化してデータベースに保存します。
- * 未画像化のファイルは自動的に画像化されます。既存のベクトルデータは削除・再作成されます。
- * 
+ * Legacy entry point retained for integrations that still call the former
+ * vectorize action.  It now schedules the durable full pipeline, avoiding the
+ * removed request-scoped vectorize/SSE endpoint.
+ *
  * @async
  * @returns {Promise<void>}
  */
 export async function vectorizeSelectedOciObjects() {
-  const selectedOciObjects = getSelectedOciObjects();
-  
-  if (selectedOciObjects.length === 0) {
-    utilsShowToast('ベクトル化するファイルを選択してください', 'warning');
-    return;
-  }
-  
-  const ociObjectsBatchDeleteLoading = appState.get('ociObjectsBatchDeleteLoading');
-  if (ociObjectsBatchDeleteLoading) {
-    utilsShowToast('処理中です。しばらくお待ちください', 'warning');
-    return;
-  }
-  
-  // トークンを確認（localStorageから直接取得 - referenceプロジェクトに準拠）
-  const loginToken = localStorage.getItem('loginToken');
-  const debugMode = appState.get('debugMode');
-  
-  if (!loginToken && !debugMode) {
-    utilsShowToast('認証が必要です。ログインしてください', 'warning');
-    authShowLoginModal();
-    return;
-  }
-  
-  // 確認モーダルを表示
-  const confirmed = await utilsShowConfirmModal(
-    `選択された<strong>${selectedOciObjects.length}件のファイル</strong>を画像ベクトル化してデータベースに保存します。
-<warning>既存の画像イメージやEmbeddingがある場合は削除してから再作成します。</warning>
-<small>※ファイルが未画像化の場合は、自動的にページ画像化を実行してからベクトル化します。</small>
-処理には時間がかかる場合があります。実行しますか？`,
-    'ベクトル化確認',
-    { variant: 'warning' }
-  );
-  
-  if (!confirmed) {
-    console.log('❌ User cancelled vectorization');
-    return;
-  }
-  
-  console.log('✅ User confirmed vectorization');
-  console.log('✅ selectedOciObjects:', selectedOciObjects);
-  
-  try {
-    console.log('✅ Setting loading state...');
-    appState.set('ociObjectsBatchDeleteLoading', true);
-    
-    console.log('🔵 Before showProcessProgressUI:', selectedOciObjects);
-    
-    // メインページに進捗UIを表示
-    showProcessProgressUI(selectedOciObjects, 'vectorize');
-    
-    console.log('🔵 After showProcessProgressUI');
-    
-    // リクエストヘッダーを構築
-    const headers = {
-      'Content-Type': 'application/json'
-    }
-    
-    // トークンがある場合のみAuthorizationヘッダーを追加
-    if (loginToken) {
-      headers['Authorization'] = `Bearer ${loginToken}`;
-    }
-    
-    const response = await fetch('/ai/api/oci/objects/vectorize', {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        object_names: selectedOciObjects
-      })
-    });
-    
-    if (!response.ok) {
-      // 401エラーの場合は強制ログアウト（referenceプロジェクトに準拠）
-      if (response.status === 401) {
-        hideProcessProgressUI();
-        appState.set('ociObjectsBatchDeleteLoading', false);
-        const requireLogin = appState.get('requireLogin');
-        if (requireLogin) {
-          authForceLogout();
-        }
-        throw new Error('無効または期限切れのトークンです');
-      }
-      
-      hideProcessProgressUI();
-      appState.set('ociObjectsBatchDeleteLoading', false);
-      const errorData = await response.json();
-      throw new Error(errorData.detail || 'ベクトル化に失敗しました');
-    }
-    
-    // SSE (Server-Sent Events) を使用して進捗状況を受信
-    await processStreamingResponse(response, selectedOciObjects.length, 'vectorize');
-    
-  } catch (error) {
-    hideProcessProgressUI();
-    appState.set('ociObjectsBatchDeleteLoading', false);
-    console.error('ベクトル化エラー:', error);
-    utilsShowToast(`ベクトル化エラー: ${error.message}`, 'error');
-    
-    // 選択をクリアして一覧を更新
-    appState.set('selectedOciObjects', []);
-    await loadOciObjects();
-  }
+  // Backwards-compatible global entry point.  The old request-scoped SSE
+  // endpoint coupled rendering, OCR/VLM and vector writes.  Route callers
+  // through the durable pipeline instead, so retries and Draft/Publish
+  // invariants are identical to the new toolbar action.
+  return runSelectedPipeline('FULL');
 }
 
 /**
@@ -2016,7 +2072,6 @@ function closeProcessProgress() {
 window.ociModule = {
   loadOciObjects,
   displayOciObjectsList,
-  isGeneratedPageImage,
   prevPage: handleOciObjectsPrevPage,
   nextPage: handleOciObjectsNextPage,
   jumpToPage: handleOciObjectsJumpPage,
@@ -2032,19 +2087,22 @@ window.ociModule = {
   setFilterEmbeddings: setOciObjectsFilterEmbeddings,
   clearFilters: clearOciObjectsFilters,
   setDisplayType: setOciObjectsDisplayType,
+  setPageImageRelease,
+  togglePageImages: toggleDocumentPageImages,
+  retryPageImages: retryDocumentPageImages,
+  loadMorePageImages: loadMoreDocumentPageImages,
+  previewPageImage: showArtifactPageImage,
+  previewPageTexts: showDocumentPageTexts,
   downloadSelected: downloadSelectedOciObjects,
-  convertToImages: convertSelectedOciObjectsToImages,
   vectorizeSelected: vectorizeSelectedOciObjects,
   deleteSelected: deleteSelectedOciObjects,
-  closeProcessProgress: closeProcessProgress,
-  showImagePreview
+  closeProcessProgress: closeProcessProgress
 }
 
 // デフォルトエクスポート
 export default {
   loadOciObjects,
   displayOciObjectsList,
-  isGeneratedPageImage,
   handleOciObjectsPrevPage,
   handleOciObjectsNextPage,
   handleOciObjectsJumpPage,
@@ -2056,8 +2114,13 @@ export default {
   setOciObjectsFilterEmbeddings,
   clearOciObjectsFilters,
   setOciObjectsDisplayType,
+  setPageImageRelease,
+  toggleDocumentPageImages,
+  retryDocumentPageImages,
+  loadMoreDocumentPageImages,
+  showArtifactPageImage,
+  showDocumentPageTexts,
   downloadSelectedOciObjects,
-  convertSelectedOciObjectsToImages,
   vectorizeSelectedOciObjects,
   deleteSelectedOciObjects
 };

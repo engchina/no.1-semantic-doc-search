@@ -62,6 +62,11 @@ class OracleProfileRepository:
             )
             rows = self._fetch_all(cursor)
             for row in rows:
+                # Oracle LOB locators are only valid while their connection is
+                # open.  Materialize the prompt before leaving this context;
+                # reading it later can fail with DPY-4011/SSL errors after the
+                # pooled connection has already been returned.
+                row["extraction_prompt"] = _lob_text(row["extraction_prompt"])
                 row["pending_document_count"] = 0
                 if not row["enabled"]:
                     continue
@@ -69,18 +74,21 @@ class OracleProfileRepository:
                     """
                     SELECT COUNT(*) FROM sds_documents d
                     WHERE NOT EXISTS (
-                        SELECT 1 FROM sds_vlm_profile_runs pr
-                        WHERE pr.document_id=d.document_id AND pr.slot_no=:slot
-                          AND pr.revision_id=:revision
-                          AND pr.content_sha256=d.content_sha256
-                          AND pr.config_hash=:runtime_hash
-                          AND pr.is_serving=1 AND pr.build_status='INDEXED'
+                        SELECT 1
+                        FROM sds_index_release_components c
+                        JOIN sds_stage_runs sr ON sr.stage_run_id=c.stage_run_id
+                        WHERE c.release_id=d.serving_release_id
+                          AND c.component_key=:component
+                          AND c.is_stale=0 AND sr.status='SUCCEEDED'
+                          AND JSON_VALUE(
+                              sr.metadata_json, '$.profile_revision_id'
+                              RETURNING VARCHAR2(64) NULL ON ERROR
+                          )=:revision
                     )
                     """,
                     {
-                        "slot": row["slot_no"],
+                        "component": f"vlm:{row['slot_no']}",
                         "revision": row["current_revision_id"],
-                        "runtime_hash": self._runtime_hash(str(row["config_hash"])),
                     },
                 )
                 row["pending_document_count"] = int(cursor.fetchone()[0])
@@ -171,18 +179,21 @@ class OracleProfileRepository:
                     """
                     SELECT COUNT(*) FROM sds_documents d
                     WHERE NOT EXISTS (
-                        SELECT 1 FROM sds_vlm_profile_runs pr
-                        WHERE pr.document_id=d.document_id AND pr.slot_no=:slot
-                          AND pr.revision_id=:revision
-                          AND pr.content_sha256=d.content_sha256
-                          AND pr.config_hash=:runtime_hash
-                          AND pr.is_serving=1 AND pr.build_status='INDEXED'
+                        SELECT 1
+                        FROM sds_index_release_components c
+                        JOIN sds_stage_runs sr ON sr.stage_run_id=c.stage_run_id
+                        WHERE c.release_id=d.serving_release_id
+                          AND c.component_key=:component
+                          AND c.is_stale=0 AND sr.status='SUCCEEDED'
+                          AND JSON_VALUE(
+                              sr.metadata_json, '$.profile_revision_id'
+                              RETURNING VARCHAR2(64) NULL ON ERROR
+                          )=:revision
                     )
                     """,
                     {
-                        "slot": profile.slot_no,
+                        "component": f"vlm:{profile.slot_no}",
                         "revision": revision_id,
-                        "runtime_hash": self._runtime_hash(digest),
                     },
                 )
                 if int(cursor.fetchone()[0]) == 0:
@@ -190,6 +201,35 @@ class OracleProfileRepository:
                         "UPDATE sds_vlm_profiles SET apply_status='READY' WHERE slot_no=:slot",
                         {"slot": profile.slot_no},
                     )
+            cursor.execute(
+                """
+                UPDATE sds_index_release_components c
+                SET c.is_stale=1, c.stale_reason='VLMプロファイルが更新されました'
+                WHERE c.component_key=:component AND EXISTS (
+                    SELECT 1 FROM sds_index_releases r
+                    WHERE r.release_id=c.release_id AND r.status='DRAFT'
+                )
+                """,
+                {"component": f"vlm:{profile.slot_no}"},
+            )
+            cursor.execute(
+                """
+                UPDATE sds_index_release_components c
+                SET c.is_stale=1, c.stale_reason='参照するVLMプロファイルが更新されました'
+                WHERE c.component_key IN (
+                    SELECT 'embedding:' || er.code
+                    FROM sds_embedding_recipes er
+                    JOIN sds_embedding_recipe_inputs eri
+                      ON eri.revision_id=er.current_revision_id
+                    WHERE eri.source_type='VLM_TEXT' AND eri.source_ref=:slot_ref
+                )
+                AND EXISTS (
+                    SELECT 1 FROM sds_index_releases r
+                    WHERE r.release_id=c.release_id AND r.status='DRAFT'
+                )
+                """,
+                {"slot_ref": str(profile.slot_no)},
+            )
             connection.commit()
         return self.get_profile(profile.slot_no)
 
@@ -218,19 +258,22 @@ class OracleProfileRepository:
                 """
                 SELECT d.object_name FROM sds_documents d
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM sds_vlm_profile_runs pr
-                    WHERE pr.document_id=d.document_id AND pr.slot_no=:slot
-                      AND pr.revision_id=:revision
-                      AND pr.content_sha256=d.content_sha256
-                      AND pr.config_hash=:runtime_hash
-                      AND pr.is_serving=1 AND pr.build_status='INDEXED'
+                    SELECT 1
+                    FROM sds_index_release_components c
+                    JOIN sds_stage_runs sr ON sr.stage_run_id=c.stage_run_id
+                    WHERE c.release_id=d.serving_release_id
+                      AND c.component_key=:component
+                      AND c.is_stale=0 AND sr.status='SUCCEEDED'
+                      AND JSON_VALUE(
+                          sr.metadata_json, '$.profile_revision_id'
+                          RETURNING VARCHAR2(64) NULL ON ERROR
+                      )=:revision
                 )
                 ORDER BY d.object_name
                 """,
                 {
-                    "slot": slot_no,
+                    "component": f"vlm:{slot_no}",
                     "revision": profile.current_revision_id,
-                    "runtime_hash": self._runtime_hash(profile.config_hash or ""),
                 },
             )
             return [str(row[0]) for row in cursor.fetchall()]
@@ -243,23 +286,28 @@ class OracleProfileRepository:
             cursor.execute(
                 """
                 SELECT COUNT(*)
-                FROM sds_evidence e
-                JOIN sds_document_index_runs ir ON ir.index_run_id=e.index_run_id
-                JOIN sds_documents d ON d.document_id=e.document_id
-                WHERE ir.is_serving=1 AND ir.status='SUCCEEDED' AND e.unit_kind='page'
+                FROM sds_documents d
+                JOIN sds_index_release_components nc
+                  ON nc.release_id=d.serving_release_id AND nc.component_key='normalize'
+                JOIN sds_artifacts a
+                  ON a.stage_run_id=nc.stage_run_id AND a.artifact_kind='PAGE_TEXT'
+                WHERE nc.is_stale=0
                   AND NOT EXISTS (
-                    SELECT 1 FROM sds_vlm_profile_runs pr
-                    WHERE pr.document_id=d.document_id AND pr.slot_no=:slot
-                      AND pr.revision_id=:revision
-                      AND pr.content_sha256=d.content_sha256
-                      AND pr.config_hash=:runtime_hash
-                      AND pr.is_serving=1 AND pr.build_status='INDEXED'
+                    SELECT 1
+                    FROM sds_index_release_components c
+                    JOIN sds_stage_runs sr ON sr.stage_run_id=c.stage_run_id
+                    WHERE c.release_id=d.serving_release_id
+                      AND c.component_key=:component
+                      AND c.is_stale=0 AND sr.status='SUCCEEDED'
+                      AND JSON_VALUE(
+                          sr.metadata_json, '$.profile_revision_id'
+                          RETURNING VARCHAR2(64) NULL ON ERROR
+                      )=:revision
                   )
                 """,
                 {
-                    "slot": slot_no,
+                    "component": f"vlm:{slot_no}",
                     "revision": profile.current_revision_id,
-                    "runtime_hash": self._runtime_hash(profile.config_hash or ""),
                 },
             )
             return int(cursor.fetchone()[0])
@@ -275,9 +323,12 @@ class OracleProfileRepository:
             documents = int(cursor.fetchone()[0])
             cursor.execute(
                 """
-                SELECT COUNT(*) FROM sds_evidence e
-                JOIN sds_document_index_runs ir ON ir.index_run_id=e.index_run_id
-                WHERE ir.is_serving=1 AND ir.status='SUCCEEDED' AND e.unit_kind='page'
+                SELECT COUNT(*) FROM sds_documents d
+                JOIN sds_index_release_components c
+                  ON c.release_id=d.serving_release_id AND c.component_key='normalize'
+                JOIN sds_artifacts a
+                  ON a.stage_run_id=c.stage_run_id AND a.artifact_kind='PAGE_TEXT'
+                WHERE c.is_stale=0
                 """
             )
             return documents, int(cursor.fetchone()[0])
@@ -287,9 +338,35 @@ class OracleProfileRepository:
             raise ValueError("unsupported shared indexing capability")
         with self._connection() as connection, connection.cursor() as cursor:
             cursor.execute(
-                "UPDATE sds_documents SET status='REINDEX_REQUIRED', updated_at=SYSTIMESTAMP"
+                """
+                UPDATE sds_documents
+                SET status=CASE WHEN serving_release_id IS NULL
+                                THEN 'UNPROCESSED' ELSE 'UPDATE_AVAILABLE' END,
+                    updated_at=SYSTIMESTAMP
+                """
             )
             count = int(cursor.rowcount)
+            patterns = {
+                "mineru": ("mineru_parse", "normalize", "vlm:%", "embedding:%"),
+                "ocr": ("ocr", "normalize", "vlm:%", "embedding:%"),
+                "vlm": ("vlm:%", "embedding:%"),
+            }[capability]
+            for pattern in patterns:
+                operator = "LIKE" if "%" in pattern else "="
+                cursor.execute(
+                    f"""
+                    UPDATE sds_index_release_components c
+                    SET c.is_stale=1, c.stale_reason=:reason
+                    WHERE c.component_key {operator} :pattern AND EXISTS (
+                        SELECT 1 FROM sds_index_releases r
+                        WHERE r.release_id=c.release_id AND r.status='DRAFT'
+                    )
+                    """,
+                    {
+                        "reason": f"{capability}設定が更新されました",
+                        "pattern": pattern,
+                    },
+                )
             if capability == "vlm":
                 cursor.execute(
                     "UPDATE sds_vlm_profiles SET apply_status='PENDING', updated_at=SYSTIMESTAMP "
