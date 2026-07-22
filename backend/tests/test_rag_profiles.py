@@ -806,6 +806,7 @@ def test_search_pipeline_runs_each_variant_as_own_route() -> None:
         result = asyncio.run(SearchPipeline().search(
             query="浴室換気乾燥機",
             top_k=1,
+            min_score=0.35,
             field_filters=[],
             document_types=[],
             current_version_only=True,
@@ -817,6 +818,10 @@ def test_search_pipeline_runs_each_variant_as_own_route() -> None:
     assert sorted(call.kwargs["query"] for call in keyword_search.call_args_list) == sorted(variants)
     assert keyword_search.call_count == 2
     assert recipe_vector_search.call_count == 4
+    assert all(
+        call.kwargs["min_score"] == 0.35
+        for call in recipe_vector_search.call_args_list
+    )
     assert result.diagnostics["requested_retrieval_modes"] == list(RETRIEVAL_MODES)
     assert result.diagnostics["active_retrieval_modes"] == [
         "oracle_text",
@@ -829,6 +834,7 @@ def test_search_pipeline_runs_each_variant_as_own_route() -> None:
         for op in event.get("delta", [])
         if op.get("path") == "/retrievalSummary"
     )
+    assert retrieval["min_vector_similarity"] == 0.35
     channels = retrieval["channels"]
     assert [item["weight"] for item in channels if item["channel"].startswith("keyword:page_text")] == [0.5, 0.5]
     assert [item["weight"] for item in channels if item["channel"].startswith("vector:chunk_text")] == [0.5, 0.5]
@@ -1307,6 +1313,31 @@ def test_profile_reuse_requires_the_current_shared_index_run() -> None:
     sql, binds = cursor.execute.call_args.args
     assert "index_run_id=:index_run" in sql
     assert binds["index_run"] == "current-index-run"
+
+
+def test_recipe_vector_search_treats_min_score_as_cosine_similarity() -> None:
+    context = MagicMock()
+    cursor = context.__enter__.return_value.cursor.return_value.__enter__.return_value
+    cursor.description = []
+    cursor.fetchall.return_value = []
+
+    with patch.object(rag_repository, "connection", return_value=context):
+        assert rag_repository.recipe_vector_search(
+            recipe_code="chunk_text",
+            embedding=[0.1, 0.2],
+            channel="vector:chunk_text",
+            top_k=10,
+            user_hash=None,
+            current_version_only=True,
+            document_types=[],
+            min_score=0.35,
+        ) == []
+
+    sql, binds = cursor.execute.call_args.args
+    normalized_sql = " ".join(sql.split())
+    assert "(1 - VECTOR_DISTANCE(ev.vector_value, :embedding, COSINE)) score" in normalized_sql
+    assert "(1 - VECTOR_DISTANCE(ev.vector_value, :embedding, COSINE)) >= :min_score" in normalized_sql
+    assert binds["min_score"] == 0.35
 
 
 def test_rrf_merges_shared_and_profile_hits_by_source_locator() -> None:

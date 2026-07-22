@@ -812,13 +812,17 @@ export function displaySearchResults(data) {
   const listDiv = document.getElementById('searchResultsList');
   
   if (!data.results || data.results.length === 0) {
+    const minScore = getMinScore();
+    const retryHint = minScore > 0
+      ? `最小ベクトル類似度（現在 ${minScore.toFixed(2)}）を下げるか、別のキーワードで検索してみてください`
+      : '別のキーワードや検索方式で検索してみてください';
     resultsDiv.style.display = 'block';
     summarySpan.textContent = '検索結果なし';
     listDiv.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon"><i class="fas fa-search" style="color: #94a3b8;"></i></div>
         <div class="empty-state-title">検索結果が見つかりませんでした</div>
-        <div class="empty-state-subtitle">別のキーワードで検索してみてください</div>
+        <div class="empty-state-subtitle">${retryHint}</div>
       </div>
     `;
     return;

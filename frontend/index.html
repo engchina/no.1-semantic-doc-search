@@ -142,15 +142,16 @@
           <span><i class="fas fa-search"></i> セマンティック検索</span>
         </div>
         <div style="padding: 24px;">
-          <!-- 共通フィルター（ファイル名・取得件数・最小スコア） -->
+          <!-- 共通フィルター（ファイル名・取得件数・最小ベクトル類似度） -->
           <div class="search-filter-grid">
             <div>
               <label class="form-label" for="topK">取得件数</label>
               <input type="number" id="topK" class="form-input" value="10" min="1" max="50" />
             </div>
             <div>
-              <label id="minScoreLabel" class="form-label" for="minScore">最小スコア</label>
-              <input type="number" id="minScore" class="form-input" value="0.55" min="0" max="1" step="0.05" />
+              <label id="minScoreLabel" class="form-label" for="minScore">最小ベクトル類似度</label>
+              <input type="number" id="minScore" class="form-input" value="0.35" min="0" max="1" step="0.05" aria-describedby="minScoreHelp" />
+              <small id="minScoreHelp" class="form-help">1 − COSINE距離。値が大きいほど絞り込みが厳しくなります（0で無効）。</small>
             </div>
             <div>
               <label class="form-label" for="filenameFilter">ファイル名（任意）</label>

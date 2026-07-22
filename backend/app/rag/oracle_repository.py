@@ -339,7 +339,11 @@ class OracleRagRepository:
         top_k = max(1, min(top_k, 1000))
         score_filter = ""
         if min_score > 0:
-            score_filter = "AND 1-VECTOR_DISTANCE(ev.vector_value, :embedding, COSINE) >= :min_score"
+            # min_score is a similarity floor, not a VECTOR_DISTANCE ceiling.
+            score_filter = (
+                "AND (1 - VECTOR_DISTANCE(ev.vector_value, :embedding, COSINE)) "
+                ">= :min_score"
+            )
         where, binds = self._document_where(
             user_hash=user_hash,
             current_version_only=current_version_only,
@@ -353,7 +357,7 @@ class OracleRagRepository:
             cursor.execute(
                 f"""
                 SELECT {self._base_select()},
-                       1-VECTOR_DISTANCE(ev.vector_value, :embedding, COSINE) score
+                       (1 - VECTOR_DISTANCE(ev.vector_value, :embedding, COSINE)) score
                 FROM sds_documents d
                 JOIN sds_index_releases rel
                   ON rel.release_id=d.serving_release_id AND rel.status='PUBLISHED'

@@ -725,6 +725,7 @@ class SearchPipeline:
             "channels": channel_summaries,
             "requested_modes": ordered_retrieval_modes(requested_modes),
             "active_modes": ordered_retrieval_modes(active_modes),
+            "min_vector_similarity": min_score,
             "document_types": document_types,
             "current_version_only": current_version_only,
             "filename_filter": filename_filter,
