@@ -187,6 +187,60 @@
             </button>
           </div>
 
+          <fieldset
+            id="searchRetrievalModes"
+            class="search-retrieval-modes"
+            aria-describedby="searchRetrievalModesHelp searchRetrievalModesError"
+          >
+            <legend>検索方式</legend>
+            <p id="searchRetrievalModesHelp" class="search-retrieval-modes-help">
+              選択した方式だけで候補を取得します。順位付けには設定画面の重みを使用します。
+            </p>
+            <div class="search-retrieval-mode-grid">
+              <label class="search-retrieval-mode-option" for="retrievalModeVisualVector">
+                <input id="retrievalModeVisualVector" type="checkbox" name="retrievalMode" value="visual_vector" checked>
+                <span>
+                  <strong>画像類似</strong>
+                  <small data-mode-description>ページ画像と画像＋テキストのベクトルから探します。</small>
+                  <small class="search-retrieval-mode-status" data-mode-status hidden></small>
+                </span>
+              </label>
+              <label class="search-retrieval-mode-option" for="retrievalModeOracleText">
+                <input id="retrievalModeOracleText" type="checkbox" name="retrievalMode" value="oracle_text" checked>
+                <span>
+                  <strong>キーワード検索</strong>
+                  <small data-mode-description>標準テキストをキーワードで照合します。</small>
+                  <small class="search-retrieval-mode-status" data-mode-status hidden></small>
+                </span>
+              </label>
+              <label class="search-retrieval-mode-option" for="retrievalModeTextVector">
+                <input id="retrievalModeTextVector" type="checkbox" name="retrievalMode" value="text_vector" checked>
+                <span>
+                  <strong>テキスト類似</strong>
+                  <small data-mode-description>標準テキストの意味が近い候補を探します。</small>
+                  <small class="search-retrieval-mode-status" data-mode-status hidden></small>
+                </span>
+              </label>
+              <label class="search-retrieval-mode-option" for="retrievalModeVlmText">
+                <input id="retrievalModeVlmText" type="checkbox" name="retrievalMode" value="vlm_text" checked>
+                <span>
+                  <strong>VLM抽出キーワード</strong>
+                  <small data-mode-description>VLMが抽出したテキストをキーワードで照合します。</small>
+                  <small class="search-retrieval-mode-status" data-mode-status hidden></small>
+                </span>
+              </label>
+              <label class="search-retrieval-mode-option" for="retrievalModeVlmVector">
+                <input id="retrievalModeVlmVector" type="checkbox" name="retrievalMode" value="vlm_vector" checked>
+                <span>
+                  <strong>VLM抽出類似</strong>
+                  <small data-mode-description>VLMが抽出したテキストの意味が近い候補を探します。</small>
+                  <small class="search-retrieval-mode-status" data-mode-status hidden></small>
+                </span>
+              </label>
+            </div>
+            <p id="searchRetrievalModesError" class="search-retrieval-modes-error" role="alert" hidden></p>
+          </fieldset>
+
           <div class="search-verify-option">
             <label for="searchVlmVerify">
               <input id="searchVlmVerify" type="checkbox">

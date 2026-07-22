@@ -287,6 +287,30 @@ class RetrievalWeights(BaseModel):
     vlm_vector: float = Field(default=1.0, ge=0, le=10)
 
 
+RetrievalMode = Literal[
+    "oracle_text",
+    "text_vector",
+    "vlm_text",
+    "vlm_vector",
+    "visual_vector",
+]
+RETRIEVAL_MODES: tuple[RetrievalMode, ...] = (
+    "oracle_text",
+    "text_vector",
+    "vlm_text",
+    "vlm_vector",
+    "visual_vector",
+)
+
+
+class RetrievalModeOption(BaseModel):
+    value: RetrievalMode
+    label: str
+    description: str
+    available: bool = True
+    unavailable_reason: str | None = None
+
+
 class RetrievalSettingsResponse(BaseModel):
     schema_ready: bool
     profiles: list[ProfileConfig]
@@ -313,6 +337,11 @@ class SearchV2Request(BaseModel):
     field_filters: list[FieldFilter] = Field(default_factory=list, max_length=50)
     document_types: list[str] = Field(default_factory=list, max_length=50)
     current_version_only: bool = True
+    retrieval_modes: list[RetrievalMode] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=len(RETRIEVAL_MODES),
+    )
     verify: bool = False
     debug: bool = False
 

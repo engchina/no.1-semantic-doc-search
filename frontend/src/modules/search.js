@@ -29,6 +29,14 @@ let currentSearchController = null;
 let searchCancelled = false;
 let searchProgressTimer = null;
 const searchProgress = { startedAt: 0, state: {}, steps: new Map() };
+const defaultRetrievalModes = [
+  'visual_vector',
+  'oracle_text',
+  'text_vector',
+  'vlm_text',
+  'vlm_vector'
+];
+const vectorRetrievalModes = new Set(['text_vector', 'vlm_vector', 'visual_vector']);
 
 const stepLabels = {
   initialization: '検索準備',
@@ -52,6 +60,73 @@ const displayFilename = (fileResult) => {
   return (fileResult.original_filename || fallback).replace(/^\d{8}_\d{6}_[a-f0-9]{8}_/i, '');
 };
 
+function setRetrievalModeError(message = '', { focus = false } = {}) {
+  const fieldset = document.getElementById('searchRetrievalModes');
+  const error = document.getElementById('searchRetrievalModesError');
+  if (fieldset) {
+    if (message) fieldset.setAttribute('aria-invalid', 'true');
+    else fieldset.removeAttribute('aria-invalid');
+  }
+  if (error) {
+    error.textContent = message;
+    error.hidden = !message;
+  }
+  if (message && focus) {
+    document.querySelector('input[name="retrievalMode"]:not(:disabled)')?.focus();
+  }
+}
+
+function updateRetrievalModeOptions(options) {
+  if (!Array.isArray(options)) return;
+  const inputs = [...document.querySelectorAll('input[name="retrievalMode"]')];
+  if (!inputs.length) return;
+  const optionByValue = new Map(options.map(option => [option.value, option]));
+  inputs.forEach(input => {
+    const option = optionByValue.get(input.value);
+    if (!option) return;
+    const label = input.closest('.search-retrieval-mode-option');
+    const title = label?.querySelector('strong');
+    const description = label?.querySelector('[data-mode-description]');
+    const status = label?.querySelector('[data-mode-status]');
+    const available = Boolean(option.available);
+    if (title && option.label) title.textContent = option.label;
+    if (description && option.description) description.textContent = option.description;
+    input.disabled = !available;
+    if (!available) input.checked = false;
+    label?.classList.toggle('unavailable', !available);
+    if (status) {
+      status.textContent = available ? '' : (option.unavailable_reason || '現在利用できません。');
+      status.hidden = available;
+    }
+  });
+  setRetrievalModeError();
+}
+
+function collectRetrievalModes({ requireVector = false } = {}) {
+  const inputs = [...document.querySelectorAll('input[name="retrievalMode"]')];
+  if (!inputs.length) return [...defaultRetrievalModes];
+  const available = inputs.filter(input => !input.disabled);
+  const selected = available.filter(input => input.checked).map(input => input.value);
+  if (!available.length) {
+    setRetrievalModeError('利用できる検索方式がありません。設定画面を確認してください。', { focus: true });
+    return null;
+  }
+  if (!selected.length) {
+    setRetrievalModeError('検索方式を1つ以上選択してください。', { focus: true });
+    return null;
+  }
+  if (requireVector && !selected.some(mode => vectorRetrievalModes.has(mode))) {
+    setRetrievalModeError('画像だけで検索する場合は、類似検索方式を1つ以上選択してください。', { focus: true });
+    return null;
+  }
+  setRetrievalModeError();
+  return selected;
+}
+
+document.addEventListener?.('change', event => {
+  if (event.target?.matches?.('input[name="retrievalMode"]')) setRetrievalModeError();
+});
+
 export async function loadDynamicSearchFilters() {
   try {
     const data = await authApiCall('/ai/api/search/v2/filters');
@@ -60,25 +135,27 @@ export async function loadDynamicSearchFilters() {
     dynamicFiltersLoaded = true;
     const wrapper = document.getElementById('dynamicSearchFilters');
     const container = document.getElementById('dynamicSearchFilterFields');
-    if (!wrapper || !container) return;
-    wrapper.hidden = !(v2RetrievalActive && dynamicFieldDefinitions.length);
-    const operatorLabels = { eq: '一致', contains: '含む', gte: '以上', lte: '以下', between: '範囲' };
-    container.innerHTML = dynamicFieldDefinitions.map((field, index) => {
-      const type = field.value_type === 'number' ? 'number' : (field.value_type === 'date' ? 'date' : 'text');
-      const valueId = `dynamic-filter-value-${index}`;
-      const valueControl = field.value_type === 'boolean'
-        ? `<select id="${valueId}" class="form-input" data-filter-value ${field.conflicted ? 'disabled' : ''}><option value="">指定なし</option><option value="true">はい</option><option value="false">いいえ</option></select>`
-        : `<input id="${valueId}" class="form-input" data-filter-value type="${type}" ${field.conflicted ? 'disabled' : ''}>`;
-      return `<div class="dynamic-search-filter" data-filter-key="${escapeHtml(field.key)}" data-value-type="${escapeHtml(field.value_type)}" data-conflicted="${field.conflicted ? 'true' : 'false'}">
-        <label class="form-label" for="${valueId}">${escapeHtml(field.label)} <small>${escapeHtml(field.key)}</small></label>
-        <div class="dynamic-search-filter-controls">
-          <select class="form-input" data-filter-operator aria-label="${escapeHtml(field.label)}の比較方法" ${field.conflicted ? 'disabled' : ''} onchange="window.searchModule.toggleFilterBetween(this)">${(field.allowed_operators || []).map(operator => `<option value="${operator}">${operatorLabels[operator] || escapeHtml(operator)}</option>`).join('')}</select>
-          ${valueControl}
-          <input class="form-input" data-filter-value-second type="${type}" hidden placeholder="上限値" aria-label="${escapeHtml(field.label)}の上限値">
-        </div>
-        ${field.conflicted ? '<div class="dynamic-search-filter-error" role="alert">有効なプロファイル間で型または演算子が一致していません。</div>' : ''}
-      </div>`;
-    }).join('');
+    if (wrapper && container) {
+      wrapper.hidden = !(v2RetrievalActive && dynamicFieldDefinitions.length);
+      const operatorLabels = { eq: '一致', contains: '含む', gte: '以上', lte: '以下', between: '範囲' };
+      container.innerHTML = dynamicFieldDefinitions.map((field, index) => {
+        const type = field.value_type === 'number' ? 'number' : (field.value_type === 'date' ? 'date' : 'text');
+        const valueId = `dynamic-filter-value-${index}`;
+        const valueControl = field.value_type === 'boolean'
+          ? `<select id="${valueId}" class="form-input" data-filter-value ${field.conflicted ? 'disabled' : ''}><option value="">指定なし</option><option value="true">はい</option><option value="false">いいえ</option></select>`
+          : `<input id="${valueId}" class="form-input" data-filter-value type="${type}" ${field.conflicted ? 'disabled' : ''}>`;
+        return `<div class="dynamic-search-filter" data-filter-key="${escapeHtml(field.key)}" data-value-type="${escapeHtml(field.value_type)}" data-conflicted="${field.conflicted ? 'true' : 'false'}">
+          <label class="form-label" for="${valueId}">${escapeHtml(field.label)} <small>${escapeHtml(field.key)}</small></label>
+          <div class="dynamic-search-filter-controls">
+            <select class="form-input" data-filter-operator aria-label="${escapeHtml(field.label)}の比較方法" ${field.conflicted ? 'disabled' : ''} onchange="window.searchModule.toggleFilterBetween(this)">${(field.allowed_operators || []).map(operator => `<option value="${operator}">${operatorLabels[operator] || escapeHtml(operator)}</option>`).join('')}</select>
+            ${valueControl}
+            <input class="form-input" data-filter-value-second type="${type}" hidden placeholder="上限値" aria-label="${escapeHtml(field.label)}の上限値">
+          </div>
+          ${field.conflicted ? '<div class="dynamic-search-filter-error" role="alert">有効なプロファイル間で型または演算子が一致していません。</div>' : ''}
+        </div>`;
+      }).join('');
+    }
+    updateRetrievalModeOptions(data.retrieval_modes);
     const imageQuery = document.getElementById('imageSearchQuery');
     if (imageQuery) {
       imageQuery.disabled = !v2RetrievalActive;
@@ -580,6 +657,8 @@ export async function performImageSearch() {
   const minScore = getMinScore();
   const imageQuery = document.getElementById('imageSearchQuery')?.value.trim() || '';
   const verify = Boolean(document.getElementById('searchVlmVerify')?.checked);
+  const retrievalModes = collectRetrievalModes({ requireVector: !imageQuery });
+  if (!retrievalModes) return;
   let usesEventStream = false;
   searchCancelled = false;
   
@@ -601,6 +680,7 @@ export async function performImageSearch() {
     formData.append('query', imageQuery);
     formData.append('field_filters', JSON.stringify(collectDynamicFilters()));
     formData.append('document_types', '[]');
+    formData.append('retrieval_modes', JSON.stringify(retrievalModes));
     formData.append('verify', verify ? 'true' : 'false');
 
     const data = usesEventStream ? await streamSearch(endpoint, {
@@ -681,6 +761,8 @@ export async function performSearch() {
     utilsShowToast('検索クエリを入力してください', 'warning');
     return;
   }
+  const retrievalModes = collectRetrievalModes();
+  if (!retrievalModes) return;
   
   try {
     hideSearchResults();
@@ -690,7 +772,7 @@ export async function performSearch() {
     setSearchButtonBusy(submitButton, true, '検索中...', usesEventStream);
     if (searchCancelled) throw new Error('検索をキャンセルしました');
 
-    const requestBody = { query, top_k: topK, min_score: minScore, filename_filter: filenameFilter || null, field_filters: collectDynamicFilters(), document_types: [], current_version_only: true, verify };
+    const requestBody = { query, top_k: topK, min_score: minScore, filename_filter: filenameFilter || null, field_filters: collectDynamicFilters(), document_types: [], current_version_only: true, retrieval_modes: retrievalModes, verify };
     const endpoint = '/ai/api/search/v2/events';
 
     const data = usesEventStream ? await streamSearch(endpoint, {
@@ -951,6 +1033,7 @@ function hideSearchResults() {
  */
 export function clearSearchResults() {
   cancelCurrentSearch();
+  setRetrievalModeError();
   // テキスト検索のクリア
   document.getElementById('searchQuery').value = '';
 

@@ -10,8 +10,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI, Request
-from fastapi.testclient import TestClient
+from fastapi import Request
 from PIL import Image
 from pydantic import ValidationError
 
@@ -28,6 +27,7 @@ from app.rag.clients import OciRerankClient
 from app.rag.pipeline_models import EmbeddingRecipe, EmbeddingRecipeInput
 from app.rag.models import (
     LEGACY_VLM_VERIFY_PROMPT,
+    RETRIEVAL_MODES,
     OcrSettings,
     OcrEngineSettings,
     MinerUSettings,
@@ -35,9 +35,11 @@ from app.rag.models import (
     PROFILE_SPEC_DATA_PROMPT,
     PROFILE_VISUAL_PROMPT,
     ProfileConfig,
+    RetrievalMode,
     RerankSettings,
     GlobalVlmSettings,
     RetrievalWeights,
+    SearchV2Request,
     SearchV2Response,
     VlmExtractionOutput,
     initial_profiles,
@@ -179,7 +181,12 @@ def sse_chunk_event(chunk: str | bytes) -> dict[str, Any]:
     return sse_events(text)[0]
 
 
-def search_event_response(query: str = "ceiling light"):
+def search_event_response(
+    query: str = "ceiling light",
+    *,
+    retrieval_modes: list[RetrievalMode] | None = None,
+    verify: bool = False,
+):
     request = Request({
         "type": "http",
         "http_version": "1.1",
@@ -201,6 +208,16 @@ def search_event_response(query: str = "ceiling light"):
         document_types=[],
         current_version_only=True,
         filename_filter=None,
+        retrieval_modes=retrieval_modes,
+        verify=verify,
+    )
+
+
+async def search_event_response_text(response: Any) -> str:
+    chunks = [chunk async for chunk in response.body_iterator]
+    return "".join(
+        chunk.decode() if isinstance(chunk, bytes) else chunk
+        for chunk in chunks
     )
 
 
@@ -215,6 +232,75 @@ def successful_search_result(query: str = "ceiling light") -> SimpleNamespace:
         "processing_time": 0.01,
         "diagnostics": {"degraded": []},
     })
+
+
+async def run_sync_immediately(
+    function: Any, *args: Any, **kwargs: Any
+) -> Any:
+    return function(*args, **kwargs)
+
+
+def test_search_request_retrieval_modes_are_optional_but_not_empty() -> None:
+    assert SearchV2Request(query="lighting").retrieval_modes is None
+    assert SearchV2Request(
+        query="lighting", retrieval_modes=["oracle_text", "visual_vector"]
+    ).retrieval_modes == ["oracle_text", "visual_vector"]
+
+    with pytest.raises(ValidationError):
+        SearchV2Request(query="lighting", retrieval_modes=[])
+    with pytest.raises(ValidationError):
+        SearchV2Request(query="lighting", retrieval_modes=["unknown"])
+
+
+def test_multipart_retrieval_modes_require_a_non_empty_known_array() -> None:
+    assert search_api._parse_retrieval_modes(None) is None
+    assert search_api._parse_retrieval_modes(
+        '["visual_vector", "oracle_text", "visual_vector"]'
+    ) == ["oracle_text", "visual_vector"]
+    with pytest.raises(ValueError, match="non-empty"):
+        search_api._parse_retrieval_modes("[]")
+    with pytest.raises(ValueError, match="unsupported"):
+        search_api._parse_retrieval_modes('["unknown"]')
+
+
+def test_retrieval_mode_options_reflect_weights_profiles_and_recipes() -> None:
+    profiles = [
+        ProfileConfig(
+            slot_no=1,
+            name="Profile 1",
+            enabled=True,
+            extraction_prompt="Extract facts",
+        )
+    ]
+    recipes = [
+        embedding_recipe("chunk_text", ("CHUNK_TEXT", None)),
+        embedding_recipe("page_image", ("PAGE_IMAGE", None)),
+        embedding_recipe("vlm_text_slot_1", ("VLM_TEXT", "1")),
+    ]
+    with (
+        patch(
+            "app.rag.service_settings.retrieval_service_settings.get_weights",
+            return_value=RetrievalWeights(visual_vector=0),
+        ),
+        patch(
+            "app.rag.profile_repository.profile_repository.enabled_profiles",
+            return_value=profiles,
+        ),
+        patch(
+            "app.rag.pipeline_repository.pipeline_repository.enabled_recipes",
+            return_value=recipes,
+        ),
+    ):
+        options = search_api._retrieval_mode_options(True)
+
+    by_value = {item["value"]: item for item in options}
+    assert list(by_value) == list(RETRIEVAL_MODES)
+    assert by_value["oracle_text"]["available"] is True
+    assert by_value["text_vector"]["available"] is True
+    assert by_value["vlm_text"]["available"] is True
+    assert by_value["vlm_vector"]["available"] is True
+    assert by_value["visual_vector"]["available"] is False
+    assert "重みが0" in str(by_value["visual_vector"]["unavailable_reason"])
 
 
 def test_search_events_follow_agui_sequence(monkeypatch) -> None:
@@ -237,15 +323,13 @@ def test_search_events_follow_agui_sequence(monkeypatch) -> None:
         })
 
     monkeypatch.setattr(search_api.search_pipeline, "search", fake_search)
-    app = FastAPI()
-    app.include_router(search_api.router)
-
-    response = TestClient(app).post("/search/v2/events", json={"query": "ceiling light"})
+    response = search_event_response()
+    response_text = asyncio.run(search_event_response_text(response))
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-cache, no-transform"
     assert response.headers["x-accel-buffering"] == "no"
-    events = sse_events(response.text)
+    events = sse_events(response_text)
     types = [event["type"] for event in events]
     assert types[:2] == ["RUN_STARTED", "STATE_SNAPSHOT"]
     assert "STEP_STARTED" in types
@@ -334,13 +418,11 @@ def test_search_events_return_run_error(monkeypatch) -> None:
         raise ValueError("bad search")
 
     monkeypatch.setattr(search_api.search_pipeline, "search", fake_search)
-    app = FastAPI()
-    app.include_router(search_api.router)
-
-    response = TestClient(app).post("/search/v2/events", json={"query": "ceiling light"})
+    response = search_event_response()
+    response_text = asyncio.run(search_event_response_text(response))
 
     assert response.status_code == 200
-    events = sse_events(response.text)
+    events = sse_events(response_text)
     assert events[-1]["type"] == "RUN_ERROR"
     assert events[-1]["message"] == "bad search"
 
@@ -362,16 +444,116 @@ def test_search_events_forward_verify_flag(monkeypatch) -> None:
         })
 
     monkeypatch.setattr(search_api.search_pipeline, "search", fake_search)
-    app = FastAPI()
-    app.include_router(search_api.router)
-
-    response = TestClient(app).post(
-        "/search/v2/events",
-        json={"query": "ceiling light", "verify": True},
-    )
+    response = search_event_response(verify=True)
+    asyncio.run(search_event_response_text(response))
 
     assert response.status_code == 200
     assert captured["verify"] is True
+
+
+def test_search_events_forward_retrieval_modes(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_search(**kwargs: Any) -> SimpleNamespace:
+        captured.update(kwargs)
+        return successful_search_result(kwargs["query"])
+
+    monkeypatch.setattr(search_api.search_pipeline, "search", fake_search)
+    response = search_event_response(
+        retrieval_modes=["oracle_text", "visual_vector"],
+    )
+    asyncio.run(search_event_response_text(response))
+
+    assert response.status_code == 200
+    assert captured["retrieval_modes"] == ["oracle_text", "visual_vector"]
+
+
+def test_search_v2_forwards_retrieval_modes(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_search(**kwargs: Any) -> SearchV2Response:
+        captured.update(kwargs)
+        return SearchV2Response(
+            trace_id="trace",
+            query=kwargs["query"],
+            results=[],
+            total_documents=0,
+            total_evidence=0,
+            processing_time=0.01,
+        )
+
+    monkeypatch.setattr(search_api.search_pipeline, "search", fake_search)
+    request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/search/v2",
+        "headers": [],
+        "state": {"auth_username": "tester"},
+    })
+    response = asyncio.run(
+        search_api.search_v2(
+            SearchV2Request(
+                query="ceiling light",
+                retrieval_modes=["text_vector", "vlm_vector"],
+            ),
+            request,
+        )
+    )
+
+    assert response.trace_id == "trace"
+    assert captured["retrieval_modes"] == ["text_vector", "vlm_vector"]
+
+
+def test_image_search_forwards_multipart_retrieval_modes(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_search(**kwargs: Any) -> SearchV2Response:
+        captured.update(kwargs)
+        return SearchV2Response(
+            trace_id="trace",
+            query=kwargs["query"],
+            results=[],
+            total_documents=0,
+            total_evidence=0,
+            processing_time=0.01,
+        )
+
+    image_bytes = BytesIO()
+    Image.new("RGB", (1, 1), color="white").save(image_bytes, format="PNG")
+    monkeypatch.setattr(search_api.search_pipeline, "search", fake_search)
+    request = Request({
+        "type": "http",
+        "method": "POST",
+        "path": "/search/v2/image",
+        "headers": [],
+        "state": {"auth_username": "tester"},
+    })
+
+    class FakeUpload:
+        content_type = "image/png"
+
+        async def read(self) -> bytes:
+            return image_bytes.getvalue()
+
+    response = asyncio.run(
+        search_api.search_v2_image(
+            request=request,
+            image=FakeUpload(),
+            query="",
+            top_k=20,
+            min_score=0.0,
+            filename_filter=None,
+            field_filters="[]",
+            document_types="[]",
+            current_version_only=True,
+            retrieval_modes='["text_vector", "visual_vector"]',
+            verify=False,
+            debug=False,
+        )
+    )
+
+    assert response.trace_id == "trace"
+    assert captured["retrieval_modes"] == ["text_vector", "visual_vector"]
 
 
 def test_search_pipeline_skips_vlm_verify_by_default_and_reports_query_plan() -> None:
@@ -393,15 +575,15 @@ def test_search_pipeline_skips_vlm_verify_by_default_and_reports_query_plan() ->
         for event in events
         if event.get("type") == "STEP_STARTED"
     ]
-    assert step_starts[:7] == [
+    assert step_starts[:6] == [
         "initialization",
         "query_variants",
         "keyword_plan",
-        "embedding",
         "retrieval",
         "candidate_merge",
         "rerank",
     ]
+    assert "embedding" not in step_starts
     assert result.diagnostics["oracle_text_max_terms"] == 20
     assert result.diagnostics["candidate_merge"]["method"] == "weighted_rrf"
     assert result.diagnostics["candidate_merge"]["candidate_count"] == 1
@@ -557,6 +739,10 @@ def run_search_pipeline_for_verify(
         patch("app.rag.search_pipeline.rag_repository.keyword_search", return_value=[retrieval_hit()]),
         patch("app.rag.search_pipeline.rag_repository.record_search_audit"),
         patch("app.rag.search_pipeline._verify_candidates", new=AsyncMock()) as verify_candidates,
+        patch(
+            "app.rag.search_pipeline.asyncio.to_thread",
+            new=run_sync_immediately,
+        ),
     ):
         result = asyncio.run(SearchPipeline().search(
             query="ceiling light",
@@ -612,8 +798,12 @@ def test_search_pipeline_runs_each_variant_as_own_route() -> None:
         patch("app.rag.search_pipeline.rag_repository.keyword_search", keyword_search),
         patch("app.rag.search_pipeline.rag_repository.recipe_vector_search", recipe_vector_search),
         patch("app.rag.search_pipeline.rag_repository.record_search_audit"),
+        patch(
+            "app.rag.search_pipeline.asyncio.to_thread",
+            new=run_sync_immediately,
+        ),
     ):
-        asyncio.run(SearchPipeline().search(
+        result = asyncio.run(SearchPipeline().search(
             query="浴室換気乾燥機",
             top_k=1,
             field_filters=[],
@@ -627,6 +817,12 @@ def test_search_pipeline_runs_each_variant_as_own_route() -> None:
     assert sorted(call.kwargs["query"] for call in keyword_search.call_args_list) == sorted(variants)
     assert keyword_search.call_count == 2
     assert recipe_vector_search.call_count == 4
+    assert result.diagnostics["requested_retrieval_modes"] == list(RETRIEVAL_MODES)
+    assert result.diagnostics["active_retrieval_modes"] == [
+        "oracle_text",
+        "text_vector",
+        "visual_vector",
+    ]
     retrieval = next(
         op["value"]
         for event in events
@@ -637,6 +833,142 @@ def test_search_pipeline_runs_each_variant_as_own_route() -> None:
     assert [item["weight"] for item in channels if item["channel"].startswith("keyword:page_text")] == [0.5, 0.5]
     assert [item["weight"] for item in channels if item["channel"].startswith("vector:chunk_text")] == [0.5, 0.5]
     assert [item["weight"] for item in channels if item["channel"].startswith("vector:page_image")] == [0.5, 0.5]
+
+
+@pytest.mark.parametrize(
+    ("mode", "keyword_calls", "facet_calls", "expected_recipe_codes"),
+    [
+        ("oracle_text", 1, 0, set()),
+        ("text_vector", 0, 0, {"chunk_text"}),
+        ("vlm_text", 0, 1, set()),
+        ("vlm_vector", 0, 0, {"vlm_text_slot_1"}),
+        ("visual_vector", 0, 0, {"page_image", "page_image_page_text"}),
+    ],
+)
+def test_search_pipeline_runs_only_selected_retrieval_mode(
+    mode: str,
+    keyword_calls: int,
+    facet_calls: int,
+    expected_recipe_codes: set[str],
+) -> None:
+    profile = ProfileConfig(
+        slot_no=1,
+        name="Profile 1",
+        enabled=True,
+        extraction_prompt="Extract facts",
+        current_revision_id="r1",
+    )
+    recipes = [
+        embedding_recipe("chunk_text", ("CHUNK_TEXT", None)),
+        embedding_recipe("page_image", ("PAGE_IMAGE", None)),
+        embedding_recipe(
+            "page_image_page_text",
+            ("PAGE_IMAGE", None),
+            ("PAGE_TEXT", None),
+        ),
+        embedding_recipe("vlm_text_slot_1", ("VLM_TEXT", "1")),
+    ]
+    query_embedding = AsyncMock(return_value=[[0.1]])
+    keyword_search = MagicMock(return_value=[])
+    facet_keyword_search = MagicMock(return_value=[])
+    recipe_vector_search = MagicMock(return_value=[])
+
+    with (
+        patch(
+            "app.rag.search_pipeline._query_plan",
+            new=AsyncMock(return_value=QueryPlan(["lighting"], "off")),
+        ),
+        patch("app.rag.search_pipeline.embedding_client.query", new=query_embedding),
+        patch(
+            "app.rag.search_pipeline.asyncio.to_thread",
+            new=run_sync_immediately,
+        ),
+        patch(
+            "app.rag.search_pipeline.profile_repository.enabled_profiles",
+            return_value=[profile],
+        ),
+        patch(
+            "app.rag.search_pipeline.pipeline_repository.enabled_recipes",
+            return_value=recipes,
+        ),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_weights",
+            return_value=RetrievalWeights(),
+        ),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_rerank",
+            return_value=RerankSettings(enabled=False, candidate_count=10, top_n=5),
+        ),
+        patch(
+            "app.rag.search_pipeline.rag_repository.keyword_search",
+            keyword_search,
+        ),
+        patch(
+            "app.rag.search_pipeline.rag_repository.facet_keyword_search",
+            facet_keyword_search,
+        ),
+        patch(
+            "app.rag.search_pipeline.rag_repository.recipe_vector_search",
+            recipe_vector_search,
+        ),
+        patch("app.rag.search_pipeline.rag_repository.record_search_audit"),
+    ):
+        result = asyncio.run(
+            asyncio.wait_for(
+                SearchPipeline().search(
+                    query="lighting",
+                    top_k=1,
+                    field_filters=[],
+                    document_types=[],
+                    current_version_only=True,
+                    user_hash=None,
+                    retrieval_modes=[mode],
+                ),
+                timeout=5,
+            )
+        )
+
+    assert keyword_search.call_count == keyword_calls
+    assert facet_keyword_search.call_count == facet_calls
+    assert {
+        call.kwargs["recipe_code"] for call in recipe_vector_search.call_args_list
+    } == expected_recipe_codes
+    if expected_recipe_codes:
+        query_embedding.assert_awaited_once_with(["lighting"])
+    else:
+        query_embedding.assert_not_awaited()
+    if mode in {"text_vector", "vlm_vector", "visual_vector"}:
+        assert result.diagnostics["keyword_terms"] == []
+    assert result.diagnostics["requested_retrieval_modes"] == [mode]
+    assert result.diagnostics["active_retrieval_modes"] == [mode]
+
+
+def test_image_only_search_rejects_keyword_only_modes() -> None:
+    with (
+        patch(
+            "app.rag.search_pipeline.asyncio.to_thread",
+            new=run_sync_immediately,
+        ),
+        patch("app.rag.search_pipeline.profile_repository.enabled_profiles", return_value=[]),
+        patch("app.rag.search_pipeline.pipeline_repository.enabled_recipes", return_value=[]),
+        patch(
+            "app.rag.search_pipeline.retrieval_service_settings.get_weights",
+            return_value=RetrievalWeights(),
+        ),
+    ):
+        with pytest.raises(ValueError, match="利用できません"):
+            asyncio.run(
+                SearchPipeline().search(
+                    query="",
+                    top_k=1,
+                    field_filters=[],
+                    document_types=[],
+                    current_version_only=True,
+                    user_hash=None,
+                    image=b"image",
+                    retrieval_modes=["oracle_text"],
+                )
+            )
 
 
 def test_vlm_route_weight_is_split_across_enabled_profiles() -> None:
@@ -686,6 +1018,10 @@ def test_vlm_route_weight_is_split_across_enabled_profiles() -> None:
             patch("app.rag.search_pipeline.rag_repository.facet_keyword_search", facet_keyword_search),
             patch("app.rag.search_pipeline.rag_repository.recipe_vector_search", recipe_vector_search),
             patch("app.rag.search_pipeline.rag_repository.record_search_audit"),
+            patch(
+                "app.rag.search_pipeline.asyncio.to_thread",
+                new=run_sync_immediately,
+            ),
         ):
             asyncio.run(SearchPipeline().search(
                 query="lighting",

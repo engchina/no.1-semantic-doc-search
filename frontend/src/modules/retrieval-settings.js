@@ -156,9 +156,9 @@ function renderGlobalPanels() {
         </section>
         <section class="retrieval-card"><h3>検索ルートの重み</h3><p class="retrieval-help">相対倍率です。合計1不要、0で無効。VLM抽出は有効Profile数で配分します。通常は変更不要です。</p>
           <div class="retrieval-weight-grid">${[
+            ['visual_vector', '画像類似'],
             ['oracle_text', 'キーワード検索'], ['text_vector', 'テキスト類似'],
-            ['vlm_text', 'VLM抽出キーワード'], ['vlm_vector', 'VLM抽出類似'],
-            ['visual_vector', '画像類似']
+            ['vlm_text', 'VLM抽出キーワード'], ['vlm_vector', 'VLM抽出類似']
           ].map(([key, label]) => `<div><label class="form-label" for="weight-${key}">${label}</label><input id="weight-${key}" type="number" min="0" max="10" step="0.1" class="form-input" value="${weights[key]}"></div>`).join('')}</div>
           <div class="retrieval-actions"><button type="button" class="apex-button px-4 py-2" data-action="save-weights">重みを保存</button></div>
         </section>
@@ -323,7 +323,7 @@ function bindEvents(root) {
         const mode = document.querySelector('input[name="query-expansion-mode"]:checked')?.value || 'rule';
         settings.query_expansion = await api('/query-expansion', { method: 'PUT', body: JSON.stringify({ enabled: mode !== 'off', llm_enabled: mode === 'llm', max_variants: Number(document.getElementById('query-expansion-max').value), llm_prompt: document.getElementById('query-expansion-llm-prompt').value.trim(), synonym_groups: synonymTextToGroups(document.getElementById('query-expansion-synonyms').value) }) }); utilsShowToast('検索バリエーション設定を保存しました', 'success');
       } else if (action === 'save-weights') {
-        const keys = ['oracle_text', 'text_vector', 'vlm_text', 'vlm_vector', 'visual_vector'];
+        const keys = ['visual_vector', 'oracle_text', 'text_vector', 'vlm_text', 'vlm_vector'];
         settings.weights = await api('/weights', { method: 'PUT', body: JSON.stringify(Object.fromEntries(keys.map(key => [key, Number(document.getElementById(`weight-${key}`).value)]))) }); utilsShowToast('検索ルートの重みを保存しました', 'success');
       }
     } catch (error) {

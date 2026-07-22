@@ -14,9 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.rag.clients import embedding_client, rerank_client, vlm_client
 from app.rag.models import (
+    RETRIEVAL_MODES,
     DocumentSearchResult,
     EvidenceResult,
     FieldFilter,
+    RetrievalMode,
+    RetrievalWeights,
     SearchV2Response,
 )
 from app.rag.oracle_repository import (
@@ -36,6 +39,49 @@ WHITESPACE_PATTERN = re.compile(r"\s+")
 UPLOAD_PREFIX_PATTERN = re.compile(r"^\d{8}_\d{6}_[0-9a-f]{8}_")
 FILENAME_AFFINITY_THRESHOLD = 0.4
 FILENAME_AFFINITY_WEIGHT = 0.15
+KEYWORD_RETRIEVAL_MODES: frozenset[RetrievalMode] = frozenset(
+    {"oracle_text", "vlm_text"}
+)
+VECTOR_RETRIEVAL_MODES: frozenset[RetrievalMode] = frozenset(
+    {"text_vector", "vlm_vector", "visual_vector"}
+)
+
+
+def recipe_retrieval_mode(recipe: Any) -> RetrievalMode:
+    source_types = {item.source_type for item in recipe.inputs}
+    if "PAGE_IMAGE" in source_types:
+        return "visual_vector"
+    if "VLM_TEXT" in source_types:
+        return "vlm_vector"
+    return "text_vector"
+
+
+def available_retrieval_modes(
+    *,
+    weights: RetrievalWeights,
+    profiles: list[Any],
+    recipes: list[Any],
+) -> set[RetrievalMode]:
+    available: set[RetrievalMode] = set()
+    if weights.oracle_text > 0:
+        available.add("oracle_text")
+    if profiles and weights.vlm_text > 0:
+        available.add("vlm_text")
+    for recipe in recipes:
+        mode = recipe_retrieval_mode(recipe)
+        if mode == "vlm_vector" and not profiles:
+            continue
+        if recipe.search_weight > 0 and getattr(weights, mode) > 0:
+            available.add(mode)
+    return available
+
+
+def ordered_retrieval_modes(values: set[RetrievalMode]) -> list[RetrievalMode]:
+    return [mode for mode in RETRIEVAL_MODES if mode in values]
+
+
+def _load_search_configuration() -> tuple[list[Any], list[Any]]:
+    return profile_repository.enabled_profiles(), pipeline_repository.enabled_recipes()
 
 
 def _filename_affinity(query: str, file_name: str) -> float:
@@ -449,6 +495,7 @@ class SearchPipeline:
         filename_filter: str | None = None,
         image: bytes | None = None,
         image_media_type: str = "image/png",
+        retrieval_modes: list[RetrievalMode] | None = None,
         verify: bool = False,
         debug: bool = False,
         progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -471,10 +518,33 @@ class SearchPipeline:
 
         if field_filters:
             raise ValueError("field_filters are not configured; use text or filename filters")
+        if image is None and not query.strip():
+            raise ValueError("検索クエリを入力してください")
+        requested_modes = (
+            set(RETRIEVAL_MODES) if retrieval_modes is None else set(retrieval_modes)
+        )
+        if not requested_modes:
+            raise ValueError("検索方式を1つ以上選択してください")
+        unknown_modes = requested_modes.difference(RETRIEVAL_MODES)
+        if unknown_modes:
+            raise ValueError(f"未対応の検索方式です: {', '.join(sorted(unknown_modes))}")
         started = time.perf_counter()
         trace_id = uuid4().hex
         await step("initialization", "検索を準備しています")
-        profiles = await asyncio.to_thread(profile_repository.enabled_profiles)
+        profiles, recipes = await asyncio.to_thread(_load_search_configuration)
+        weights = retrieval_service_settings.get_weights()
+        configured_modes = available_retrieval_modes(
+            weights=weights,
+            profiles=profiles,
+            recipes=recipes,
+        )
+        active_modes = requested_modes.intersection(configured_modes)
+        if not query.strip():
+            active_modes.difference_update(KEYWORD_RETRIEVAL_MODES)
+        if not active_modes:
+            raise ValueError(
+                "選択した検索方式は現在の検索条件または管理者設定では利用できません"
+            )
         await finish_step("initialization")
         await step("query_variants", "検索バリエーションを生成しています")
         plan = await _query_plan(query)
@@ -491,44 +561,49 @@ class SearchPipeline:
             })
         await finish_step("query_variants")
 
-        await step("keyword_plan", "検索キーワードを生成しています")
-        keyword_terms = oracle_text_terms(query_text)
+        keyword_terms: list[str] = []
         keyword_plan = {
             "terms": keyword_terms,
             "target": "Oracle Text",
             "max_terms": oracle_text_max_terms(),
         }
-        if progress:
-            await progress({
-                "type": "STATE_DELTA",
-                "delta": [{"op": "replace", "path": "/keywordPlan", "value": keyword_plan}],
-            })
-        await finish_step("keyword_plan")
+        if active_modes.intersection(KEYWORD_RETRIEVAL_MODES):
+            await step("keyword_plan", "検索キーワードを生成しています")
+            keyword_terms = oracle_text_terms(query_text)
+            keyword_plan["terms"] = keyword_terms
+            if progress:
+                await progress({
+                    "type": "STATE_DELTA",
+                    "delta": [
+                        {"op": "replace", "path": "/keywordPlan", "value": keyword_plan}
+                    ],
+                })
+            await finish_step("keyword_plan")
 
         degraded: list[str] = []
-        await step("embedding", "検索ベクトルを作成しています")
         variant_embeddings: list[tuple[str, list[float]]] = []
-        if query_variants:
-            try:
-                embeddings = await embedding_client.query(query_variants)
-                variant_embeddings = list(zip(query_variants, embeddings))
-            except Exception:
-                degraded.append("text_embedding")
         image_embedding: list[float] | None = None
-        if image is not None:
-            try:
-                # Query vectors must use the query input mode.  Indexed image
-                # (and image+text) recipes use SEARCH_DOCUMENT, while this
-                # branch represents the user's visual query.
-                image_embedding = await embedding_client.image(
-                    image, image_media_type, input_type="SEARCH_QUERY"
-                )
-            except Exception:
-                degraded.append("visual_embedding")
-        await finish_step("embedding")
+        if active_modes.intersection(VECTOR_RETRIEVAL_MODES):
+            await step("embedding", "検索ベクトルを作成しています")
+            if query_variants:
+                try:
+                    embeddings = await embedding_client.query(query_variants)
+                    variant_embeddings = list(zip(query_variants, embeddings))
+                except Exception:
+                    degraded.append("text_embedding")
+            if image is not None:
+                try:
+                    # Query vectors must use the query input mode. Indexed image
+                    # (and image+text) recipes use SEARCH_DOCUMENT, while this
+                    # branch represents the user's visual query.
+                    image_embedding = await embedding_client.image(
+                        image, image_media_type, input_type="SEARCH_QUERY"
+                    )
+                except Exception:
+                    degraded.append("visual_embedding")
+            await finish_step("embedding")
 
         await step("retrieval", "複数チャンネルから候補を取得しています")
-        weights = retrieval_service_settings.get_weights()
         rerank_settings = retrieval_service_settings.get_rerank()
         branch_k = max(rerank_settings.candidate_count, min(500, top_k * 5))
         tasks: list[tuple[str, float, Any]] = []
@@ -538,7 +613,7 @@ class SearchPipeline:
         def route_name(name: str, index: int, total: int) -> str:
             return name if total == 1 else f"{name}_{index}"
 
-        if query_variants and weights.oracle_text > 0:
+        if query_variants and "oracle_text" in active_modes:
             weight = weights.oracle_text / len(query_variants)
             for index, variant in enumerate(query_variants, start=1):
                 tasks.append(
@@ -562,15 +637,12 @@ class SearchPipeline:
             else variant_embeddings
         )
         if recipe_vectors:
-            recipes = await asyncio.to_thread(pipeline_repository.enabled_recipes)
             for recipe in recipes:
                 source_types = {item.source_type for item in recipe.inputs}
-                if "PAGE_IMAGE" in source_types:
-                    channel_weight = weights.visual_vector
-                elif "VLM_TEXT" in source_types:
-                    channel_weight = weights.vlm_vector
-                else:
-                    channel_weight = weights.text_vector
+                mode = recipe_retrieval_mode(recipe)
+                if mode not in active_modes:
+                    continue
+                channel_weight = getattr(weights, mode)
                 if channel_weight <= 0 or recipe.search_weight <= 0:
                     continue
                 weight = (
@@ -595,16 +667,16 @@ class SearchPipeline:
                                 channel=channel,
                                 top_k=branch_k,
                                 user_hash=user_hash,
-                            current_version_only=current_version_only,
-                            document_types=document_types,
-                            filename_filter=filename_filter,
-                            min_score=min_score,
-                        ),
+                                current_version_only=current_version_only,
+                                document_types=document_types,
+                                filename_filter=filename_filter,
+                                min_score=min_score,
+                            ),
+                        )
                     )
-                )
         vlm_profile_count = max(1, len(profiles))
         for profile in profiles:
-            if query_variants and weights.vlm_text > 0:
+            if query_variants and "vlm_text" in active_modes:
                 weight = weights.vlm_text / (vlm_profile_count * len(query_variants))
                 for index, variant in enumerate(query_variants, start=1):
                     tasks.append(
@@ -623,6 +695,10 @@ class SearchPipeline:
                             ),
                         )
                     )
+        if not tasks:
+            raise ValueError(
+                "選択した検索方式で実行可能な検索ルートを作成できませんでした"
+            )
         raw_results = await asyncio.gather(
             *(task for _, _, task in tasks), return_exceptions=True
         )
@@ -647,6 +723,8 @@ class SearchPipeline:
                 })
         retrieval_summary = {
             "channels": channel_summaries,
+            "requested_modes": ordered_retrieval_modes(requested_modes),
+            "active_modes": ordered_retrieval_modes(active_modes),
             "document_types": document_types,
             "current_version_only": current_version_only,
             "filename_filter": filename_filter,
@@ -847,6 +925,8 @@ class SearchPipeline:
         elapsed = time.perf_counter() - started
         diagnostics: dict[str, Any] = {
             "enabled_vlm_profiles": [profile.slot_no for profile in profiles],
+            "requested_retrieval_modes": ordered_retrieval_modes(requested_modes),
+            "active_retrieval_modes": ordered_retrieval_modes(active_modes),
             "retrieval_channels": [channel for channel, _, _ in tasks],
             "pure_image_rerank_skipped": bool(image is not None and not query.strip()),
             "degraded": sorted(set(degraded)),

@@ -11,12 +11,45 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, Response, Upl
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.rag.models import FieldFilter, SearchV2Request, SearchV2Response
-from app.rag.search_pipeline import principal_hash, search_pipeline
+from app.rag.models import (
+    RETRIEVAL_MODES,
+    FieldFilter,
+    RetrievalMode,
+    RetrievalModeOption,
+    SearchV2Request,
+    SearchV2Response,
+)
+from app.rag.search_pipeline import (
+    available_retrieval_modes,
+    principal_hash,
+    search_pipeline,
+)
 
 router = APIRouter(tags=["retrieval"])
 logger = logging.getLogger(__name__)
 SEARCH_EVENT_HEARTBEAT_SECONDS = 2.0
+RETRIEVAL_MODE_CONTENT: dict[RetrievalMode, tuple[str, str]] = {
+    "oracle_text": (
+        "キーワード検索",
+        "標準テキストをキーワードで照合します。",
+    ),
+    "text_vector": (
+        "テキスト類似",
+        "標準テキストの意味が近い候補を探します。",
+    ),
+    "vlm_text": (
+        "VLM抽出キーワード",
+        "VLMが抽出したテキストをキーワードで照合します。",
+    ),
+    "vlm_vector": (
+        "VLM抽出類似",
+        "VLMが抽出したテキストの意味が近い候補を探します。",
+    ),
+    "visual_vector": (
+        "画像類似",
+        "ページ画像と画像＋テキストのベクトルから探します。",
+    ),
+}
 
 
 class DifyRetrievalSetting(BaseModel):
@@ -69,6 +102,67 @@ def _parse_filters(field_filters: str, document_types: str) -> tuple[list[FieldF
     ]
 
 
+def _parse_retrieval_modes(value: str | None) -> list[RetrievalMode] | None:
+    if value is None:
+        return None
+    raw_modes = json.loads(value)
+    if not isinstance(raw_modes, list) or not raw_modes:
+        raise ValueError("retrieval_modes must be a non-empty array")
+    if len(raw_modes) > len(RETRIEVAL_MODES):
+        raise ValueError("retrieval_modes contains too many items")
+    unknown = [item for item in raw_modes if item not in RETRIEVAL_MODES]
+    if unknown:
+        raise ValueError(f"unsupported retrieval_modes: {unknown}")
+    return [mode for mode in RETRIEVAL_MODES if mode in raw_modes]
+
+
+def _retrieval_mode_options(schema_ready: bool) -> list[dict[str, object]]:
+    if not schema_ready:
+        return [
+            RetrievalModeOption(
+                value=mode,
+                label=RETRIEVAL_MODE_CONTENT[mode][0],
+                description=RETRIEVAL_MODE_CONTENT[mode][1],
+                available=False,
+                unavailable_reason="検索索引が初期化されていません。",
+            ).model_dump(mode="json")
+            for mode in RETRIEVAL_MODES
+        ]
+
+    from app.rag.pipeline_repository import pipeline_repository
+    from app.rag.profile_repository import profile_repository
+    from app.rag.service_settings import retrieval_service_settings
+
+    weights = retrieval_service_settings.get_weights()
+    profiles = profile_repository.enabled_profiles()
+    recipes = pipeline_repository.enabled_recipes()
+    available = available_retrieval_modes(
+        weights=weights,
+        profiles=profiles,
+        recipes=recipes,
+    )
+    options: list[dict[str, object]] = []
+    for mode in RETRIEVAL_MODES:
+        unavailable_reason: str | None = None
+        if getattr(weights, mode) <= 0:
+            unavailable_reason = "管理者設定で重みが0になっています。"
+        elif mode in {"vlm_text", "vlm_vector"} and not profiles:
+            unavailable_reason = "有効なVLM抽出プロファイルがありません。"
+        elif mode not in available:
+            unavailable_reason = "利用できるEmbeddingレシピがありません。"
+        label, description = RETRIEVAL_MODE_CONTENT[mode]
+        options.append(
+            RetrievalModeOption(
+                value=mode,
+                label=label,
+                description=description,
+                available=mode in available,
+                unavailable_reason=unavailable_reason,
+            ).model_dump(mode="json")
+        )
+    return options
+
+
 def _search_events(
     request: Request,
     *,
@@ -81,6 +175,7 @@ def _search_events(
     filename_filter: str | None,
     image: bytes | None = None,
     image_media_type: str = "image/png",
+    retrieval_modes: list[RetrievalMode] | None = None,
     verify: bool = False,
     debug: bool = False,
 ) -> StreamingResponse:
@@ -122,6 +217,7 @@ def _search_events(
                     filename_filter=filename_filter,
                     image=image,
                     image_media_type=image_media_type,
+                    retrieval_modes=retrieval_modes,
                     verify=verify,
                     debug=debug,
                     progress=emit,
@@ -187,10 +283,15 @@ async def search_v2_filters() -> dict[str, object]:
 
     # schema_ready()は同期DBコール（DB停止時は接続待ちで長時間ブロックする）。
     # イベントループを凍結させないよう必ずワーカースレッドで実行する。
+    schema_ready = await asyncio.to_thread(pipeline_repository.schema_ready)
     return {
         "profile_retrieval_active": False,
-        "v2_retrieval_active": await asyncio.to_thread(pipeline_repository.schema_ready),
+        "v2_retrieval_active": schema_ready,
         "fields": [],
+        "retrieval_modes": await asyncio.to_thread(
+            _retrieval_mode_options,
+            schema_ready,
+        ),
     }
 
 
@@ -262,6 +363,7 @@ async def search_v2(payload: SearchV2Request, request: Request) -> SearchV2Respo
             current_version_only=payload.current_version_only,
             user_hash=principal_hash(getattr(request.state, "auth_username", None)),
             filename_filter=payload.filename_filter,
+            retrieval_modes=payload.retrieval_modes,
             verify=payload.verify,
             debug=payload.debug,
         )
@@ -280,6 +382,7 @@ async def search_v2_events(payload: SearchV2Request, request: Request) -> Stream
         document_types=payload.document_types,
         current_version_only=payload.current_version_only,
         filename_filter=payload.filename_filter,
+        retrieval_modes=payload.retrieval_modes,
         verify=payload.verify,
         debug=payload.debug,
     )
@@ -296,6 +399,7 @@ async def search_v2_image(
     field_filters: str = Form(default="[]"),
     document_types: str = Form(default="[]"),
     current_version_only: bool = Form(default=True),
+    retrieval_modes: str | None = Form(default=None),
     verify: bool = Form(default=False),
     debug: bool = Form(default=False),
 ) -> SearchV2Response:
@@ -307,8 +411,9 @@ async def search_v2_image(
         raise HTTPException(status_code=400, detail="image must be between 1 byte and 10 MiB")
     try:
         filters, types = _parse_filters(field_filters, document_types)
+        modes = _parse_retrieval_modes(retrieval_modes)
     except (ValueError, TypeError) as error:
-        raise HTTPException(status_code=422, detail="invalid filter JSON") from error
+        raise HTTPException(status_code=422, detail=str(error)) from error
     try:
         return await search_pipeline.search(
             query=query,
@@ -321,6 +426,7 @@ async def search_v2_image(
             filename_filter=filename_filter,
             image=content,
             image_media_type=image.content_type,
+            retrieval_modes=modes,
             verify=verify,
             debug=debug,
         )
@@ -339,6 +445,7 @@ async def search_v2_image_events(
     field_filters: str = Form(default="[]"),
     document_types: str = Form(default="[]"),
     current_version_only: bool = Form(default=True),
+    retrieval_modes: str | None = Form(default=None),
     verify: bool = Form(default=False),
     debug: bool = Form(default=False),
 ) -> StreamingResponse:
@@ -350,8 +457,9 @@ async def search_v2_image_events(
         raise HTTPException(status_code=400, detail="image must be between 1 byte and 10 MiB")
     try:
         filters, types = _parse_filters(field_filters, document_types)
+        modes = _parse_retrieval_modes(retrieval_modes)
     except (ValueError, TypeError) as error:
-        raise HTTPException(status_code=422, detail="invalid filter JSON") from error
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return _search_events(
         request,
         query=query,
@@ -363,6 +471,7 @@ async def search_v2_image_events(
         filename_filter=filename_filter,
         image=content,
         image_media_type=image.content_type,
+        retrieval_modes=modes,
         verify=verify,
         debug=debug,
     )
